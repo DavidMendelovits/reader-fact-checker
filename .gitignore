@@ -1,0 +1,12 @@
+node_modules
+dist
+.env.local
+.DS_Store
+.vercel
+
+# editor swap files — these hold buffer contents, including .env.local's keys
+*.swp
+*.swo
+*~
+
+tsconfig.tsbuildinfo
