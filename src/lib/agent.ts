@@ -8,7 +8,7 @@
 // lets "wait, what was that?" resolve against the text that was just read.
 import { useStore } from '../store'
 import { tts } from './tts'
-import { checkPassage } from './factcheck'
+import { checkPassage, completeField } from './factcheck'
 import { blip } from './earcon'
 import { apiJson } from './api'
 import type { Doc, FactCheckJob, Highlight } from '../types'
@@ -169,12 +169,34 @@ async function factCheck(input: Record<string, unknown>): Promise<string> {
     highlightId: useStore.getState().highlights.find((h) => h.anchor === anchor)?.id,
   }
   useStore.getState().addJob(job)
+
+  // spokenSummary is written to be read aloud and closes well before the written
+  // summary and the sources do. Saying it the moment it lands skips a whole model
+  // turn and a second synthesis that only rephrased what we already had.
+  let speaking: Promise<void> | null = null
+  let said = ''
+  const say = (line: string) => {
+    if (said || !line) return
+    said = line
+    useStore.getState().pushChat({ id: newId(), role: 'assistant', text: line })
+    useStore.setState({ agentState: 'speaking' })
+    speaking = tts.speak(line)
+  }
+
   try {
-    const result = await checkPassage(claim, (raw) =>
-      useStore.getState().updateJob(job.id, { partial: raw }),
-    )
+    const result = await checkPassage(claim, (raw) => {
+      useStore.getState().updateJob(job.id, { partial: raw })
+      say(completeField(raw, 'spokenSummary'))
+    })
     useStore.getState().updateJob(job.id, { status: 'done', result })
-    return JSON.stringify({ verdict: result.verdict, findings: result.summary })
+    say(result.spokenSummary) // a cached verdict resolves with no stream to speak from
+    // Hold the tool open until the verdict has been read out. The next model turn
+    // begins the moment this returns, and anything it says calls tts.speak(), which
+    // pauses the player first — cutting our own verdict off mid-sentence.
+    if (speaking) await speaking
+    return said
+      ? `[Already read aloud to the user, verbatim: "${said}" — the card with sources is on screen. Add nothing unless the user asked something this does not answer.]`
+      : JSON.stringify({ verdict: result.verdict, findings: result.summary })
   } catch (e) {
     useStore.getState().updateJob(job.id, { status: 'error', error: String(e) })
     return `The fact check failed: ${e instanceof Error ? e.message : String(e)}`
@@ -254,7 +276,7 @@ async function runTool(block: Extract<Block, { type: 'tool_use' }>): Promise<Blo
 // with more in it — "wait, is that true?" — still goes to the model.
 
 const PAUSE = /^(pause|stop|stop reading|quiet|be quiet|shush|hold on|hold up|hang on|wait|wait up|wait a (?:sec|second|minute)|one sec|one second|just a sec|give me a sec)$/
-const RESUME = /^(resume|resume reading|unpause|continue|continue reading|keep going|keep reading|go on|carry on|go ahead)$/
+const RESUME = /^(resume|resume reading|unpause|continue|continue reading|keep going|keep reading|go on|carry on|go ahead|play|read|start|start reading|read it|keep on going)$/
 const FASTER = /^(faster|go faster|speed up|speed it up|a (?:bit|little) faster)$/
 const SLOWER = /^(slower|go slower|slow down|slow it down|a (?:bit|little) slower)$/
 const NUMERIC_RATE = /^(?:go |set (?:the )?speed to )?(\d(?:\.\d+)?)\s*(?:x|times)(?: speed)?$/
@@ -264,14 +286,23 @@ const NAMED_RATES: Record<string, number> = {
   'half speed': 0.5, 'double speed': 2,
 }
 
-/** Runs the command if the utterance is only that; returns null to defer to the model. */
-function fastCommand(text: string): { chat: string; note: string } | null {
-  const t = text.toLowerCase().replace(/[.!,?]+$/, '').trim()
+const normalize = (text: string) => text.toLowerCase().replace(/[.!,?]+$/, '').trim()
+
+type FastResult = { chat: string; note: string }
+
+/**
+ * Matches without doing anything, so a partial transcript can be tested before we
+ * decide to act on it. Returns the action to run, or null to defer to the model.
+ */
+function matchFast(text: string): (() => FastResult) | null {
+  const t = normalize(text)
   if (t.split(/\s+/).length > 6) return null
 
   if (PAUSE.test(t)) {
-    tts.pause() // flips store.playing through tts.onPlayingChange
-    return { chat: 'Paused.', note: 'Paused playback.' }
+    return () => {
+      tts.pause() // flips store.playing through tts.onPlayingChange
+      return { chat: 'Paused.', note: 'Paused playback.' }
+    }
   }
 
   // Mid-loop, resuming is the model's call — a second playback started underneath a
@@ -280,8 +311,10 @@ function fastCommand(text: string): { chat: string; note: string } | null {
     const s = useStore.getState()
     if (s.paragraphs.length === 0) return null
     const from = Math.min(s.currentParagraph, s.paragraphs.length - 1)
-    void playRange(from, s.paragraphs.length - 1)
-    return { chat: 'Reading.', note: `Resumed reading from paragraph ${from}.` }
+    return () => {
+      void playRange(from, useStore.getState().paragraphs.length - 1)
+      return { chat: 'Reading.', note: `Resumed reading from paragraph ${from}.` }
+    }
   }
 
   const named = NAMED_RATES[t]
@@ -292,12 +325,18 @@ function fastCommand(text: string): { chat: string; note: string } | null {
   else if (typeof named === 'number') rate = named
   else if (numeric) rate = Number(numeric[1])
   if (rate != null) {
-    const note = setSpeed({ rate }) // clamps and updates the store and the player
-    return { chat: `${useStore.getState().rate}x.`, note }
+    const r = rate
+    return () => {
+      const note = setSpeed({ rate: r }) // clamps and updates the store and the player
+      return { chat: `${useStore.getState().rate}x.`, note }
+    }
   }
 
   return null
 }
+
+/** Runs the command if the utterance is only that; returns null to defer to the model. */
+const fastCommand = (text: string): FastResult | null => matchFast(text)?.() ?? null
 
 // ---- turn loop ----
 
@@ -328,11 +367,55 @@ export function beginUtterance() {
  * Hand the agent something the user said. While a turn is already in flight this
  * cancels playback instead of queueing — that *is* the interruption path.
  */
-export function say(text: string) {
+/**
+ * A transport command heard on a partial transcript, waiting for its final to show
+ * up so we can drop it. Time-boxed: a final that never arrives must not swallow the
+ * next real "pause" minutes later.
+ */
+let handledEarly: { text: string; at: number; chatId: string | null } | null = null
+const EARLY_DEDUP_WINDOW = 6000
+
+/**
+ * Act on a partial transcript when it can only mean one thing. Chrome finalizes an
+ * utterance a beat after you stop talking, which is a long time to keep reading at
+ * someone who said "stop". Anything less clear-cut waits for the final, where we
+ * know what was actually said.
+ */
+export function sayInterim(text: string) {
+  const t = normalize(text)
+  if (!t || !matchFast(t)) return
+  // One early command per utterance. A partial arrives several times as it grows,
+  // and "stop" then "stop reading" are the same instruction twice.
+  if (handledEarly && Date.now() - handledEarly.at < EARLY_DEDUP_WINDOW) return
+  handledEarly = { text: t, at: Date.now(), chatId: null }
+  // A partial is a prefix, so the bubble this posts shows a truncated version of
+  // what the user is still saying. say() corrects it in place once the final lands.
+  handledEarly.chatId = say(text)
+}
+
+/** Returns the id of the user bubble it posted, so a partial's can be corrected. */
+export function say(text: string): string | null {
   const trimmed = text.trim()
-  if (!trimmed) return
+  if (!trimmed) return null
+  // The final for something already run off its partial. Partials grow as prefixes,
+  // so "stop" finalizing as "stop reading" is still the same command — drop it. A
+  // final that grew into something more than a command ("stop, go back to chapter
+  // two") falls through to the model, which is what should handle it; the pause it
+  // already ran is in the transcript, so acting again is at worst a no-op.
+  const early = handledEarly
+  handledEarly = null
+  if (early && Date.now() - early.at < EARLY_DEDUP_WINDOW) {
+    const n = normalize(trimmed)
+    if ((n === early.text || n.startsWith(`${early.text} `)) && matchFast(n)) {
+      // Same utterance finalizing. Don't run it twice — but do replace the partial
+      // we showed with what was actually said ("stop" → "stop reading").
+      if (early.chatId) useStore.getState().updateChat(early.chatId, { text: trimmed })
+      return early.chatId
+    }
+  }
   awaitingWords = false
-  useStore.getState().pushChat({ id: newId(), role: 'user', text: trimmed })
+  const chatId = newId()
+  useStore.getState().pushChat({ id: chatId, role: 'user', text: trimmed })
   if (useStore.getState().agentState === 'listening') useStore.setState({ agentState: restState() })
 
   // Handled here and now; the model finds out from the transcript on its next turn.
@@ -347,7 +430,7 @@ export function say(text: string) {
       messages.push({ role: 'user', content: trimmed })
       messages.push({ role: 'assistant', content: fast.note })
     }
-    return
+    return chatId
   }
 
   // Going to the model costs a round-trip of silence. Mark the hand-off so the user
@@ -358,10 +441,11 @@ export function say(text: string) {
   if (running) {
     pending = pending ? `${pending} ${trimmed}` : trimmed
     tts.pause() // resolves any in-flight read_aloud as 'stopped'
-    return
+    return chatId
   }
   messages.push({ role: 'user', content: trimmed })
   void loop()
+  return chatId
 }
 
 /**
@@ -452,8 +536,19 @@ async function loop() {
       )
       if (calls.length === 0) break
 
+      // Something said while this turn was in flight beats the tools the turn asked
+      // for. Without this, asking a question just as the model decides to read gets
+      // you a whole chapter first and an answer after it — the app looking a message
+      // behind. tts.pause() only cancels playback that has already started; a
+      // read_aloud dispatched *after* the interruption isn't cancelled by anything.
       const results: Block[] = []
-      for (const call of calls) results.push(await runTool(call))
+      for (const call of calls) {
+        results.push(
+          pending
+            ? { type: 'tool_result', tool_use_id: call.id, content: '[Not run — the user said something first. Deal with that instead.]' }
+            : await runTool(call),
+        )
+      }
       if (awaitingWords) await settle()
       // an interruption belongs in the same user turn as the tool result it cut short
       if (pending) {

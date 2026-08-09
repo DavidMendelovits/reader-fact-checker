@@ -23,11 +23,38 @@ export function completeField(raw: string, field: string): string {
   return m ? unescape(m[1]) : ''
 }
 
+// A verdict costs 20-60s and a web search, and the same claim genuinely does come
+// round twice — a document scan turns one up, then the reader asks about it aloud.
+// Keyed on the promise rather than the result so two checks in flight at once
+// collapse into one request too, which a scan does hit.
+//
+// ponytail: unbounded and per-session. It clears on reload; add an LRU if a long
+// sitting ever grows it enough to matter.
+const verdicts = new Map<string, Promise<FactCheckResult>>()
+const cacheKey = (passage: string) => passage.trim().toLowerCase().replace(/\s+/g, ' ')
+
 /**
  * Fact check a passage. `onPartial` gets the raw model text so far on every chunk;
  * the resolved value is the parsed result with sources attached.
+ *
+ * A cached passage resolves immediately and `onPartial` never fires — there is no
+ * stream to replay. Callers that speak from the stream must also handle the
+ * resolved value, or a cache hit goes silent.
  */
-export async function checkPassage(
+export function checkPassage(
+  passage: string,
+  onPartial?: (raw: string) => void,
+): Promise<FactCheckResult> {
+  const key = cacheKey(passage)
+  const hit = verdicts.get(key)
+  if (hit) return hit
+  const pending = runCheck(passage, onPartial)
+  pending.catch(() => verdicts.delete(key)) // a failure must not be cached
+  verdicts.set(key, pending)
+  return pending
+}
+
+async function runCheck(
   passage: string,
   onPartial?: (raw: string) => void,
 ): Promise<FactCheckResult> {

@@ -5,6 +5,12 @@ import { attachOutput } from './audio-levels'
 
 const blobCache = new Map<string, Promise<string>>() // cacheKey -> object URL
 
+// How long text stays echo-matchable after it finishes playing. Recognition
+// finalizes an utterance seconds after the audio it heard has stopped, so the
+// comparison text has to outlive the audio or the tail of every reply comes back
+// as a user turn.
+const ECHO_MEMORY = 6000
+
 // Chrome streams MP3 into MediaSource fine; anything else falls back to buffering.
 const CAN_STREAM =
   typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported('audio/mpeg')
@@ -93,7 +99,6 @@ export class TtsPlayer {
   private session = 0 // bumped to cancel in-flight playback loops
   onParagraphChange: (index: number) => void = () => {}
   onEnded: () => void = () => {}
-  onSpeakingChange: (speaking: boolean) => void = () => {}
   /**
    * Fires whenever *document narration* starts or stops, from any caller — manual
    * Play, the agent's read_aloud, a fast-path resume, or a pause that cut any of
@@ -107,6 +112,19 @@ export class TtsPlayer {
   rate = 1
   /** Text currently coming out of the speaker — the echo filter matches against it. */
   speaking = ''
+  private recent: { text: string; until: number }[] = []
+
+  /** What's playing now plus what played in the last few seconds. */
+  get recentlySpoken(): string {
+    const now = Date.now()
+    this.recent = this.recent.filter((r) => r.until > now)
+    return [...this.recent.map((r) => r.text), this.speaking].join(' ')
+  }
+
+  /** Called as text stops playing; it stays matchable for a while after. */
+  private remember(text: string) {
+    if (text) this.recent.push({ text, until: Date.now() + ECHO_MEMORY })
+  }
   private streamAbort: AbortController | null = null
   private narrating = false
   // Resolves the paragraph currently awaited in playFrom. A paused <audio> never
@@ -164,6 +182,7 @@ export class TtsPlayer {
       } catch (e) {
         console.error('TTS error, skipping paragraph', i, e)
       } finally {
+        this.remember(this.speaking)
         this.speaking = ''
       }
       if (session !== this.session) return 'stopped'
@@ -257,15 +276,14 @@ export class TtsPlayer {
   /** Speak arbitrary text (fact-check verdicts) outside the paragraph loop. */
   async speak(text: string): Promise<void> {
     this.pause()
-    this.onSpeakingChange(true)
     void attachOutput(this.audio)
     try {
       this.speaking = text
       // the agent's own replies are never prefetchable, so always stream them
       await this.playStreamed(text, this.session)
     } finally {
+      this.remember(this.speaking)
       this.speaking = ''
-      this.onSpeakingChange(false)
     }
   }
 }

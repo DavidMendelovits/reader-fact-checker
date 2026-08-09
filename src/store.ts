@@ -30,6 +30,7 @@ interface State {
   setRate: (r: number) => void
   setMicEnabled: (m: boolean) => void
   pushChat: (m: ChatMessage) => void
+  updateChat: (id: string, patch: Partial<ChatMessage>) => void
   addJob: (job: FactCheckJob) => void
   addHighlight: (h: Highlight) => void
   removeHighlight: (id: string) => void
@@ -70,6 +71,8 @@ export const useStore = create<State>((set) => ({
   setRate: (rate) => set({ rate }),
   setMicEnabled: (micEnabled) => set({ micEnabled }),
   pushChat: (m) => set((s) => ({ chat: [...s.chat, m] })),
+  updateChat: (id, patch) =>
+    set((s) => ({ chat: s.chat.map((m) => (m.id === id ? { ...m, ...patch } : m)) })),
   addJob: (job) => set((s) => ({ jobs: [job, ...s.jobs] })),
   addHighlight: (h) => set((s) => ({ highlights: [h, ...s.highlights] })),
   removeHighlight: (id) => set((s) => ({ highlights: s.highlights.filter((h) => h.id !== id) })),

@@ -5,10 +5,16 @@
 // which is also how the recognizer ends up transcribing the narration itself.
 // isEcho() throws those away.
 
+// extension-explicit so voice.check.ts can run this file under node
+import { getMicStream } from './audio-levels.ts'
+
 type UtteranceHandler = (text: string) => void
 
+// guarded so isEcho stays importable outside a browser (see voice.check.ts)
 const SpeechRecognitionCtor =
-  (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition
+  typeof window === 'undefined'
+    ? undefined
+    : ((window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition)
 
 export const speechSupported = Boolean(SpeechRecognitionCtor)
 
@@ -30,32 +36,49 @@ const confident = (c: number) => c <= 0 || c >= MIN_CONFIDENCE
  * True when `heard` looks like the recognizer picking up `spoken` out of the
  * speakers rather than the user talking.
  *
- * ponytail: word-overlap heuristic. Reliable with headphones, mostly right on
- * speakers (Chrome applies its own AEC before we see a transcript). If it misfires
- * during a demo, the upgrade is a real AEC path — own the mic via getUserMedia with
- * echoCancellation and feed recognition from that stream.
+ * The comparison slides a window the length of `heard` along `spoken` and scores
+ * the best-matching stretch. Scoring against the whole text instead makes the
+ * denominator the entire paragraph, and any English sentence overlaps a paragraph
+ * of English by more than half on function words alone — so real speech reads as
+ * an echo and the barge-in never fires. An actual echo is a transcription of one
+ * stretch of audio, so it aligns with one window; incidental vocabulary overlap
+ * does not.
+ *
+ * ponytail: O(spoken × heard) per result, a few hundred × ten a few times a second.
+ * Reliable with headphones, mostly right on speakers (Chrome applies its own AEC
+ * before we see a transcript). The upgrade is a real AEC path — own the mic via
+ * getUserMedia with echoCancellation and feed recognition from that stream.
  */
 export function isEcho(heard: string, spoken: string): boolean {
   if (!spoken) return false
   const hw = words(heard)
   if (hw.length === 0) return true
-  const sw = new Set(words(spoken))
-  const overlap = hw.filter((w) => sw.has(w)).length / hw.length
+  const sw = words(spoken)
+  let best = 0
+  for (let i = 0; i < sw.length && best < 1; i++) {
+    const window = new Set(sw.slice(i, i + hw.length))
+    const overlap = hw.filter((w) => window.has(w)).length / hw.length
+    if (overlap > best) best = overlap
+  }
   // short utterances share common words by chance, so demand near-total overlap
-  return hw.length < 5 ? overlap === 1 : overlap > 0.6
+  return hw.length < 5 ? best === 1 : best > 0.6
 }
 
 export class VoiceListener {
   private rec: any = null
   private running = false
-  // Two independent mutes: the echo guard flips constantly while the agent speaks,
-  // so it must not be able to clear a mute the user set deliberately.
-  private echoMuted = false
+  private track: MediaStreamTrack | null = null
   private userMuted = false
   private talking = false // mid-utterance: interim words seen, final not yet in
 
   /** Fires on each finalized utterance that survived the echo filter. */
   onUtterance: UtteranceHandler = () => {}
+  /**
+   * Fires on every in-progress transcript that survived the echo filter, several
+   * times per utterance as it grows. Only safe to act on when the partial can mean
+   * exactly one thing — it may still change before it finalizes.
+   */
+  onInterim: UtteranceHandler = () => {}
   /**
    * Fires as soon as the user is *audibly* talking, well before the transcript
    * finalizes. Narration has to duck here — waiting for the final result means a
@@ -65,22 +88,39 @@ export class VoiceListener {
   onError: (msg: string) => void = () => {}
   /** Text currently playing through the speakers, for echo rejection. */
   getSpokenText: () => string = () => ''
+  /**
+   * That plus whatever played in the last few seconds. Recognition finalizes late,
+   * so by the time an echo arrives the audio it came from is already over.
+   */
+  getRecentSpokenText: () => string = () => ''
 
-  start() {
+  /**
+   * Recognition runs on our own echo-cancelled capture rather than the implicit one
+   * Chrome opens for itself. That is the whole speakerphone story: without the
+   * cancelled stream the mic hears the narration as clearly as it hears the user,
+   * the transcript is a mixture of both, and isEcho() below throws away the result.
+   *
+   * SpeechRecognition.start() taking a MediaStreamTrack is recent; if this Chrome
+   * doesn't honour it we fall back to the default capture, which is exactly the old
+   * behaviour — headphones fine, speakers poor.
+   */
+  async start() {
     if (!speechSupported || this.running) return
     this.running = true
-    this.spawn()
+    try {
+      this.track = (await getMicStream()).getAudioTracks()[0] ?? null
+    } catch (e) {
+      this.track = null
+      console.warn('mic capture unavailable; recognition falls back to the default device', e)
+    }
+    if (this.running) this.spawn() // stop() may have landed while we were awaiting
   }
 
   stop() {
     this.running = false
+    this.track = null
     this.rec?.stop()
     this.rec = null
-  }
-
-  /** Echo guard — driven by TTS while the agent's own voice is playing. */
-  setMuted(muted: boolean) {
-    this.echoMuted = muted
   }
 
   /**
@@ -98,8 +138,16 @@ export class VoiceListener {
     rec.interimResults = true
     rec.lang = 'en-US'
 
+    // The agent's own voice used to hard-mute this handler. That silently threw away
+    // anything Chrome finalized in the window — and Chrome delivers a final a beat
+    // *after* the audio it heard, so a sentence started while the agent was talking
+    // vanished outright, and one spanning the boundary arrived with its head missing.
+    // Nothing recovers a dropped final: event.resultIndex has already moved past it.
+    // isEcho() against recentlySpoken is the guard now, which is what it was built
+    // for — the agent's reply is verbatim in there, so a true echo matches on the
+    // nose while a barge-in over it gets through.
     rec.onresult = (event: any) => {
-      if (this.echoMuted || this.userMuted) return
+      if (this.userMuted) return
       let finalText = ''
       let interim = ''
       let interimConf = 0
@@ -120,14 +168,17 @@ export class VoiceListener {
       // the book for no reason, and the cost of a miss is only that the first word
       // of a real command plays over.
       const partial = interim.trim()
-      if (
-        !this.talking &&
-        countWords(partial) >= MIN_INTERIM_WORDS &&
-        confident(interimConf) &&
-        !isEcho(partial, this.getSpokenText())
-      ) {
-        this.talking = true
-        this.onSpeechStart()
+      if (partial && confident(interimConf) && !isEcho(partial, this.getRecentSpokenText())) {
+        // Every credible partial goes out. Transport commands are one or two words,
+        // so they never reach the ducking threshold below, and Chrome only finalizes
+        // an utterance after a beat of trailing silence — waiting for that put a
+        // second between "stop" and anything happening. The consumer acts only on
+        // partials that can't mean anything else.
+        this.onInterim(partial)
+        if (!this.talking && countWords(partial) >= MIN_INTERIM_WORDS) {
+          this.talking = true
+          this.onSpeechStart()
+        }
       }
 
       const heard = finalText.trim()
@@ -136,7 +187,7 @@ export class VoiceListener {
       // A single low-confidence word is almost always room noise the recognizer
       // guessed at. Finals with real confidence always pass, so "pause" survives.
       if (countWords(heard) <= 1 && !confident(finalConf)) return
-      if (isEcho(heard, this.getSpokenText())) return
+      if (isEcho(heard, this.getRecentSpokenText())) return
       this.onUtterance(heard)
     }
 
@@ -153,10 +204,24 @@ export class VoiceListener {
       if (this.running) setTimeout(() => this.running && this.spawn(), 250)
     }
 
+    // Chrome tears recognition down every so often and onend respawns it, so the
+    // track has to survive across spawns — but not past the stream being released.
+    const live = this.track?.readyState === 'live' ? this.track : null
     try {
-      rec.start()
-    } catch {
-      /* already started */
+      if (live) rec.start(live)
+      else rec.start()
+    } catch (e: any) {
+      // InvalidStateError is the harmless double-start. Anything else with a track
+      // means this Chrome won't take one: drop it and run on the default capture.
+      if (live && e?.name !== 'InvalidStateError') {
+        console.warn('SpeechRecognition rejected our stream; using the default capture', e)
+        this.track = null
+        try {
+          rec.start()
+        } catch {
+          /* already started */
+        }
+      }
     }
   }
 }

@@ -38,6 +38,11 @@ export function SpeakingIndicator() {
     const bars = new Float32Array(BARS)
     const smoothed = new Float32Array(BARS)
     let frame = 0
+    // Bar colour is a --indicator-bar swap in the stylesheet, so it themes with
+    // everything else. Read it when the speaker changes rather than every frame —
+    // getComputedStyle at 60fps is a layout read for a value that rarely moves.
+    let lastWho = ''
+    let barColor = ''
 
     const draw = () => {
       frame = requestAnimationFrame(draw)
@@ -61,9 +66,13 @@ export function SpeakingIndicator() {
       label.textContent =
         source === 'mic' ? 'you' : state === 'speaking' ? 'speaking' : 'reading'
 
-      const accent = source === 'mic' ? '#f5f0e6' : '#9ecf8a'
+      const who = root.dataset.who ?? ''
+      if (who !== lastWho) {
+        lastWho = who
+        barColor = getComputedStyle(root).getPropertyValue('--indicator-bar').trim()
+      }
       ctx2d.clearRect(0, 0, w, h)
-      ctx2d.fillStyle = accent
+      ctx2d.fillStyle = barColor
       const slot = w / BARS
       const bw = Math.max(2, slot * 0.5)
       for (let i = 0; i < BARS; i++) {

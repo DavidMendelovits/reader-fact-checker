@@ -9,7 +9,10 @@
     "skipLibCheck": true,
     "noEmit": true,
     "isolatedModules": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    // *.check.ts files run directly under node --experimental-strip-types, which
+    // resolves the real extension rather than a bundler's guess
+    "allowImportingTsExtensions": true
   },
   "include": ["src", "api", "vite.config.ts"]
 }

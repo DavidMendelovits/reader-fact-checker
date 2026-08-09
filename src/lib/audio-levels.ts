@@ -9,7 +9,7 @@
 let ctx: AudioContext | null = null
 let output: AnalyserNode | null = null
 let mic: AnalyserNode | null = null
-let micStream: MediaStream | null = null
+let micStream: Promise<MediaStream> | null = null
 let scratch = new Uint8Array(0)
 
 function context(): AudioContext {
@@ -42,23 +42,48 @@ export async function attachOutput(el: HTMLAudioElement): Promise<void> {
   }
 }
 
+/**
+ * The one microphone capture in the app — recognition and the level meter share it.
+ * Two concurrent getUserMedia captures of the same device let Chrome reconfigure
+ * the processing chain between them, and quietly losing echo cancellation is
+ * exactly what makes talking over the narration impossible on speakers.
+ *
+ * Echo cancellation needs the far-end reference, so this only works because the
+ * narration is rendered by the same page: the browser knows what it is playing and
+ * subtracts it. It degrades on Bluetooth, where the output latency moves around too
+ * much for the canceller to track.
+ */
+export function getMicStream(): Promise<MediaStream> {
+  if (!micStream) {
+    micStream = navigator.mediaDevices
+      .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+      .catch((e) => {
+        micStream = null // let the next attempt re-prompt
+        throw e
+      })
+  }
+  return micStream
+}
+
 export async function startMicMeter(): Promise<void> {
   if (mic) return
   try {
     const c = context()
     await c.resume()
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } })
+    const stream = await getMicStream()
     mic = makeAnalyser(c)
-    c.createMediaStreamSource(micStream).connect(mic)
+    c.createMediaStreamSource(stream).connect(mic)
   } catch (e) {
     console.warn('mic meter unavailable', e)
   }
 }
 
+/** Releases the shared capture — callers must stop using the mic first. */
 export function stopMicMeter(): void {
-  micStream?.getTracks().forEach((t) => t.stop())
+  const releasing = micStream
   micStream = null
   mic = null
+  void releasing?.then((s) => s.getTracks().forEach((t) => t.stop())).catch(() => {})
 }
 
 /**

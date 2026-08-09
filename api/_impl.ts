@@ -9,39 +9,54 @@ export interface FactCheckResult {
   sources: { title: string; url: string }[]
 }
 
-const MODEL = 'claude-opus-5'
-// The conversation loop is latency-sensitive and its turns are simple tool routing;
-// Sonnet answers noticeably faster. Fact-checking stays on Opus.
-const AGENT_MODEL = 'claude-sonnet-5'
-const WEB_SEARCH = { type: 'web_search_20260209' as const, name: 'web_search' as const, max_uses: 5 }
+// Fact checks run on Perplexity: search *is* the product there, so the retrieval
+// happens inside one inference pass instead of an agentic search-then-read loop.
+// Claim extraction and the conversation loop stay on Sonnet — neither needs the web.
+const PPLX_MODEL = 'sonar' // fact check
+const MODEL = 'claude-sonnet-5' // claim extraction
+const AGENT_MODEL = 'claude-sonnet-5' // conversation loop
 
 const SYSTEM = `You are a fact-checking assistant embedded in an audio ebook reader. The user is listening to a document and asked you to fact check a passage. Search the web to verify the factual claims.
 
-Field guidance:
-- summary: 2-4 sentences on what you found and what it means for the passage.
+Field guidance (spokenSummary is played to the user the moment it closes, before the rest is finished):
 - spokenSummary: 1-2 conversational sentences written to be read aloud by text-to-speech. No URLs, no markdown, no numbers-as-symbols.
-- Write both fields as plain prose. Never include citation markup, <cite> tags, or bracketed reference indices — the sources are shown separately in the UI.
+- summary: 2-4 sentences on what you found and what it means for the passage.
+- Write both fields as plain prose. Never include citation markup, <cite> tags, markdown links, or bracketed reference indices like [1] — every word is fed to a speech synthesizer, and the sources are shown separately in the UI.
+
+Respond with the JSON object and nothing else.
 
 Verdict guide: "accurate" = claims check out; "inaccurate" = a central claim is wrong; "misleading" = technically true but missing critical context; "unverifiable" = could not confirm either way.`
 
-// Enforced server-side by output_config.format, so the response is always valid JSON.
-// Previously the model was asked for JSON in prose, and web-search citation markup
-// (<cite index="70-4">) leaked into the string values and broke JSON.parse.
+// Enforced server-side by response_format, so the response is always valid JSON.
+// Previously the model was asked for JSON in prose, and search citation markup
+// leaked into the string values and broke JSON.parse.
+//
+// Note for anyone tuning the streamed-verdict path: Perplexity does NOT emit these
+// in declaration order the way Anthropic's constrained decoding did — measured, it
+// sorts the properties alphabetically (spokenSummary, summary, verdict). That
+// happens to put the spoken line first, which is what we wanted anyway, but it is
+// luck rather than something this declaration controls. Don't reorder for effect;
+// rename a field and the wire order moves.
 const VERDICT_SCHEMA = {
   type: 'object',
   properties: {
     verdict: { type: 'string', enum: ['accurate', 'inaccurate', 'misleading', 'unverifiable'] },
-    summary: { type: 'string' },
     spokenSummary: { type: 'string' },
+    summary: { type: 'string' },
   },
-  required: ['verdict', 'summary', 'spokenSummary'],
+  required: ['verdict', 'spokenSummary', 'summary'],
   additionalProperties: false,
 } as const
 
 const VERDICTS = new Set(['accurate', 'inaccurate', 'misleading', 'unverifiable'])
 
-/** Defensive: strip any citation markup that still slips into a field value. */
-const stripCite = (s: string) => s.replace(/<\/?cite[^>]*>/g, '').trim()
+/**
+ * Defensive: strip citation markup that still slips into a field value. Perplexity
+ * appends bracketed reference indices to sourced sentences no matter what the prompt
+ * says, and TTS reads "[1]" out loud as "bracket one".
+ */
+const stripCite = (s: string) =>
+  s.replace(/<\/?cite[^>]*>/g, '').replace(/\s*\[\d+(?:,\s*\d+)*\]/g, '').trim()
 
 let _client: Anthropic | null = null
 function client(): Anthropic {
@@ -52,36 +67,16 @@ function client(): Anthropic {
   return _client
 }
 
-function parseResult(response: Anthropic.Message): FactCheckResult {
-  const sources: { title: string; url: string }[] = []
-  const seen = new Set<string>()
-  let text = ''
-  for (const block of response.content) {
-    if (block.type === 'text') {
-      text += block.text
-      for (const c of block.citations ?? []) {
-        if ('url' in c && c.url && !seen.has(c.url)) {
-          seen.add(c.url)
-          sources.push({ title: ('title' in c && c.title) || c.url, url: c.url })
-        }
-      }
-    } else if (block.type === 'web_search_tool_result' && Array.isArray(block.content)) {
-      for (const r of block.content) {
-        if (r.type === 'web_search_result' && !seen.has(r.url)) {
-          seen.add(r.url)
-          sources.push({ title: r.title || r.url, url: r.url })
-        }
-      }
-    }
-  }
-  // output_config.format guarantees the text is schema-valid JSON, but never let a
-  // surprise here 500 the request — a degraded verdict beats a broken fact-check.
+type Source = { title: string; url: string }
+
+function parseResult(text: string, sources: Source[]): FactCheckResult {
+  // response_format pins the shape, but never let a surprise here 500 the request —
+  // a degraded verdict beats a broken fact-check.
   const clean = stripCite(text)
   try {
     const parsed = JSON.parse(clean) as Partial<FactCheckResult>
-    const verdict = VERDICTS.has(parsed.verdict as string) ? parsed.verdict! : 'unverifiable'
     return {
-      verdict,
+      verdict: VERDICTS.has(parsed.verdict as string) ? parsed.verdict! : 'unverifiable',
       summary: stripCite(parsed.summary ?? '') || 'The model returned no written summary.',
       spokenSummary: stripCite(parsed.spokenSummary ?? parsed.summary ?? '') || 'I could not produce a verdict for that passage.',
       sources: sources.slice(0, 5),
@@ -97,34 +92,110 @@ function parseResult(response: Anthropic.Message): FactCheckResult {
 }
 
 /**
- * Run one fact-check turn. `messages` is the running conversation (client round-trips it).
- * Returns the verdict plus the updated conversation for follow-ups.
+ * Perplexity streams SSE: `data: {json}` per chunk, terminated by `data: [DONE]`.
+ * Content arrives as OpenAI-style deltas; sources ride along on the chunks as
+ * `search_results` (objects) or, on older responses, `citations` (bare URLs).
+ */
+function readChunk(
+  json: string,
+  sources: Source[],
+  seen: Set<string>,
+): string {
+  const chunk = JSON.parse(json) as {
+    choices?: { delta?: { content?: string }; message?: { content?: string } }[]
+    search_results?: { title?: string; url?: string }[]
+    citations?: string[]
+  }
+  for (const r of chunk.search_results ?? []) {
+    if (r.url && !seen.has(r.url)) {
+      seen.add(r.url)
+      sources.push({ title: r.title || r.url, url: r.url })
+    }
+  }
+  for (const url of chunk.citations ?? []) {
+    if (url && !seen.has(url)) {
+      seen.add(url)
+      sources.push({ title: url, url })
+    }
+  }
+  return chunk.choices?.[0]?.delta?.content ?? ''
+}
+
+/**
+ * Run one fact-check turn against Perplexity. `messages` is the running conversation
+ * (the client round-trips it); the OpenAI-shaped {role, content} it sends is what
+ * Perplexity takes, so no translation is needed.
  *
- * `onDelta` receives the model's text as it is generated. Because output_config
- * pins the format, that text is the verdict JSON being built — the client shows
- * the fields as they close rather than staring at an empty card for ~20 seconds.
+ * `onDelta` receives the verdict JSON as it is generated, so the client can show —
+ * and speak — each field the moment it closes rather than waiting for the object.
  */
 export async function factcheck(
-  messages: Anthropic.MessageParam[],
+  messages: { role: string; content: string }[],
   onDelta: (text: string) => void = () => {},
-): Promise<{
-  result: FactCheckResult
-  messages: Anthropic.MessageParam[]
-}> {
-  const stream = client().messages.stream({
-    model: MODEL,
-    max_tokens: 4096,
-    output_config: { effort: 'medium', format: { type: 'json_schema', schema: VERDICT_SCHEMA } },
-    system: SYSTEM,
-    tools: [WEB_SEARCH],
-    messages,
+): Promise<{ result: FactCheckResult }> {
+  if (!process.env.PERPLEXITY_API_KEY) throw new Error('PERPLEXITY_API_KEY is not set on the server')
+  const started = Date.now()
+  let firstText = 0
+
+  const res = await fetch('https://api.perplexity.ai/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.PERPLEXITY_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: PPLX_MODEL,
+      stream: true,
+      messages: [{ role: 'system', content: SYSTEM }, ...messages],
+      response_format: { type: 'json_schema', json_schema: { schema: VERDICT_SCHEMA } },
+    }),
   })
-  stream.on('text', onDelta)
-  const response = await stream.finalMessage()
-  return {
-    result: parseResult(response),
-    messages: [...messages, { role: 'assistant', content: response.content }],
+  if (!res.ok) throw new Error(`Perplexity failed (${res.status}): ${(await res.text()).slice(0, 300)}`)
+  if (!res.body) throw new Error('Perplexity returned no body')
+
+  const sources: Source[] = []
+  const seen = new Set<string>()
+  let text = ''
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    // SSE events are blank-line separated; keep the trailing partial for next read
+    const events = buffer.split('\n\n')
+    buffer = events.pop() ?? ''
+    for (const event of events) {
+      const json = event
+        .split('\n')
+        .filter((l) => l.startsWith('data:'))
+        .map((l) => l.slice(5).trim())
+        .join('')
+      if (!json || json === '[DONE]') continue
+      let delta = ''
+      try {
+        delta = readChunk(json, sources, seen)
+      } catch {
+        continue // a malformed chunk is not worth failing the whole verdict over
+      }
+      if (!delta) continue
+      firstText ||= Date.now()
+      text += delta
+      onDelta(delta)
+    }
   }
+
+  // Perplexity searches before it writes a byte, so time-to-first-text is the
+  // retrieval phase and the rest is generation. That split is the whole question
+  // behind picking `sonar` vs `sonar-pro` — log it rather than guess. Shows up in
+  // `vercel logs` and the dev server's terminal.
+  console.log(
+    `[factcheck] search=${(firstText || Date.now()) - started}ms write=${firstText ? Date.now() - firstText : 0}ms ` +
+      `total=${Date.now() - started}ms sources=${sources.length} model=${PPLX_MODEL}`,
+  )
+
+  return { result: parseResult(text, sources) }
 }
 
 /**
@@ -134,7 +205,7 @@ export async function factcheck(
  * gone by the time the model can fail.
  */
 export async function factcheckNdjson(
-  messages: Anthropic.MessageParam[],
+  messages: { role: string; content: string }[],
   write: (line: string) => void,
 ): Promise<void> {
   const send = (obj: unknown) => write(`${JSON.stringify(obj)}\n`)
@@ -272,17 +343,40 @@ const AGENT_TOOLS: Anthropic.Tool[] = [
   },
 ]
 
-function agentSystem(ctx: AgentContext): string {
+// Static half of the system prompt. Byte-stable across every turn and every
+// document, so it caches (with the tools) behind the cache_control breakpoint —
+// only the per-turn context block below is reprocessed.
+const AGENT_SYSTEM_STATIC = `You are a reading companion. The user is listening to a document and talking to you hands-free while it plays.
+
+Everything you write is spoken aloud by a text-to-speech voice. Write short, conversational, plain prose — no markdown, no bullet points, no URLs, no citation markup. Write numbers and years as words. Keep replies to one or two sentences unless the user asks for more.
+
+You are running this book, not narrating on request. The user's hands are busy; voice is the whole interface. Take the lead: start reading rather than asking permission, and when you finish a range, keep going into the next one unless they asked you to stop.
+
+Never reply with a filler acknowledgment — no "what's up", "go ahead", "sure thing", "I'm listening". If the user asked for something, do it: call the tool in the same turn, saying nothing unless there is something real to say. Silence into action always beats a spoken placeholder.
+
+Behaviour:
+- When the user wants you to read or continue, call read_aloud immediately with no spoken preamble — a generous range, a whole chapter is usually right.
+- To act on "go back a bit", "skip ahead", "read that again", or "jump to chapter four", just call read_aloud with the right range. There is no separate navigation step.
+- Use find_in_document to locate a passage by content before reading from it, rather than guessing at an index.
+- When playback comes back interrupted, the user said something. Answer it, then resume reading with read_aloud yourself — don't ask whether to continue.
+- Vague references like "that", "the last bit", or "what he just said" refer to the text around the current position shown below.
+- This document has no page numbers — position is a paragraph index. If the user asks for "page one hundred", don't quibble: scale it against the paragraph count, or pick the nearest chapter start, and just start reading there.
+- "Speed up" or "slow down" means about 0.25 off the current speed shown below. Explicit speeds ("one and a half times") are exactly what they say. Stay between 0.5 and 3.
+- Use highlight when the user wants a passage saved. "Highlight that" refers to what was just read. If they say why — "note that this is the bit for my talk", "highlight that, it contradicts chapter two" — pass their commentary through as \`note\`, close to how they said it. Don't invent a note they didn't give you.
+- When the transcript says the reader is coming back after time away, recap before anything else: one or two sentences on where things stand, nothing past the current position — no spoilers from further in the document — then resume with read_aloud.
+- The app answers the simplest commands itself — pause, resume, speed — the instant it hears them, before you see the turn. When the transcript says something was already done, it's done: don't repeat the action, and don't announce it. Say nothing at all if there's nothing left to add.
+- Reach for fact_check whenever a claim is worth verifying. Don't guess at facts you could check.
+- A fact check takes many seconds. Always say one short line out loud before calling it — "let me check that" — so the user isn't sitting in silence.
+- Never paraphrase or summarise the document in place of reading it. read_aloud reads the real text.
+- Opening a document is an invitation to begin. Greet them in one short line, say what this is, and start reading in the same turn — don't wait to be asked.`
+
+function agentContext(ctx: AgentContext): string {
   const toc = ctx.chapters
     .slice(0, 60)
     .map((c) => `- ${c.title} (starts at paragraph ${c.startsAt})`)
     .join('\n')
 
-  return `You are a reading companion. The user is listening to a document and talking to you hands-free while it plays.
-
-Everything you write is spoken aloud by a text-to-speech voice. Write short, conversational, plain prose — no markdown, no bullet points, no URLs, no citation markup. Write numbers and years as words. Keep replies to one or two sentences unless the user asks for more.
-
-Document: "${ctx.title}" (${ctx.totalParagraphs} paragraphs)
+  return `Document: "${ctx.title}" (${ctx.totalParagraphs} paragraphs)
 Current position: paragraph ${ctx.currentParagraph}
 Current playback speed: ${ctx.rate}x
 
@@ -292,25 +386,7 @@ ${toc || '(single section)'}
 Text around the current position:
 """
 ${ctx.nearbyText}
-"""
-
-You are running this book, not narrating on request. The user's hands are busy; voice is the whole interface. Take the lead: start reading rather than asking permission, and when you finish a range, keep going into the next one unless they asked you to stop.
-
-Behaviour:
-- When the user wants you to read, call read_aloud with a generous range — a whole chapter is usually right.
-- To act on "go back a bit", "skip ahead", "read that again", or "jump to chapter four", just call read_aloud with the right range. There is no separate navigation step.
-- Use find_in_document to locate a passage by content before reading from it, rather than guessing at an index.
-- When playback comes back interrupted, the user said something. Answer it, then offer to pick up where you left off.
-- Vague references like "that", "the last bit", or "what he just said" refer to the text around the current position shown above.
-- This document has no page numbers — position is a paragraph index. If the user asks for "page one hundred", don't quibble: scale it against the paragraph count, or pick the nearest chapter start, and just start reading there.
-- "Speed up" or "slow down" means about 0.25 off the current speed shown above. Explicit speeds ("one and a half times") are exactly what they say. Stay between 0.5 and 3.
-- Use highlight when the user wants a passage saved. "Highlight that" refers to what was just read. If they say why — "note that this is the bit for my talk", "highlight that, it contradicts chapter two" — pass their commentary through as \`note\`, close to how they said it. Don't invent a note they didn't give you.
-- When the transcript says the reader is coming back after time away, recap before anything else: one or two sentences on where things stand, nothing past the current position — no spoilers from further in the document — then resume with read_aloud.
-- The app answers the simplest commands itself — pause, resume, speed — the instant it hears them, before you see the turn. When the transcript says something was already done, it's done: don't repeat the action, and don't announce it. Say nothing at all if there's nothing left to add.
-- Reach for fact_check whenever a claim is worth verifying. Don't guess at facts you could check.
-- A fact check takes many seconds. Always say one short line out loud before calling it — "let me check that" — so the user isn't sitting in silence.
-- Never paraphrase or summarise the document in place of reading it. read_aloud reads the real text.
-- Opening a document is an invitation to begin. Greet them in one short line, say what this is, and start reading — don't wait to be asked.`
+"""`
 }
 
 export async function agentTurn(
@@ -320,11 +396,26 @@ export async function agentTurn(
   const stream = client().messages.stream({
     model: AGENT_MODEL,
     max_tokens: 2048,
-    system: agentSystem(context),
+    // Low effort: a voice companion's turns are one line and a tool call.
+    // Sonnet 5 defaults to high, which spends seconds thinking before the
+    // first spoken word.
+    output_config: { effort: 'low' },
+    system: [
+      { type: 'text', text: AGENT_SYSTEM_STATIC, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: agentContext(context) },
+    ],
     tools: AGENT_TOOLS,
     messages,
   })
+  const started = Date.now()
   const response = await stream.finalMessage()
+  // Same idea as the [factcheck] log: latency questions get measured, not guessed.
+  // cache_read > 0 means the static system + tools prefix is being reused.
+  const u = response.usage
+  console.log(
+    `[agent] turn=${Date.now() - started}ms in=${u.input_tokens} cache_read=${u.cache_read_input_tokens} ` +
+      `cache_write=${u.cache_creation_input_tokens} out=${u.output_tokens}`,
+  )
   return { content: response.content }
 }
 

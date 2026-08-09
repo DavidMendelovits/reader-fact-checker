@@ -6,9 +6,10 @@
 import { useStore } from '../store'
 import { tts } from './tts'
 import { voice } from './voice'
-import { beginUtterance, openingTurn, say } from './agent'
+import { beginUtterance, openingTurn, say, sayInterim } from './agent'
 import { startMicMeter, stopMicMeter } from './audio-levels'
 import { checkPassage, completeField, extractClaims } from './factcheck'
+import { mapLimit } from './maplimit'
 import type { FactCheckJob, Highlight } from '../types'
 
 let jobCounter = 0
@@ -58,17 +59,23 @@ tts.onPlayingChange = (playing) => {
   void setWakeLock(playing)
 }
 tts.onEnded = () => useStore.setState({ playing: false })
-// The agent's own replies are short, so mute rather than trust the echo filter with
-// them — a filter miss there would have the agent answering itself in a loop.
-tts.onSpeakingChange = (speaking) => voice.setMuted(speaking)
+// The agent's replies used to mute the mic outright, plus a 1200ms tail to cover the
+// late final. Both are gone: the mute made barging in over a reply impossible, and
+// the tail ate the first words of anyone who answered the moment it stopped. The
+// reply text stays echo-matchable for ECHO_MEMORY after it finishes playing, which
+// covers the late final without dropping anything real.
 
 // ---- voice input ----
 //
 // No wake word: the mic stays live during narration so you can simply talk over it.
 // voice.isEcho() drops the recognizer's transcription of the narration itself.
 voice.onUtterance = (text) => say(text)
+// "pause" is one word and Chrome sits on it until you've been quiet for a beat, so
+// transport commands are run off the partial transcript instead.
+voice.onInterim = (text) => sayInterim(text)
 voice.onSpeechStart = () => beginUtterance()
 voice.getSpokenText = () => tts.speaking
+voice.getRecentSpokenText = () => tts.recentlySpoken
 voice.onError = (msg) => {
   useStore.setState({ micEnabled: false, notice: msg })
 }
@@ -77,7 +84,7 @@ export function setMicEnabled(enabled: boolean) {
   useStore.setState({ micEnabled: enabled, micMuted: false })
   voice.setUserMuted(false)
   if (enabled) {
-    voice.start()
+    void voice.start() // async now: it waits on the shared echo-cancelled capture
     void startMicMeter()
   } else {
     voice.stop()
@@ -138,26 +145,32 @@ export function checkSelection(text: string, anchor?: number) {
   }
   s.addJob(job)
 
+  // Say the verdict the moment that field closes, rather than after the sources and
+  // the rest of the object. Never over the narration — that's an interruption the
+  // user didn't ask for.
   let spoken = false
+  const speak = (line: string) => {
+    if (spoken || !line || useStore.getState().playing) return
+    spoken = true
+    void tts.speak(line)
+  }
   void checkPassage(passage, (raw) => {
     useStore.getState().updateJob(job.id, { partial: raw })
-    // Say the verdict the moment that field closes, rather than after the sources
-    // and the rest of the object. Never over the narration — that's an interruption
-    // the user didn't ask for.
-    if (spoken || useStore.getState().playing) return
-    const line = completeField(raw, 'spokenSummary')
-    if (line) {
-      spoken = true
-      void tts.speak(line)
-    }
+    speak(completeField(raw, 'spokenSummary'))
   })
-    .then((result) => useStore.getState().updateJob(job.id, { status: 'done', result }))
+    .then((result) => {
+      useStore.getState().updateJob(job.id, { status: 'done', result })
+      speak(result.spokenSummary) // a cached verdict arrives with no stream to speak from
+    })
     .catch((e) => useStore.getState().updateJob(job.id, { status: 'error', error: String(e) }))
 }
 
 // ---- whole-document flow ----
 
 let docCheckCancelled = false
+const CONCURRENCY = 3
+const scanning = <T, R>(items: T[], task: (item: T) => Promise<R>) =>
+  mapLimit(items, CONCURRENCY, task, () => docCheckCancelled)
 
 export function cancelDocumentCheck() {
   docCheckCancelled = true
@@ -188,43 +201,38 @@ export async function checkWholeDocument() {
 
   s.setDocCheckProgress({ done: 0, total: sections.length })
 
-  // gather claims per section, then check claims with limited parallelism
-  const claims: { claim: string; anchor: number }[] = []
-  for (const [i, section] of sections.entries()) {
-    if (docCheckCancelled) return
-    try {
-      for (const c of await extractClaims(section.text)) claims.push({ claim: c, anchor: section.anchor })
-    } catch (e) {
-      console.error('claim extraction failed for section', i, e)
-    }
-    useStore.getState().setDocCheckProgress({ done: i + 1, total: sections.length + claims.length })
-  }
+  // Sections are independent, so extracting their claims one at a time just stacked
+  // model round-trips in front of the first check that actually matters.
+  let extracted = 0
+  const claims = (
+    await scanning(sections, async (section) => {
+      try {
+        return (await extractClaims(section.text)).map((claim) => ({ claim, anchor: section.anchor }))
+      } catch (e) {
+        console.error('claim extraction failed for a section', e)
+        return [] // a bad section shouldn't abort a whole-document scan
+      } finally {
+        useStore.getState().setDocCheckProgress({ done: ++extracted, total: sections.length })
+      }
+    })
+  ).flat()
+  if (docCheckCancelled) return
 
   const total = sections.length + claims.length
   let done = sections.length
-  const CONCURRENCY = 3
-  const queue = [...claims]
-
-  async function worker() {
-    for (;;) {
-      const item = queue.shift()
-      if (!item || docCheckCancelled) return
-      const job: FactCheckJob = {
-        id: newId(), kind: 'document', status: 'running',
-        excerpt: item.claim, anchor: item.anchor, createdAt: Date.now(),
-      }
-      useStore.getState().addJob(job)
-      try {
-        const result = await checkPassage(item.claim)
-        useStore.getState().updateJob(job.id, { status: 'done', result })
-      } catch (e) {
-        useStore.getState().updateJob(job.id, { status: 'error', error: String(e) })
-      }
-      done++
-      useStore.getState().setDocCheckProgress({ done, total })
+  await scanning(claims, async (item) => {
+    const job: FactCheckJob = {
+      id: newId(), kind: 'document', status: 'running',
+      excerpt: item.claim, anchor: item.anchor, createdAt: Date.now(),
     }
-  }
-
-  await Promise.all(Array.from({ length: CONCURRENCY }, worker))
+    useStore.getState().addJob(job)
+    try {
+      const result = await checkPassage(item.claim)
+      useStore.getState().updateJob(job.id, { status: 'done', result })
+    } catch (e) {
+      useStore.getState().updateJob(job.id, { status: 'error', error: String(e) })
+    }
+    useStore.getState().setDocCheckProgress({ done: ++done, total })
+  })
   useStore.getState().setDocCheckProgress(null)
 }

@@ -13,6 +13,17 @@ export function Reader() {
   const containerRef = useRef<HTMLDivElement>(null)
   const [toolbar, setToolbar] = useState<{ x: number; y: number; text: string; anchor?: number } | null>(null)
 
+  // A reopened book opens at its saved position, not at the top — jump there
+  // instantly on render, before narration starts, so playback never begins with
+  // a scroll from the title down to the middle of the book.
+  useEffect(() => {
+    const at = useStore.getState().currentParagraph
+    if (at === 0) return
+    containerRef.current
+      ?.querySelector(`[data-flat="${at}"]`)
+      ?.scrollIntoView({ behavior: 'auto', block: 'center' })
+  }, [doc])
+
   // auto-scroll the active paragraph into view while playing
   useEffect(() => {
     if (!playing) return
