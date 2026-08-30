@@ -9,6 +9,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).end()
   try {
     const { messages, context } = req.body as { messages: Parameters<typeof agentTurn>[0]; context: AgentContext }
+    if (!Array.isArray(messages) || messages.length === 0 || typeof context !== 'object' || !context)
+      return res.status(400).json({ error: 'messages and context required' })
     res.status(200).json(await agentTurn(messages, context))
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) })

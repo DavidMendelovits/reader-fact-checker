@@ -70,6 +70,8 @@ export class VoiceListener {
   private track: MediaStreamTrack | null = null
   private userMuted = false
   private talking = false // mid-utterance: interim words seen, final not yet in
+  private spawnedAt = 0
+  private rapidDeaths = 0 // consecutive spawns that died almost immediately
 
   /** Fires on each finalized utterance that survived the echo filter. */
   onUtterance: UtteranceHandler = () => {}
@@ -107,6 +109,7 @@ export class VoiceListener {
   async start() {
     if (!speechSupported || this.running) return
     this.running = true
+    this.rapidDeaths = 0 // a fresh start (mic re-enabled) retries from a clean slate
     try {
       this.track = (await getMicStream()).getAudioTracks()[0] ?? null
     } catch (e) {
@@ -200,12 +203,27 @@ export class VoiceListener {
     }
 
     rec.onend = () => {
-      // Chrome stops recognition periodically; restart while enabled
-      if (this.running) setTimeout(() => this.running && this.spawn(), 250)
+      if (!this.running) return
+      // Chrome stops recognition periodically; restart while enabled. A healthy
+      // session runs for a while before ending — one that dies within a second of
+      // starting (recognition service unreachable, mic gone) would respawn in a
+      // 250ms hot loop forever, invisibly. Back off on those, and after a sustained
+      // run of them stop and say so: the mic button flipping off is the honest
+      // signal, and tapping it retries.
+      const rapid = Date.now() - this.spawnedAt < 1000
+      this.rapidDeaths = rapid ? this.rapidDeaths + 1 : 0
+      if (this.rapidDeaths >= 8) {
+        this.running = false
+        this.onError('Voice recognition keeps failing — tap the mic to try again')
+        return
+      }
+      const delay = rapid ? Math.min(250 * 2 ** this.rapidDeaths, 8000) : 250
+      setTimeout(() => this.running && this.spawn(), delay)
     }
 
     // Chrome tears recognition down every so often and onend respawns it, so the
     // track has to survive across spawns — but not past the stream being released.
+    this.spawnedAt = Date.now()
     const live = this.track?.readyState === 'live' ? this.track : null
     try {
       if (live) rec.start(live)
