@@ -24,6 +24,18 @@ The interesting bet is that **the agent drives playback, rather than the UI driv
 - **Whole-document scan** — extracts the checkable claims section by section and verifies them in the background
 - **Type instead of talking** — a text box drives the same agent, so you can demo the whole thing with no microphone
 
+## Mobile
+
+`mobile/` is the same idea as a native app, pointed at the **real Readwise Reader API**: sign in with your Reader access token, pick anything from your library, and the agent starts reading it to you. The architecture ports intact — the agent still drives playback through `read_aloud`, transport commands still run locally off partial transcripts, verdicts are still spoken the moment they exist — with `expo-speech` as the voice and `expo-speech-recognition` as the ear (whose native echo cancellation is the upgrade the web version could only approximate). Model keys never ship in the bundle; the app talks to this repo's deployed `/api` routes.
+
+```bash
+cd mobile
+npm install
+npx expo run:ios   # dev build — speech recognition is a native module, so Expo Go won't do
+```
+
+Then paste your token from [readwise.io/access_token](https://readwise.io/access_token) and tap an article.
+
 ## Setup (local)
 
 ```bash
