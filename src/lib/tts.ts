@@ -274,18 +274,86 @@ export class TtsPlayer {
   }
 
   /** Speak arbitrary text (fact-check verdicts) outside the paragraph loop. */
-  async speak(text: string): Promise<void> {
+  speak(text: string): Promise<void> {
+    const s = this.speakStream()
+    s.push(text)
+    return s.end()
+  }
+
+  /**
+   * Speak text that arrives a sentence at a time — the agent's reply, which the
+   * model is still writing while the first sentence plays. The first sentence
+   * streams (audio on the first byte); later ones are synthesized the moment they
+   * are pushed and play from cache, so the gap between sentences stays at zero.
+   *
+   * pause() cuts it off like any other playback: whatever is queued is dropped and
+   * end() resolves as soon as the current clip stops.
+   */
+  speakStream(): SpeechStream {
     this.pause()
     void attachOutput(this.audio)
-    try {
-      this.speaking = text
-      // the agent's own replies are never prefetchable, so always stream them
-      await this.playStreamed(text, this.session)
-    } finally {
-      this.remember(this.speaking)
-      this.speaking = ''
+    const session = this.session
+    const queue: string[] = []
+    let pushed = 0
+    let ended = false
+    let wake: (() => void) | null = null
+    const signal = () => {
+      wake?.()
+      wake = null
+    }
+
+    const drain = async () => {
+      let first = true
+      for (;;) {
+        if (session !== this.session) return
+        const text = queue.shift()
+        if (text === undefined) {
+          if (ended) return
+          await new Promise<void>((r) => (wake = r))
+          continue
+        }
+        try {
+          this.speaking = text
+          if (first) await this.playStreamed(text, session)
+          else {
+            const url = await getAudioUrl(`s:${text}`, text)
+            if (session !== this.session) return
+            await this.playUrl(url, session)
+          }
+        } catch (e) {
+          console.error('TTS error, skipping sentence', e)
+        } finally {
+          this.remember(this.speaking)
+          this.speaking = ''
+        }
+        first = false
+      }
+    }
+    const done = drain()
+
+    return {
+      push: (text) => {
+        const t = text.trim()
+        if (!t || ended) return
+        queue.push(t)
+        // synthesize ahead of playback; the first sentence streams instead
+        if (pushed++ > 0) void getAudioUrl(`s:${t}`, t).catch(() => {})
+        signal()
+      },
+      end: () => {
+        ended = true
+        signal()
+        return done
+      },
     }
   }
+}
+
+export interface SpeechStream {
+  /** Queue a complete sentence. Ignored after end(). */
+  push(text: string): void
+  /** No more sentences; resolves once everything queued has played, or playback was cut off. */
+  end(): Promise<void>
 }
 
 export const tts = new TtsPlayer()

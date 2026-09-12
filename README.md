@@ -13,6 +13,7 @@ The interesting bet is that **the agent drives playback, rather than the UI driv
 - **`read_aloud` takes a range, not a paragraph.** Playback runs locally with no model in the loop, and the tool call doesn't resolve until the range finishes *or* you talk over it. A chapter of narration costs one model round-trip instead of one per paragraph. When it comes back interrupted, your interrupting sentence rides along in the same turn as the tool result — which is what lets *"wait, what was that?"* resolve against the text you just heard.
 - **The simplest commands never reach the model.** "Pause", "faster", "keep going" are matched locally and run instantly — including off the *partial* transcript, because Chrome sits on a one-word utterance for a beat after you stop talking, and that's a long time to keep reading at someone who said "stop". The agent finds out from the transcript on its next turn.
 - **Verdicts are spoken the moment they're ready.** A fact check streams back as JSON; the spoken one-liner closes well before the written summary and the sources do, so it's read aloud as soon as that field completes rather than after a second model turn that would only rephrase it.
+- **Replies are spoken a sentence at a time, as they stream.** The agent's turn arrives as NDJSON and each sentence goes to the synthesizer the moment it closes, while the model is still writing the rest — including the tool call that follows. "Let me check that" used to wait behind the whole fact-check argument being generated; now it plays while that happens.
 
 ## Features
 
@@ -79,7 +80,7 @@ Best in **Chrome** (speech recognition is Chrome-only) with **headphones**, so t
 
 ## Deploy (Vercel)
 
-`api/` holds the serverless functions (`/api/agent`, `/api/factcheck`, `/api/claims`, `/api/tts`, `/api/fetch`); `vite.config.ts` mirrors the same routes in dev, so dev and prod behave identically. All keys stay server-side.
+`api/` holds the serverless functions (`/api/agent-stream`, `/api/agent`, `/api/factcheck`, `/api/claims`, `/api/tts`, `/api/fetch`); `vite.config.ts` mirrors the same routes in dev, so dev and prod behave identically. All keys stay server-side. The web app uses the streaming agent route; `/api/agent` is the buffered version the mobile app still uses, since React Native's fetch can't read a body incrementally.
 
 ```bash
 npx vercel                          # link + first deploy
@@ -107,7 +108,9 @@ src/lib/agent.ts       the conversation: tool dispatch, the turn loop, fast-path
 src/lib/controller.ts  wiring for everything the conversation doesn't own: manual
                        transport, mic lifecycle, highlight + whole-document jobs
 src/lib/voice.ts       continuous SpeechRecognition + echo rejection
-src/lib/tts.ts         playback queue: per-paragraph synth with prefetch
+src/lib/tts.ts         playback queue: per-paragraph synth with prefetch; sentence
+                       stream for the agent's replies
+src/lib/sentences.ts   streaming sentence splitter (what decides when a reply starts)
 src/lib/persist.ts     localStorage library: position, cards, highlights, transcript
 src/lib/extract.ts     URL/EPUB → { title, chapters: [{ title, paragraphs }] }
 src/store.ts           zustand: doc, position, agent state, jobs, highlights, chat

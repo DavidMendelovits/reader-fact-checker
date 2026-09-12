@@ -7,10 +7,11 @@
 // utterance rides along in the same user turn as the tool result — that is what
 // lets "wait, what was that?" resolve against the text that was just read.
 import { useStore } from '../store'
-import { tts } from './tts'
+import { tts, type SpeechStream } from './tts'
 import { checkPassage, completeField } from './factcheck'
 import { blip } from './earcon'
-import { apiJson } from './api'
+import { apiNdjson } from './api'
+import { SentenceSplitter } from './sentences'
 import type { Doc, FactCheckJob, Highlight } from '../types'
 
 type Block =
@@ -507,6 +508,80 @@ async function settle(ms = 3000) {
   if (useStore.getState().agentState === 'listening') useStore.setState({ agentState: 'thinking' })
 }
 
+type AgentLine =
+  | { type: 'text'; text: string }
+  | { type: 'text_end' }
+  | { type: 'done'; content: Block[] }
+  | { type: 'error'; error: string }
+
+/**
+ * One model turn, spoken as it streams. The reply goes to the synthesizer a
+ * sentence at a time, so the first one is playing while the model is still
+ * writing the rest — and the tool call after it, which is the part that used to
+ * hold "let me check that" hostage: the whole fact_check argument had to finish
+ * generating before a byte of the reply reached the voice.
+ *
+ * Resolves with the full content once the reply has been *spoken*, not just
+ * received. Tools run after that, same as before: read_aloud and the next
+ * tts.speak() both take the player, and would cut the reply off mid-word.
+ */
+async function speakTurn(): Promise<Block[]> {
+  const splitter = new SentenceSplitter()
+  // assigned from inside the stream callback, which is why it's a holder and not
+  // three lets — control-flow narrowing can't see writes from a closure
+  const st: { speech?: SpeechStream; chatId?: string; content?: Block[]; sofar: string } = { sofar: '' }
+
+  const speak = (sentence: string) => {
+    if (!st.speech) {
+      st.speech = tts.speakStream()
+      useStore.setState({ agentState: 'speaking' })
+    }
+    st.speech.push(sentence)
+  }
+  const onText = (text: string) => {
+    st.sofar += text
+    // the bubble fills in as the words arrive; it is corrected from the transcript below
+    const shown = st.sofar.trim()
+    if (shown) {
+      if (st.chatId) useStore.getState().updateChat(st.chatId, { text: shown })
+      else useStore.getState().pushChat({ id: (st.chatId = newId()), role: 'assistant', text: shown })
+    }
+    for (const s of splitter.push(text)) speak(s)
+  }
+  // a text block closed: whatever is left is a whole sentence, whitespace or not
+  const onTextEnd = () => {
+    const tail = splitter.flush()
+    if (tail) speak(tail)
+    st.sofar += ' ' // the transcript joins text blocks with a space
+  }
+
+  try {
+    await apiNdjson<AgentLine>('/api/agent-stream', { messages, context: buildContext() }, (msg) => {
+      if (msg.type === 'text') onText(msg.text)
+      else if (msg.type === 'text_end') onTextEnd()
+      else if (msg.type === 'done') st.content = msg.content
+      else throw new Error(msg.error)
+    })
+    if (!st.content) throw new Error('The agent stream ended without a response.')
+  } catch (e) {
+    tts.pause() // drops whatever is queued; end() below then resolves at once
+    if (st.speech) await st.speech.end()
+    throw e
+  }
+  onTextEnd() // belt and braces: a stream that never sent text_end still gets spoken
+
+  // what the transcript actually says, not the stream's slicing of it
+  const spoken = st.content
+    .filter((b): b is Extract<Block, { type: 'text' }> => b.type === 'text')
+    .map((b) => b.text)
+    .join(' ')
+    .trim()
+  if (spoken && st.chatId) useStore.getState().updateChat(st.chatId, { text: spoken })
+
+  if (st.speech) await st.speech.end()
+  return st.content
+}
+
 async function loop() {
   running = true
   // a turn that errored mid-tool leaves an orphaned tool_use behind in memory too
@@ -514,22 +589,8 @@ async function loop() {
   try {
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       useStore.setState({ agentState: 'thinking' })
-      const { content } = await apiJson<{ content: Block[] }>('/api/agent', {
-        messages,
-        context: buildContext(),
-      })
+      const content = await speakTurn()
       messages.push({ role: 'assistant', content })
-
-      const spoken = content
-        .filter((b): b is Extract<Block, { type: 'text' }> => b.type === 'text')
-        .map((b) => b.text)
-        .join(' ')
-        .trim()
-      if (spoken) {
-        useStore.getState().pushChat({ id: newId(), role: 'assistant', text: spoken })
-        useStore.setState({ agentState: 'speaking' })
-        await tts.speak(spoken)
-      }
 
       const calls = content.filter(
         (b): b is Extract<Block, { type: 'tool_use' }> => b.type === 'tool_use',

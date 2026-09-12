@@ -389,9 +389,18 @@ ${ctx.nearbyText}
 """`
 }
 
+/**
+ * One agent turn. `onText` receives the spoken reply as it is generated, so the
+ * client can start synthesizing the first sentence while the model is still writing
+ * the rest — and, more to the point, while it is still writing the tool call that
+ * follows. A "let me check that" used to wait behind the whole fact_check argument
+ * being generated before a byte of it went to the synthesizer.
+ */
 export async function agentTurn(
   messages: Anthropic.MessageParam[],
   context: AgentContext,
+  onText: (text: string) => void = () => {},
+  onTextEnd: () => void = () => {},
 ): Promise<{ content: Anthropic.ContentBlock[] }> {
   const stream = client().messages.stream({
     model: AGENT_MODEL,
@@ -408,15 +417,61 @@ export async function agentTurn(
     messages,
   })
   const started = Date.now()
+  let firstText = 0
+  let inText = false
+  for await (const event of stream) {
+    if (event.type === 'content_block_start') {
+      inText = event.content_block.type === 'text'
+    } else if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      firstText ||= Date.now()
+      onText(event.delta.text)
+    } else if (event.type === 'content_block_stop' && inText) {
+      // A reply's last sentence has no trailing whitespace to prove it is over,
+      // and the tool call that follows can take seconds to generate. Say so.
+      inText = false
+      onTextEnd()
+    }
+  }
   const response = await stream.finalMessage()
   // Same idea as the [factcheck] log: latency questions get measured, not guessed.
-  // cache_read > 0 means the static system + tools prefix is being reused.
+  // first_text is what the user waits through in silence; turn is what the tool
+  // call used to wait behind as well. cache_read > 0 means the static system +
+  // tools prefix is being reused.
   const u = response.usage
   console.log(
-    `[agent] turn=${Date.now() - started}ms in=${u.input_tokens} cache_read=${u.cache_read_input_tokens} ` +
+    `[agent] first_text=${firstText ? firstText - started : 0}ms turn=${Date.now() - started}ms ` +
+      `in=${u.input_tokens} cache_read=${u.cache_read_input_tokens} ` +
       `cache_write=${u.cache_creation_input_tokens} out=${u.output_tokens}`,
   )
   return { content: response.content }
+}
+
+/**
+ * Wire format for /api/agent-stream, shared by the dev middleware and the Vercel
+ * function: newline-delimited JSON — a `text` line per reply chunk, `text_end` when
+ * a text block closes, then one terminal `done` carrying the full content blocks
+ * (or `error`). Same shape as the
+ * fact-check stream, for the same reason: the status line is gone before the model
+ * can fail. /api/agent keeps the buffered JSON response for clients whose fetch
+ * can't read a body incrementally (the mobile app).
+ */
+export async function agentNdjson(
+  messages: Anthropic.MessageParam[],
+  context: AgentContext,
+  write: (line: string) => void,
+): Promise<void> {
+  const send = (obj: unknown) => write(`${JSON.stringify(obj)}\n`)
+  try {
+    const out = await agentTurn(
+      messages,
+      context,
+      (text) => send({ type: 'text', text }),
+      () => send({ type: 'text_end' }),
+    )
+    send({ type: 'done', ...out })
+  } catch (e) {
+    send({ type: 'error', error: e instanceof Error ? e.message : String(e) })
+  }
 }
 
 /**

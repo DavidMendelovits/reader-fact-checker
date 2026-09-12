@@ -51,6 +51,19 @@ function apiRoutes(): Plugin {
         }
       })
 
+      server.middlewares.use('/api/agent-stream', async (req, res) => {
+        try {
+          const { messages, context } = JSON.parse(await readBody(req))
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/x-ndjson')
+          res.setHeader('Cache-Control', 'no-cache, no-transform')
+          await impl.agentNdjson(messages, context, (line) => res.write(line))
+          res.end()
+        } catch (e) {
+          json(res, 500, { error: e instanceof Error ? e.message : String(e) })
+        }
+      })
+
       server.middlewares.use('/api/agent', async (req, res) => {
         try {
           const { messages, context } = JSON.parse(await readBody(req))
