@@ -8,6 +8,8 @@ import {
 } from 'react-native'
 import { useStore } from './src/store'
 import { loadSettings, saveToken } from './src/settings'
+import { activeVoice, enableKokoro, useVoice } from './src/voice-choice'
+import { kokoroSizeMb } from './src/kokoro'
 import { listDocuments, fetchDocument } from './src/readwise'
 import { htmlToParagraphs } from './src/html'
 import { openingTurn, pause, play, setMicEnabled } from './src/agent'
@@ -23,7 +25,8 @@ export default function App() {
   const doc = useStore((s) => s.doc)
 
   useEffect(() => {
-    void loadSettings().then(({ token }) => {
+    void loadSettings().then(async ({ token, voice }) => {
+      await useVoice(voice) // loads the on-device model now rather than on the first paragraph
       setToken(token)
       setBooted(true)
     })
@@ -129,6 +132,7 @@ function LibraryScreen({ token, onSignOut }: { token: string; onSignOut: () => v
     <View style={styles.flex}>
       <View style={styles.header}>
         <Text style={styles.h1}>Reader</Text>
+        <VoicePicker />
         <Pressable onPress={onSignOut}><Text style={styles.link}>token</Text></Pressable>
       </View>
       <FlatList
@@ -150,6 +154,51 @@ function LibraryScreen({ token, onSignOut }: { token: string; onSignOut: () => v
         ListEmptyComponent={<Text style={[styles.body, styles.padded]}>Nothing in your Reader library.</Text>}
       />
     </View>
+  )
+}
+
+/**
+ * System voice or on-device Kokoro. The first tap on "on-device" downloads the
+ * model (~90MB) with progress; after that it's a toggle.
+ */
+function VoicePicker() {
+  const [voice, setVoice] = useState(activeVoice())
+  const [busy, setBusy] = useState<string | null>(null)
+  const [sizeMb, setSizeMb] = useState<number | null>(null)
+
+  useEffect(() => {
+    void kokoroSizeMb().then(setSizeMb)
+  }, [])
+
+  const toggle = async () => {
+    if (busy) return
+    if (voice === 'kokoro') {
+      setVoice(await useVoice('system'))
+      return
+    }
+    setBusy('preparing…')
+    try {
+      await enableKokoro((p) => {
+        const pct = Math.round(p.percent)
+        setBusy(p.phase === 'downloading' ? `downloading ${pct}%` : `unpacking ${pct}%`)
+      })
+      setVoice('kokoro')
+    } catch (e) {
+      useStore.getState().setNotice(`On-device voice unavailable: ${String((e as Error).message ?? e)}`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const label = busy
+    ? busy
+    : voice === 'kokoro'
+      ? 'voice: on-device'
+      : `voice: system${sizeMb ? ` · get on-device (${sizeMb}MB)` : ''}`
+  return (
+    <Pressable onPress={() => void toggle()} disabled={!!busy}>
+      <Text style={[styles.link, busy && styles.buttonDisabled]}>{label}</Text>
+    </Pressable>
   )
 }
 

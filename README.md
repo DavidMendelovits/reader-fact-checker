@@ -27,7 +27,9 @@ The interesting bet is that **the agent drives playback, rather than the UI driv
 
 ## Mobile
 
-`mobile/` is the same idea as a native app, pointed at the **real Readwise Reader API**: sign in with your Reader access token, pick anything from your library, and the agent starts reading it to you. The architecture ports intact — the agent still drives playback through `read_aloud`, transport commands still run locally off partial transcripts, verdicts are still spoken the moment they exist — with `expo-speech` as the voice and `expo-speech-recognition` as the ear (whose native echo cancellation is the upgrade the web version could only approximate). Model keys never ship in the bundle; the app talks to this repo's deployed `/api` routes.
+`mobile/` is the same idea as a native app, pointed at the **real Readwise Reader API**: sign in with your Reader access token, pick anything from your library, and the agent starts reading it to you. The architecture ports intact — the agent still drives playback through `read_aloud`, transport commands still run locally off partial transcripts, verdicts are still spoken the moment they exist — with `expo-speech-recognition` as the ear (whose native echo cancellation is the upgrade the web version could only approximate). Model keys never ship in the bundle; the app talks to this repo's deployed `/api` routes.
+
+The voice is a choice. The OS voice (`expo-speech`) works out of the box. Tap **voice: system** in the library header to download **Kokoro** (~90MB, once) and narrate on-device through `react-native-sherpa-onnx` — the same model the web app's Unreal Speech voice is built on, so both platforms read in one voice, and the phone does it offline for free. Generation streams a sentence at a time into a native PCM player, and runs a few times faster than real time on a recent phone.
 
 ```bash
 cd mobile
@@ -50,6 +52,8 @@ npm run dev
 - `ANTHROPIC_API_KEY` — the conversation agent and claim extraction (`claude-sonnet-5`)
 - `PERPLEXITY_API_KEY` — fact checking (`sonar`)
 - `OPENAI_API_KEY` — text-to-speech (`gpt-4o-mini-tts`)
+
+Optionally, `UNREAL_SPEECH_API_KEY` switches text-to-speech to [Unreal Speech](https://unrealspeech.com) — hosted Kokoro, about a third the price per hour of narration and ~300ms to first audio against ~1.2s. Their streaming endpoint takes 1,000 characters a call, so the server splits paragraphs at sentence boundaries and pipes the pieces back as one MP3; the client never knows. `TTS_PROVIDER=openai` forces OpenAI even with the key set; `UNREAL_SPEECH_VOICE` picks the voice.
 
 Restart `npm run dev` after editing `.env.local`.
 
@@ -87,6 +91,7 @@ npx vercel                          # link + first deploy
 npx vercel env add ANTHROPIC_API_KEY
 npx vercel env add PERPLEXITY_API_KEY
 npx vercel env add OPENAI_API_KEY
+npx vercel env add UNREAL_SPEECH_API_KEY   # optional, see Setup
 npx vercel --prod
 ```
 
@@ -99,7 +104,7 @@ Fact-check calls can run 20–60s, so the functions declare `maxDuration` accord
 ```
 api/_impl.ts           server-side core shared by Vercel + Vite dev: the agent turn
                        (tools + system prompt), Perplexity fact check, claim
-                       extraction, OpenAI TTS, article fetch
+                       extraction, TTS (Unreal Speech or OpenAI), article fetch
 api/*.ts               Vercel serverless functions wrapping _impl
 vite.config.ts         dev-server middleware mirroring the same /api routes
 

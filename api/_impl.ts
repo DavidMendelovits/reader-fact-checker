@@ -483,6 +483,22 @@ export async function agentNdjson(
  * playback from there (~5s of synthesis for ~30s of speech).
  */
 export async function ttsStream(text: string): Promise<Response> {
+  return ttsProvider() === 'unreal' ? unrealStream(text) : openaiStream(text)
+}
+
+/**
+ * Which voice serves /api/tts. Unreal Speech (hosted Kokoro) is roughly a third
+ * the price of the alternatives per hour of narration and starts streaming in
+ * ~300ms against ~1.2s here; OpenAI stays the fallback so a missing key never
+ * takes the voice away. TTS_PROVIDER overrides the guess.
+ */
+function ttsProvider(): 'unreal' | 'openai' {
+  const explicit = process.env.TTS_PROVIDER?.toLowerCase()
+  if (explicit === 'unreal' || explicit === 'openai') return explicit
+  return process.env.UNREAL_SPEECH_API_KEY ? 'unreal' : 'openai'
+}
+
+async function openaiStream(text: string): Promise<Response> {
   if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not set on the server')
   const res = await fetch('https://api.openai.com/v1/audio/speech', {
     method: 'POST',
@@ -492,6 +508,157 @@ export async function ttsStream(text: string): Promise<Response> {
   if (!res.ok) throw new Error(`TTS failed (${res.status}): ${await res.text()}`)
   if (!res.body) throw new Error('TTS returned no body')
   return res
+}
+
+// ---- Unreal Speech ----
+//
+// Their streaming endpoint takes at most 1,000 characters per call, and a
+// paragraph of a book is often longer. The server splits the text at sentence
+// boundaries, fetches the pieces in order with one in flight ahead of the one
+// being sent, and pipes them back as a single MP3 — so the client's per-paragraph
+// player and cache never learn the paragraph was synthesized in pieces.
+
+const UNREAL_BASE = () => process.env.UNREAL_SPEECH_BASE_URL ?? 'https://api.v8.unrealspeech.com'
+const UNREAL_MAX_CHARS = 1000
+const TTS_MAX_CHARS = 12000 // a runaway paragraph should not become a runaway bill
+
+/**
+ * Pack sentences into chunks of at most `max` characters. A sentence that is
+ * itself too long is cut at the last whitespace that fits, so nothing is ever
+ * split mid-word.
+ */
+export function chunkForTts(text: string, max = UNREAL_MAX_CHARS): string[] {
+  const clean = text.replace(/\s+/g, ' ').trim()
+  if (!clean) return []
+  // split after sentence-final punctuation followed by a space
+  const sentences = clean.split(/(?<=[.!?…]["'”’)\]]*)\s+/)
+  const out: string[] = []
+  let cur = ''
+  const flush = () => {
+    if (cur) out.push(cur)
+    cur = ''
+  }
+  for (const s of sentences) {
+    if (s.length > max) {
+      // oversize sentence: cut at whitespace, as late as possible
+      flush()
+      let rest = s
+      while (rest.length > max) {
+        const cut = rest.lastIndexOf(' ', max)
+        const at = cut > 0 ? cut : max
+        out.push(rest.slice(0, at).trim())
+        rest = rest.slice(at).trim()
+      }
+      cur = rest
+      continue
+    }
+    if (cur && cur.length + 1 + s.length > max) flush()
+    cur = cur ? `${cur} ${s}` : s
+  }
+  flush()
+  return out
+}
+
+/**
+ * Length of an ID3v2 tag at the start of `head`, or 0 if there is none. Every
+ * chunk from the vendor arrives as a complete MP3 file with its own tag; the
+ * browser's MP3 demuxer only tolerates one, at the very beginning.
+ */
+export function id3v2Length(head: Uint8Array): number {
+  if (head.length < 10 || head[0] !== 0x49 || head[1] !== 0x44 || head[2] !== 0x33) return 0
+  const size = ((head[6] & 0x7f) << 21) | ((head[7] & 0x7f) << 14) | ((head[8] & 0x7f) << 7) | (head[9] & 0x7f)
+  const footer = head[5] & 0x10 ? 10 : 0
+  return 10 + size + footer
+}
+
+async function unrealFetch(text: string): Promise<Response> {
+  const res = await fetch(`${UNREAL_BASE()}/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.UNREAL_SPEECH_API_KEY}`,
+    },
+    body: JSON.stringify({
+      Text: text,
+      VoiceId: process.env.UNREAL_SPEECH_VOICE ?? 'Sierra',
+      Bitrate: '128k',
+    }),
+  })
+  if (!res.ok) throw new Error(`Unreal Speech failed (${res.status}): ${(await res.text()).slice(0, 300)}`)
+  if (!res.body) throw new Error('Unreal Speech returned no body')
+  return res
+}
+
+/**
+ * Copy `body` into `out`, dropping a leading ID3v2 tag when `stripTag` is set.
+ * The tag header is ten bytes, so buffer until that much has arrived before
+ * deciding; the chunks after that pass straight through.
+ */
+async function pipeMp3(body: ReadableStream<Uint8Array>, out: ReadableStreamDefaultController<Uint8Array>, stripTag: boolean) {
+  const reader = body.getReader()
+  let pending: Uint8Array | null = stripTag ? new Uint8Array(0) : null
+  let skip = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    let buf = value
+    if (pending) {
+      const joined = new Uint8Array(pending.length + buf.length)
+      joined.set(pending)
+      joined.set(buf, pending.length)
+      if (joined.length < 10) {
+        pending = joined
+        continue
+      }
+      skip = id3v2Length(joined)
+      pending = null
+      buf = joined
+    }
+    if (skip > 0) {
+      const drop = Math.min(skip, buf.length)
+      skip -= drop
+      buf = buf.subarray(drop)
+    }
+    if (buf.length > 0) out.enqueue(buf)
+  }
+  if (pending && pending.length > 0) out.enqueue(pending) // shorter than a tag header: not one
+}
+
+async function unrealStream(text: string): Promise<Response> {
+  if (!process.env.UNREAL_SPEECH_API_KEY) throw new Error('UNREAL_SPEECH_API_KEY is not set on the server')
+  const chunks = chunkForTts(text.slice(0, TTS_MAX_CHARS))
+  if (chunks.length === 0) throw new Error('Nothing to say')
+  const started = Date.now()
+
+  // The first request is awaited here so a vendor error surfaces as a proper
+  // status code; the rest stream behind it, always one fetch ahead of the pipe.
+  // A prefetch that fails while the previous chunk is still piping would be an
+  // unhandled rejection until the loop reaches it — which Node treats as fatal —
+  // so each one gets a no-op handler; the `await` below still sees the error.
+  const prefetch = (i: number) => {
+    const p = unrealFetch(chunks[i])
+    p.catch(() => {})
+    return p
+  }
+  let next = prefetch(0)
+  const first = await next
+  const stream = new ReadableStream<Uint8Array>({
+    async start(out) {
+      try {
+        for (let i = 0; i < chunks.length; i++) {
+          const res = i === 0 ? first : await next
+          if (i + 1 < chunks.length) next = prefetch(i + 1)
+          await pipeMp3(res.body!, out, i > 0)
+        }
+        console.log(`[tts] provider=unreal chars=${text.length} chunks=${chunks.length} total=${Date.now() - started}ms`)
+        out.close()
+      } catch (e) {
+        console.error('[tts] unreal stream failed', e)
+        out.error(e)
+      }
+    },
+  })
+  return new Response(stream, { headers: { 'Content-Type': 'audio/mpeg' } })
 }
 
 export async function fetchArticle(url: string): Promise<{ html: string; finalUrl: string }> {

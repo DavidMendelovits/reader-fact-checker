@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@dr.pogodin/react-native-fs": "^2.40.3",
+    "@kesha-antonov/react-native-background-downloader": "^4.6.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.18",
     "expo-speech": "~57.0.2",
@@ -10,6 +12,7 @@
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-native": "0.86.3",
+    "react-native-sherpa-onnx": "^0.4.4",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

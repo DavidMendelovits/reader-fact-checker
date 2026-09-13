@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "check": "node --experimental-strip-types src/lib/voice.check.ts && node --experimental-strip-types src/lib/maplimit.check.ts && node --experimental-strip-types src/lib/sentences.check.ts",
+    "check": "node --experimental-strip-types src/lib/voice.check.ts && node --experimental-strip-types src/lib/maplimit.check.ts && node --experimental-strip-types src/lib/sentences.check.ts && node --experimental-strip-types api/tts.check.ts",
     "preview": "vite preview"
   },
   "dependencies": {
