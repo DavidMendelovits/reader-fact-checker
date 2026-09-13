@@ -3,7 +3,7 @@
 // adapters/ implement it per vendor, providers.ts picks which one runs, and the
 // use-case modules (agent, factcheck, claims, speech, fetch) sit in between.
 // Keys come from process.env — never shipped to the browser.
-export { agentTurn, agentNdjson, type AgentContext } from './_lib/agent.js'
+export { agentTurn, agentNdjson, type AgentContext, type ClientExtras } from './_lib/agent.js'
 export { factcheck, factcheckNdjson, passageFromMessages, type FactCheckResult } from './_lib/factcheck.js'
 export { extractClaims } from './_lib/claims.js'
 export { ttsStream } from './_lib/speech.js'

@@ -16,6 +16,19 @@ export interface AgentContext {
   chapters: { title: string; startsAt: number }[]
   nearbyText: string
   rate: number
+  /** Anything else the client wants the model to know this turn (a library listing, say). */
+  extra?: string
+}
+
+/**
+ * What a client adds to the shared agent: tools it implements itself and the
+ * guidance for them. The web reader has none; the phone brings the library —
+ * browsing, opening, filing — which only it can do. Both are byte-stable per
+ * client, so the cached prefix stays warm.
+ */
+export interface ClientExtras {
+  tools?: ToolSpec[]
+  system?: string
 }
 
 export const AGENT_TOOLS: ToolSpec[] = [
@@ -145,7 +158,7 @@ ${toc || '(single section)'}
 Text around the current position:
 """
 ${ctx.nearbyText}
-"""`
+"""${ctx.extra ? `\n\n${ctx.extra}` : ''}`
 }
 
 /**
@@ -168,12 +181,18 @@ export async function agentTurn(
   context: AgentContext,
   onText: (text: string) => void = () => {},
   onTextEnd: () => void = () => {},
+  client: ClientExtras = {},
 ): Promise<{ content: Block[] }> {
   const model = providers().conversation
   const started = Date.now()
   let firstText = 0
   const result = await model.turn(
-    { system: AGENT_SYSTEM_STATIC, context: agentContext(context), tools: AGENT_TOOLS, messages },
+    {
+      system: client.system ? `${AGENT_SYSTEM_STATIC}\n\n${client.system}` : AGENT_SYSTEM_STATIC,
+      context: agentContext(context),
+      tools: [...AGENT_TOOLS, ...(client.tools ?? [])],
+      messages,
+    },
     {
       onText: (text) => {
         firstText ||= Date.now()
@@ -205,6 +224,7 @@ export async function agentNdjson(
   messages: Message[],
   context: AgentContext,
   write: (line: string) => void,
+  client: ClientExtras = {},
 ): Promise<void> {
   const send = (obj: unknown) => write(`${JSON.stringify(obj)}\n`)
   try {
@@ -213,6 +233,7 @@ export async function agentNdjson(
       context,
       (text) => send({ type: 'text', text }),
       () => send({ type: 'text_end' }),
+      client,
     )
     send({ type: 'done', ...out })
   } catch (e) {
