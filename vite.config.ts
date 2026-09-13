@@ -40,11 +40,13 @@ function apiRoutes(): Plugin {
 
       server.middlewares.use('/api/factcheck', async (req, res) => {
         try {
-          const { messages } = JSON.parse(await readBody(req))
+          const body = JSON.parse(await readBody(req))
+          const passage = typeof body.passage === 'string' ? body.passage.trim() : impl.passageFromMessages(body.messages ?? [])
+          if (!passage) return json(res, 400, { error: 'passage required' })
           res.statusCode = 200
           res.setHeader('Content-Type', 'application/x-ndjson')
           res.setHeader('Cache-Control', 'no-cache, no-transform')
-          await impl.factcheckNdjson(messages, (line) => res.write(line))
+          await impl.factcheckNdjson(passage, (line) => res.write(line))
           res.end()
         } catch (e) {
           json(res, 500, { error: e instanceof Error ? e.message : String(e) })

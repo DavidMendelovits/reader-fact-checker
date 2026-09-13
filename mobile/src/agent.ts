@@ -5,8 +5,7 @@
 // spoken as soon as they exist. The model itself stays behind the deployed web
 // app's /api routes — no keys in this bundle.
 import { useStore } from './store'
-import { tts } from './tts'
-import { voice } from './voice'
+import { tts, voice } from './providers'
 import { apiJson, apiBase } from './settings'
 import type { Highlight } from './types'
 
@@ -143,7 +142,7 @@ async function factCheck(input: Record<string, unknown>): Promise<string> {
   const res = await fetch(`${apiBase}/api/factcheck`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: [{ role: 'user', content: claim }] }),
+    body: JSON.stringify({ passage: claim }),
   })
   if (!res.ok) return `The fact check failed (${res.status}).`
   const lines = (await res.text()).split('\n').filter(Boolean)

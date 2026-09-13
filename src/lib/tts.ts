@@ -1,7 +1,21 @@
-// TTS via our server endpoint (/api/tts → OpenAI), with per-paragraph synthesis,
-// prefetch, and a simple playback queue. Position unit = flat paragraph index (see store).
+// The playback queue: per-paragraph synthesis with prefetch, streamed replies,
+// and the echo bookkeeping the ear needs. Where the audio comes from is an
+// AudioSource (ports.ts); the default is the server's /api/tts, which hides the
+// vendor. Position unit = flat paragraph index (see store).
 import { apiFetch } from './api'
 import { attachOutput } from './audio-levels'
+import type { AudioSource } from './ports'
+
+/** The server's /api/tts route. Whatever vendor is configured there. */
+export const serverSpeech: AudioSource = {
+  synthesize: (text, signal) =>
+    apiFetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+      signal,
+    }),
+}
 
 const blobCache = new Map<string, Promise<string>>() // cacheKey -> object URL
 
@@ -15,25 +29,16 @@ const ECHO_MEMORY = 6000
 const CAN_STREAM =
   typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported('audio/mpeg')
 
-function fetchAudio(text: string, signal?: AbortSignal) {
-  return apiFetch('/api/tts', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-    signal,
-  })
-}
-
-async function synthesize(text: string): Promise<string> {
-  const res = await fetchAudio(text)
+async function synthesize(source: AudioSource, text: string): Promise<string> {
+  const res = await source.synthesize(text)
   if (!res.ok) throw new Error(`TTS failed (${res.status}): ${await res.text()}`)
   return URL.createObjectURL(await res.blob())
 }
 
-function getAudioUrl(key: string, text: string): Promise<string> {
+function getAudioUrl(source: AudioSource, key: string, text: string): Promise<string> {
   let p = blobCache.get(key)
   if (!p) {
-    p = synthesize(text)
+    p = synthesize(source, text)
     p.catch(() => blobCache.delete(key)) // allow retry after failure
     blobCache.set(key, p)
   }
@@ -49,29 +54,30 @@ function getAudioUrl(key: string, text: string): Promise<string> {
  * underruns aren't a practical concern.
  */
 async function attachStream(
+  source: AudioSource,
   audio: HTMLAudioElement,
   text: string,
   signal: AbortSignal,
 ): Promise<void> {
-  const res = await fetchAudio(text, signal)
+  const res = await source.synthesize(text, signal)
   if (!res.ok) throw new Error(`TTS failed (${res.status}): ${await res.text()}`)
   const body = res.body
   if (!body) throw new Error('TTS returned no body')
 
-  const source = new MediaSource()
-  audio.src = URL.createObjectURL(source)
+  const media = new MediaSource()
+  audio.src = URL.createObjectURL(media)
   await new Promise<void>((resolve) =>
-    source.addEventListener('sourceopen', () => resolve(), { once: true }),
+    media.addEventListener('sourceopen', () => resolve(), { once: true }),
   )
 
-  const buffer = source.addSourceBuffer('audio/mpeg')
+  const buffer = media.addSourceBuffer('audio/mpeg')
   const queue: Uint8Array[] = []
   let finished = false
   const pump = () => {
     if (buffer.updating) return
     const next = queue.shift()
     if (next) buffer.appendBuffer(next as BufferSource)
-    else if (finished && source.readyState === 'open') source.endOfStream()
+    else if (finished && media.readyState === 'open') media.endOfStream()
   }
   buffer.addEventListener('updateend', pump)
 
@@ -95,6 +101,8 @@ async function attachStream(
 }
 
 export class TtsPlayer {
+  constructor(private source: AudioSource) {}
+
   private audio = new Audio()
   private session = 0 // bumped to cancel in-flight playback loops
   onParagraphChange: (index: number) => void = () => {}
@@ -173,7 +181,7 @@ export class TtsPlayer {
       // synthesis wait; now that the current one streams, a deeper queue is what
       // keeps the *gaps* between paragraphs at zero.
       for (const n of [i + 1, i + 2]) {
-        if (n <= last) void getAudioUrl(`p${n}`, this.paragraphs[n]).catch(() => {})
+        if (n <= last) void getAudioUrl(this.source, `p${n}`, this.paragraphs[n]).catch(() => {})
       }
       try {
         this.speaking = this.paragraphs[i]
@@ -202,7 +210,7 @@ export class TtsPlayer {
     const key = `p${i}`
     const text = this.paragraphs[i]
     if (blobCache.has(key) || !CAN_STREAM) {
-      const url = await getAudioUrl(key, text)
+      const url = await getAudioUrl(this.source, key, text)
       if (session !== this.session) return
       return this.playUrl(url, session)
     }
@@ -218,7 +226,7 @@ export class TtsPlayer {
     this.streamAbort = abort
     return new Promise((resolve) => {
       this.interrupt = resolve
-      attachStream(this.audio, text, abort.signal).then(
+      attachStream(this.source, this.audio, text, abort.signal).then(
         () => {
           if (session !== this.session) {
             this.audio.pause()
@@ -316,7 +324,7 @@ export class TtsPlayer {
           this.speaking = text
           if (first) await this.playStreamed(text, session)
           else {
-            const url = await getAudioUrl(`s:${text}`, text)
+            const url = await getAudioUrl(this.source, `s:${text}`, text)
             if (session !== this.session) return
             await this.playUrl(url, session)
           }
@@ -337,7 +345,7 @@ export class TtsPlayer {
         if (!t || ended) return
         queue.push(t)
         // synthesize ahead of playback; the first sentence streams instead
-        if (pushed++ > 0) void getAudioUrl(`s:${t}`, t).catch(() => {})
+        if (pushed++ > 0) void getAudioUrl(this.source, `s:${t}`, t).catch(() => {})
         signal()
       },
       end: () => {
@@ -356,4 +364,3 @@ export interface SpeechStream {
   end(): Promise<void>
 }
 
-export const tts = new TtsPlayer()

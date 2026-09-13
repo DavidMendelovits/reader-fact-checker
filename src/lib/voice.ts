@@ -7,6 +7,7 @@
 
 // extension-explicit so voice.check.ts can run this file under node
 import { getMicStream } from './audio-levels.ts'
+import type { Transcriber } from './ports.ts'
 
 type UtteranceHandler = (text: string) => void
 
@@ -64,7 +65,8 @@ export function isEcho(heard: string, spoken: string): boolean {
   return hw.length < 5 ? best === 1 : best > 0.6
 }
 
-export class VoiceListener {
+export class VoiceListener implements Transcriber {
+  readonly supported = speechSupported
   private rec: any = null
   private running = false
   private track: MediaStreamTrack | null = null
@@ -226,4 +228,3 @@ export class VoiceListener {
   }
 }
 
-export const voice = new VoiceListener()

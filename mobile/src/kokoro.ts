@@ -21,7 +21,7 @@ import {
   type ModelMeta,
   type Progress,
 } from 'react-native-sherpa-onnx/download'
-import type { VoiceEngine } from './tts'
+import type { VoiceEngine } from './ports'
 
 // Kokoro's speaker table; 0 is the default American English female voice.
 const KOKORO_SPEAKER = 0

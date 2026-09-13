@@ -7,7 +7,8 @@
 // utterance rides along in the same user turn as the tool result — that is what
 // lets "wait, what was that?" resolve against the text that was just read.
 import { useStore } from '../store'
-import { tts, type SpeechStream } from './tts'
+import type { SpeechStream } from './tts'
+import { tts } from './providers'
 import { checkPassage, completeField } from './factcheck'
 import { blip } from './earcon'
 import { apiNdjson } from './api'

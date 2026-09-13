@@ -61,11 +61,7 @@ async function runCheck(
   const res = await apiFetch('/api/factcheck', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      messages: [
-        { role: 'user', content: `Fact check the claims in this passage from the document:\n\n"""${passage}"""` },
-      ],
-    }),
+    body: JSON.stringify({ passage }), // the prompt around it is the server's business
   })
   if (!res.ok) throw new Error(`/api/factcheck failed (${res.status}): ${(await res.text()).slice(0, 300)}`)
   if (!res.body) throw new Error('/api/factcheck returned no body')

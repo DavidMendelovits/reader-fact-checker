@@ -7,7 +7,7 @@
 // fit rather than failing.
 import { useStore } from '../store'
 import { exportMessages, markReopened, restoreMessages } from './agent'
-import { tts } from './tts'
+import { tts } from './providers'
 import type { ChatMessage, Doc, FactCheckJob, Highlight } from '../types'
 
 const KEY = 'rfc-library'

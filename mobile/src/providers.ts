@@ -1,10 +1,17 @@
-// Which voice the player uses, and the one place that switches it. The system
-// voice is the default and always works; Kokoro has to be downloaded once and is
-// then loaded into memory at startup so the first paragraph doesn't wait on it.
+// Composition root for the native app: the ear, the player, and which voice
+// engine the player runs on. The system voice is the default and always works;
+// Kokoro has to be downloaded once and is then loaded into memory at startup so
+// the first paragraph doesn't wait on it. Everything else imports the singletons
+// from here and never names a vendor.
 import { KokoroVoice, installKokoro, isKokoroInstalled } from './kokoro'
 import { saveVoice, type VoicePreference } from './settings'
-import { SystemVoice, tts } from './tts'
+import { Player, SystemVoice } from './tts'
+import { VoiceListener } from './voice'
+import type { Transcriber } from './ports'
 import type { Progress } from 'react-native-sherpa-onnx/download'
+
+export const voice: Transcriber = new VoiceListener()
+export const tts = new Player()
 
 let kokoro: KokoroVoice | null = null
 let active: VoicePreference = 'system'

@@ -6,14 +6,9 @@
 // and needs nothing; the on-device Kokoro voice in kokoro.ts is the upgrade —
 // the same model the web app narrates with, run locally for free.
 import * as Speech from 'expo-speech'
+import type { VoiceEngine } from './ports'
 
 const RECENT_WINDOW_MS = 15000
-
-/** Speak one utterance to completion, or report that stop() cut it off. */
-export interface VoiceEngine {
-  speak(text: string, rate: number): Promise<'done' | 'stopped'>
-  stop(): void | Promise<void>
-}
 
 /** The OS voice. Always available; sounds like an OS voice. */
 export class SystemVoice implements VoiceEngine {
@@ -33,7 +28,7 @@ export class SystemVoice implements VoiceEngine {
   }
 }
 
-class Tts {
+export class Player {
   private paragraphs: string[] = []
   private rate = 1
   private generation = 0
@@ -119,4 +114,3 @@ class Tts {
   }
 }
 
-export const tts = new Tts()

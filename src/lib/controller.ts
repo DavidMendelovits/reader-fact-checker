@@ -4,8 +4,7 @@
 // transport controls and the whole-document scan stay direct: a play button should
 // not need a model round-trip, and a batch scan is a job, not a conversation.
 import { useStore } from '../store'
-import { tts } from './tts'
-import { voice } from './voice'
+import { tts, voice } from './providers'
 import { beginUtterance, openingTurn, say, sayInterim } from './agent'
 import { startMicMeter, stopMicMeter } from './audio-levels'
 import { checkPassage, completeField, extractClaims } from './factcheck'

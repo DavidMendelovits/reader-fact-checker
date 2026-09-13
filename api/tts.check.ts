@@ -1,6 +1,7 @@
-// Self-check for the Unreal Speech path in _impl.ts. Run it with:
+// Self-check for the stitched speech path (_lib/speech.ts) over the Unreal
+// Speech adapter. Run it with:
 //
-//   node --experimental-strip-types api/tts.check.ts
+//   node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/tts.check.ts
 //
 // The vendor's streaming endpoint takes 1,000 characters per call and answers
 // each with a complete MP3 file, tag and all. The server has to split a paragraph
@@ -12,7 +13,8 @@ import http from 'node:http'
 
 process.env.UNREAL_SPEECH_API_KEY = 'test'
 process.env.TTS_PROVIDER = 'unreal'
-const { chunkForTts, id3v2Length, ttsStream } = await import('./_impl.ts')
+const { chunkForTts: chunk, id3v2Length, ttsStream } = await import('./_lib/speech.ts')
+const chunkForTts = (text: string) => chunk(text, 1000)
 
 // ---- chunking ----
 

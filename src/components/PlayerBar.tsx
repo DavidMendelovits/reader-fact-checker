@@ -1,7 +1,6 @@
 import { useStore } from '../store'
 import { play, pause, setMicEnabled, setMicMuted, checkWholeDocument, cancelDocumentCheck } from '../lib/controller'
-import { tts } from '../lib/tts'
-import { speechSupported } from '../lib/voice'
+import { tts, voice } from '../lib/providers'
 
 const RATES = [0.8, 1, 1.2, 1.5, 2]
 
@@ -42,8 +41,8 @@ export function PlayerBar() {
 
       <button
         className={s.micEnabled ? 'mic on' : 'mic'}
-        disabled={!speechSupported}
-        title={speechSupported ? 'Talk to the reader hands-free' : 'SpeechRecognition unsupported (use Chrome)'}
+        disabled={!voice.supported}
+        title={voice.supported ? 'Talk to the reader hands-free' : 'SpeechRecognition unsupported (use Chrome)'}
         onClick={() => setMicEnabled(!s.micEnabled)}
       >
         {s.micEnabled ? '🎙 Listening' : '🎙 Enable mic'}

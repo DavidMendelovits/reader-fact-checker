@@ -8,7 +8,7 @@ import {
 } from 'react-native'
 import { useStore } from './src/store'
 import { loadSettings, saveToken } from './src/settings'
-import { activeVoice, enableKokoro, useVoice } from './src/voice-choice'
+import { activeVoice, enableKokoro, useVoice } from './src/providers'
 import { kokoroSizeMb } from './src/kokoro'
 import { listDocuments, fetchDocument } from './src/readwise'
 import { htmlToParagraphs } from './src/html'

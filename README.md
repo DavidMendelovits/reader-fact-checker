@@ -101,26 +101,70 @@ Fact-check calls can run 20–60s, so the functions declare `maxDuration` accord
 
 ## Architecture
 
-```
-api/_impl.ts           server-side core shared by Vercel + Vite dev: the agent turn
-                       (tools + system prompt), Perplexity fact check, claim
-                       extraction, TTS (Unreal Speech or OpenAI), article fetch
-api/*.ts               Vercel serverless functions wrapping _impl
-vite.config.ts         dev-server middleware mirroring the same /api routes
+Ports and adapters. The application code names what it needs — a conversation
+model, a search-grounded model, a JSON model, a speech synthesizer, an ear, a
+voice — as interfaces, and one file per vendor implements them. A single
+composition root per runtime decides which implementation runs, from env. Nothing
+outside the adapters imports a vendor SDK, so changing providers is a new adapter
+file plus one registry line.
 
-src/lib/agent.ts       the conversation: tool dispatch, the turn loop, fast-path
-                       commands, interruption handling — the heart of the app
-src/lib/controller.ts  wiring for everything the conversation doesn't own: manual
-                       transport, mic lifecycle, highlight + whole-document jobs
-src/lib/voice.ts       continuous SpeechRecognition + echo rejection
-src/lib/tts.ts         playback queue: per-paragraph synth with prefetch; sentence
-                       stream for the agent's replies
-src/lib/sentences.ts   streaming sentence splitter (what decides when a reply starts)
-src/lib/persist.ts     localStorage library: position, cards, highlights, transcript
-src/lib/extract.ts     URL/EPUB → { title, chapters: [{ title, paragraphs }] }
-src/store.ts           zustand: doc, position, agent state, jobs, highlights, chat
-src/components/        ImportScreen, Reader, PlayerBar, ChatPanel, FactCheckPanel
 ```
+api/_lib/ports.ts          the server's ports: ConversationModel, SearchModel,
+                           JsonCompletion, SpeechSynthesizer — no vendor types
+api/_lib/adapters/         one file per vendor: anthropic (conversation + JSON),
+                           perplexity (search), openai-speech, unreal-speech
+api/_lib/providers.ts      composition root: env → adapter, memoized; override()
+                           for tests
+api/_lib/agent.ts          the companion's prompt, tools, and turn use-case
+api/_lib/factcheck.ts      verdict prompt, schema, parsing
+api/_lib/claims.ts         claim extraction for the whole-document scan
+api/_lib/speech.ts         /api/tts use-case + stitching (splits text to fit a
+                           vendor's per-request cap; one continuous MP3 out)
+api/_impl.ts               re-exports the use-cases for the routes
+api/*.ts                   Vercel serverless functions (the only entry points)
+vite.config.ts             dev-server middleware mirroring the same /api routes
+
+src/lib/ports.ts           the browser's ports: Transcriber (the ear), AudioSource
+src/lib/providers.ts       composition root: the ear and the player singletons
+src/lib/voice.ts           Transcriber on Chrome's SpeechRecognition + echo rejection
+src/lib/tts.ts             the player: per-paragraph synth with prefetch, sentence
+                           stream for replies; serverSpeech is the default AudioSource
+src/lib/sentences.ts       streaming sentence splitter (what decides when a reply starts)
+src/lib/agent.ts           the conversation: tool dispatch, the turn loop, fast-path
+                           commands, interruption handling — the heart of the app
+src/lib/controller.ts      wiring for everything the conversation doesn't own: manual
+                           transport, mic lifecycle, highlight + whole-document jobs
+src/lib/persist.ts         localStorage library: position, cards, highlights, transcript
+src/lib/extract.ts         URL/EPUB → { title, chapters: [{ title, paragraphs }] }
+src/store.ts               zustand: doc, position, agent state, jobs, highlights, chat
+src/components/            ImportScreen, Reader, PlayerBar, ChatPanel, FactCheckPanel
+
+mobile/src/ports.ts        VoiceEngine, Transcriber
+mobile/src/providers.ts    composition root: the ear, the player, and which voice
+                           engine it runs on (system or on-device Kokoro)
+mobile/src/tts.ts          the player + SystemVoice (expo-speech)
+mobile/src/kokoro.ts       KokoroVoice on react-native-sherpa-onnx
+```
+
+Provider selection on the server:
+
+| env | port | default |
+|---|---|---|
+| `AGENT_PROVIDER` | conversation | `anthropic` |
+| `CLAIMS_PROVIDER` | json | `anthropic` |
+| `FACTCHECK_PROVIDER` | search | `perplexity` |
+| `TTS_PROVIDER` | speech | `unreal` if `UNREAL_SPEECH_API_KEY` is set, else `openai` |
+
+To add a text-to-speech vendor, say: write `api/_lib/adapters/<vendor>.ts` returning a
+`SpeechSynthesizer` (one request in, a streaming MP3 out, `maxChars` if the vendor caps
+the text), add it to the `speech` registry in `providers.ts`, and set `TTS_PROVIDER`.
+The stitching, the routes, and both clients stay as they are.
+
+One caveat on the conversation port: the transcript is persisted in the app's block
+vocabulary (`text`, `tool_use`, `tool_result`) plus any vendor-specific blocks the
+current model needs echoed back (Anthropic's thinking blocks). A different vendor's
+adapter must drop blocks it doesn't own; a conversation that started on one vendor
+continues on another, minus those.
 
 Two ideas hold it together:
 

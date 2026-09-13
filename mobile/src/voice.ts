@@ -8,6 +8,7 @@ import {
   type ExpoSpeechRecognitionErrorEvent,
   type ExpoSpeechRecognitionResultEvent,
 } from 'expo-speech-recognition'
+import type { Transcriber } from './ports'
 
 const words = (s: string) => s.toLowerCase().match(/[a-z0-9']+/g) ?? []
 const countWords = (s: string) => words(s).length
@@ -29,7 +30,7 @@ export function isEcho(heard: string, spoken: string): boolean {
   return hw.length < 5 ? best === 1 : best > 0.6
 }
 
-export class VoiceListener {
+export class VoiceListener implements Transcriber {
   private running = false
   private talking = false
   private subs: { remove(): void }[] = []
@@ -105,4 +106,3 @@ export class VoiceListener {
   }
 }
 
-export const voice = new VoiceListener()
