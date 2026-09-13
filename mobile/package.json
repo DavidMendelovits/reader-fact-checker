@@ -23,7 +23,8 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "check": "node --experimental-strip-types src/html.check.ts && node --experimental-strip-types src/highlights.check.ts && node --experimental-strip-types src/readwise.check.ts && node --experimental-strip-types src/library.check.ts"
   },
   "private": true
 }

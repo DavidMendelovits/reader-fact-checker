@@ -51,7 +51,8 @@ export function readwiseLibrary(token: string, opts: ReadwiseOptions = {}): Libr
   async function call(url: string, init: RequestInit = {}, retried = false): Promise<Response> {
     const res = await fetch(url, { ...init, headers: { ...headers, ...(init.headers ?? {}) } })
     if (res.status === 429 && !retried) {
-      const wait = Math.min(60, Number(res.headers.get('Retry-After')) || 5)
+      const retryAfter = Number(res.headers.get('Retry-After') ?? NaN)
+      const wait = Math.min(60, Number.isFinite(retryAfter) ? retryAfter : 5)
       await new Promise((r) => setTimeout(r, wait * 1000))
       return call(url, init, true)
     }

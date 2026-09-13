@@ -188,7 +188,7 @@ export class LibraryService {
 }
 
 const STOP = new Set(['the', 'a', 'an', 'of', 'to', 'in', 'on', 'by', 'and', 'or', 'that', 'this', 'one', 'about', 'book', 'article', 'open', 'read', 'me', 'my', 'please'])
-const tokens = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').match(/[a-z0-9']+/g) ?? []
+const tokens = (s: string): string[] => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').match(/[a-z0-9']+/g) ?? []
 
 function score(d: LibraryDoc, terms: string[]): number {
   const title = tokens(d.title)
