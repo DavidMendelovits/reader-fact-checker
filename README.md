@@ -43,12 +43,15 @@ The voice is a choice. The OS voice (`expo-speech`) works out of the box. In set
 cd mobile
 npm install
 npm run check      # the data layer against a fake Reader API, under node
+npm run smoke:web  # the whole app in a headless browser, against a fake Reader and a scripted model
 npx expo run:ios   # dev build — speech recognition and Kokoro are native modules, so Expo Go won't do
 ```
 
 Then paste your token from [readwise.io/access_token](https://readwise.io/access_token).
 
-Known gaps, in the order they'll matter: no lock-screen controls yet (background audio is enabled, remote commands need a native module); PDFs and videos have no text in Reader's API, so they're listed but say so when opened; no share-sheet capture (save to Reader from other apps as you do today); highlight *notes* live on the phone only, since Readwise's v2 API has no highlight-update call; nothing here has run on a device yet — it typechecks and the data layer is tested, and the first real session will find what a fake Reader can't.
+`smoke:web` exports the app for the web (React Native Web; the on-device voice has a web stub and narration is silent), serves it with `smoke/fake-backend.mjs` — a four-document Reader library plus a model that answers the handful of things the test says — and drives it with Playwright the way a person would: sign in, search, open a book by typing what you'd say, let it read, highlight by long-press and by voice, note, remove, archive, close, reopen to the saved position, try a PDF, sign out. It needs a Chromium (`SMOKE_CHROME=/path/to/chrome` if Playwright's isn't installed). The same build also works under [agent-device](https://github.com/callstackincubator/agent-device)'s web target, which is how it was first driven; its accessibility snapshots are why every control here carries a role and a label.
+
+Known gaps, in the order they'll matter: no lock-screen controls yet (background audio is enabled, remote commands need a native module); PDFs and videos have no text in Reader's API, so they're listed but say so when opened; no share-sheet capture (save to Reader from other apps as you do today); highlight *notes* live on the phone only, since Readwise's v2 API has no highlight-update call; and nothing here has run on a phone yet — it typechecks, the data layer is tested, and the whole flow runs in a browser against a fake Reader, but the native modules (the ear, the on-device voice, background audio) and the real Readwise responses meet the app for the first time on your device.
 
 ## Setup (local)
 

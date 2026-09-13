@@ -24,7 +24,11 @@ const newId = () => `h-${Date.now()}-${++counter}`
 
 /** Sign in: restore the cached library instantly, then pull changes in the background. */
 export async function startLibrary(token: string): Promise<void> {
-  service = new LibraryService(readwiseLibrary(token), asyncStore)
+  // EXPO_PUBLIC_READWISE_BASE points the app at a stand-in Reader for a local
+  // run (the web smoke test); unset, which is every real build, it's Readwise.
+  const base = process.env.EXPO_PUBLIC_READWISE_BASE
+  const lib = base ? readwiseLibrary(token, { readerBase: `${base}/api/v3`, readwiseBase: `${base}/api/v2` }) : readwiseLibrary(token)
+  service = new LibraryService(lib, asyncStore)
   service.onChange = () => useStore.getState().setLibrary(service!.docs, service!.sync.lastSync)
   await service.load()
   void refreshLibrary()
@@ -74,14 +78,16 @@ async function persist(): Promise<void> {
  * the caller can say "picking up at chapter three".
  */
 export async function openDocument(id: string): Promise<{ doc: Doc; libraryDoc: LibraryDoc; position: number }> {
-  await closeDocument()
   const lib = library()
+  // fetch and check first: "open the report" must not put the book away when
+  // the report turns out to be a PDF with no text
   const { doc: libraryDoc, html } = await lib.fetchHtml(id)
   if (!html) throw new Error(`Reader has no readable text for "${libraryDoc.title}" (it may be a PDF or a video).`)
   const chapters = htmlToChapters(html, libraryDoc.title)
   const paragraphs = chapters.flatMap((c) => c.paragraphs)
   if (paragraphs.length === 0) throw new Error(`"${libraryDoc.title}" has no readable text.`)
   const doc: Doc = { id, title: libraryDoc.title, source: libraryDoc.sourceUrl ?? 'Readwise Reader', chapters }
+  await closeDocument()
 
   const saved = await lib.docState(id)
   // Reader-side highlights the phone hasn't folded in: anchor and adopt them

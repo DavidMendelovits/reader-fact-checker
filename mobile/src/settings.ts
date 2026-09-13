@@ -3,7 +3,7 @@
 // nothing secret ever ships in this bundle.
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-export const DEFAULT_API_BASE = 'https://reader-fact-checker.vercel.app'
+export const DEFAULT_API_BASE = process.env.EXPO_PUBLIC_API_BASE ?? 'https://reader-fact-checker.vercel.app'
 
 const TOKEN_KEY = 'readwise-token'
 const API_BASE_KEY = 'api-base'

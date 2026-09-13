@@ -5,7 +5,7 @@
 import { StatusBar } from 'expo-status-bar'
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  ActivityIndicator, Alert, FlatList, Modal, Pressable, RefreshControl, SafeAreaView, StyleSheet,
+  ActivityIndicator, Alert, FlatList, Modal, Platform, Pressable, RefreshControl, SafeAreaView, StyleSheet,
   Text, TextInput, View,
 } from 'react-native'
 import { useStore, type AgentState } from './src/store'
@@ -16,7 +16,7 @@ import {
   closeDocument, highlightParagraph, library, moveDocument, openDocument, refreshLibrary,
   removeHighlight, setHighlightNote, startLibrary, stopLibrary,
 } from './src/session'
-import { openingTurn, pause, play, resetConversation, setMicEnabled } from './src/agent'
+import { openingTurn, pause, play, resetConversation, say, setMicEnabled } from './src/agent'
 import { splitRuns } from './src/highlights'
 import type { FlatParagraph, Highlight, LibraryDoc, Location } from './src/types'
 
@@ -26,6 +26,20 @@ const AGENT_LABEL: Record<AgentState, string> = {
 
 const LOCATION_LABEL: Record<Location, string> = { new: 'Inbox', later: 'Later', archive: 'Archive', feed: 'Feed' }
 const TABS: Location[] = ['new', 'later', 'archive']
+
+type Choice = { text: string; style?: 'cancel' | 'destructive' | 'default'; onPress?: () => void }
+
+/**
+ * A native action sheet, or the nearest thing a browser has. React Native Web
+ * ships no Alert, so the web build (the smoke test, mostly) gets a numbered
+ * prompt; an empty answer is cancel.
+ */
+function choose(title: string, message: string, buttons: Choice[]) {
+  if (Platform.OS !== 'web') return choose(title, message, buttons)
+  const actions = buttons.filter((b) => b.style !== 'cancel')
+  const answer = window.prompt(`${title}\n${message}\n\n${actions.map((b, i) => `${i + 1}. ${b.text}`).join('\n')}`, '1')
+  actions[Number(answer) - 1]?.onPress?.()
+}
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -78,17 +92,50 @@ function Notice() {
   const notice = useStore((s) => s.notice)
   if (!notice) return null
   return (
-    <Pressable style={styles.notice} onPress={() => useStore.getState().setNotice(null)}>
+    <Pressable role="button" style={styles.notice} onPress={() => useStore.getState().setNotice(null)}>
       <Text style={styles.noticeText}>{notice}</Text>
     </Pressable>
   )
 }
 
 /** The one mic control, shared by the library header and the reader footer. */
+/**
+ * Type what you'd say. The same turn as speaking it — for a quiet train, and for
+ * driving the app without a microphone (the web smoke test does exactly this).
+ */
+function TypeBar() {
+  const [text, setText] = useState('')
+  const send = () => {
+    const t = text.trim()
+    if (!t) return
+    setText('')
+    say(t)
+  }
+  return (
+    <View style={styles.typeRow}>
+      <TextInput
+        style={[styles.typeBar, styles.flex]}
+        value={text}
+        onChangeText={setText}
+        onSubmitEditing={send}
+        placeholder="or type it…"
+        placeholderTextColor="#a39c8f"
+        returnKeyType="send"
+        blurOnSubmit={false}
+        accessibilityLabel="Type a command"
+        testID="type-bar"
+      />
+      <Pressable role="button" accessibilityLabel="Send" onPress={send} disabled={!text.trim()} hitSlop={8}>
+        <Text style={[styles.link, !text.trim() && styles.buttonDisabled]}>Send</Text>
+      </Pressable>
+    </View>
+  )
+}
+
 function MicToggle() {
   const micEnabled = useStore((s) => s.micEnabled)
   return (
-    <Pressable onPress={() => setMicEnabled(!micEnabled)} hitSlop={8}>
+    <Pressable role="button" accessibilityLabel={micEnabled ? "Turn microphone off" : "Turn microphone on"} onPress={() => setMicEnabled(!micEnabled)} hitSlop={8}>
       <Text style={[styles.mic, micEnabled && styles.micOn]}>{micEnabled ? '● mic on' : '○ mic off'}</Text>
     </Pressable>
   )
@@ -130,7 +177,7 @@ function TokenScreen({ onSaved }: { onSaved: (t: string) => void }) {
         autoCorrect={false}
         editable={!busy}
       />
-      <Pressable
+      <Pressable role="button"
         style={[styles.button, (!value.trim() || busy) && styles.buttonDisabled]}
         disabled={!value.trim() || busy}
         onPress={() => void save()}
@@ -214,13 +261,13 @@ function LibraryScreen() {
       <View style={styles.header}>
         <Text style={styles.h1}>Reader</Text>
         <MicToggle />
-        <Pressable onPress={() => useStore.getState().setScreen('settings')} hitSlop={8}>
+        <Pressable role="button" onPress={() => useStore.getState().setScreen('settings')} hitSlop={8}>
           <Text style={styles.link}>settings</Text>
         </Pressable>
       </View>
       <View style={styles.tabs}>
         {TABS.map((tab) => (
-          <Pressable
+          <Pressable role="button"
             key={tab}
             style={[styles.tab, tab === location && !q && styles.tabActive]}
             onPress={() => useStore.getState().setLibraryLocation(tab)}
@@ -240,14 +287,16 @@ function LibraryScreen() {
         autoCorrect={false}
         clearButtonMode="while-editing"
         returnKeyType="search"
+        accessibilityLabel="Search your library"
       />
+      <TypeBar />
       <FlatList
         data={shown}
         keyExtractor={(d) => d.id}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={pulling} onRefresh={() => void refresh()} tintColor="#8a5a2b" />}
         renderItem={({ item }) => (
-          <Pressable style={styles.docRow} onPress={() => void open(item.id)}>
+          <Pressable role="button" style={styles.docRow} onPress={() => void open(item.id)}>
             <View style={styles.flex}>
               <Text style={styles.docTitle} numberOfLines={2}>{item.title || 'Untitled'}</Text>
               {q && item.location !== location ? (
@@ -288,11 +337,17 @@ interface ParagraphRowProps {
 const ParagraphRow = memo(function ParagraphRow({ item, index, current, marks, onLongPress, onPressMark }: ParagraphRowProps) {
   const runs = splitRuns(item.text, marks)
   const heading = item.paragraphIndex === 0
+  // A Pressable, not Text handlers: long-press behaves the same on iOS, Android
+  // and the web build, and screen readers get a real element to land on.
   return (
-    <Text
-      style={[styles.paragraph, heading && styles.chapterHeading, current && styles.currentParagraph]}
+    <Pressable
+      role="button"
+      accessibilityLabel={`${heading ? 'Chapter heading' : 'Paragraph'} ${index + 1}. Long press to highlight.`}
       onLongPress={() => onLongPress(index)}
+      delayLongPress={450}
+      style={[styles.paragraphRow, current && styles.currentParagraph]}
     >
+    <Text style={[styles.paragraph, heading && styles.chapterHeading]}>
       {runs.map((r, i) =>
         r.mark ? (
           <Text
@@ -308,6 +363,7 @@ const ParagraphRow = memo(function ParagraphRow({ item, index, current, marks, o
         ),
       )}
     </Text>
+    </Pressable>
   )
 })
 
@@ -359,10 +415,15 @@ function ReaderScreen() {
     list.current?.scrollToIndex({ index: next, viewPosition: 0.3, animated: true })
   }
 
+  // A long-press repaints the paragraph under the finger; the release then lands
+  // on the fresh highlight and would open its sheet. Ignore mark taps for a beat.
+  const suppressMarksUntil = useRef(0)
+
   const askHighlight = (index: number) => {
     const p = useStore.getState().paragraphs[index]
     if (!p) return
-    Alert.alert('Highlight this paragraph?', p.text.slice(0, 120) + (p.text.length > 120 ? '…' : ''), [
+    suppressMarksUntil.current = Date.now() + 800
+    choose('Highlight this paragraph?', p.text.slice(0, 120) + (p.text.length > 120 ? '…' : ''), [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Highlight',
@@ -372,7 +433,8 @@ function ReaderScreen() {
   }
 
   const askMark = (h: Highlight) => {
-    Alert.alert(h.note ? h.note : 'Highlight', h.text.slice(0, 120), [
+    if (Date.now() < suppressMarksUntil.current) return
+    choose(h.note ? h.note : 'Highlight', h.text.slice(0, 120), [
       { text: h.note ? 'Edit note' : 'Add note', onPress: () => setNoteTarget(h) },
       {
         text: 'Remove',
@@ -388,7 +450,7 @@ function ReaderScreen() {
     const id = libraryDoc.id
     const move = (to: Location) => () =>
       void moveDocument(id, to).catch((e: unknown) => useStore.getState().setNotice(errorText(e)))
-    Alert.alert('File under', `Now in ${LOCATION_LABEL[libraryDoc.location]}.`, [
+    choose('File under', `Now in ${LOCATION_LABEL[libraryDoc.location]}.`, [
       ...TABS.filter((t) => t !== libraryDoc.location).map((t) => ({ text: LOCATION_LABEL[t], onPress: move(t) })),
       { text: 'Cancel', style: 'cancel' as const },
     ])
@@ -400,11 +462,11 @@ function ReaderScreen() {
   return (
     <View style={styles.flex}>
       <View style={styles.header}>
-        <Pressable onPress={() => void closeDocument()} hitSlop={8}>
+        <Pressable role="button" accessibilityLabel="Back to library" onPress={() => void closeDocument()} hitSlop={8}>
           <Text style={styles.link}>‹ Library</Text>
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>{doc?.title}</Text>
-        <Pressable onPress={askMove} hitSlop={8} disabled={!libraryDoc}>
+        <Pressable role="button" onPress={askMove} hitSlop={8} disabled={!libraryDoc}>
           <Text style={styles.filing}>{libraryDoc ? LOCATION_LABEL[libraryDoc.location] : ''} ▾</Text>
         </Pressable>
       </View>
@@ -438,18 +500,19 @@ function ReaderScreen() {
         <View style={styles.footerRow}>
           <MicToggle />
           <Text style={styles.agentState}>{AGENT_LABEL[agentState]}</Text>
-          <Pressable onPress={() => (playing ? pause() : play())} hitSlop={8}>
+          <Pressable role="button" accessibilityLabel={playing ? "Pause" : "Play"} onPress={() => (playing ? pause() : play())} hitSlop={8}>
             <Text style={styles.link}>{playing ? '❚❚ Pause' : '▶ Play'}</Text>
           </Pressable>
         </View>
         <View style={styles.footerRow}>
-          <Pressable onPress={jumpToNextHighlight} disabled={count === 0} hitSlop={8}>
+          <Pressable role="button" onPress={jumpToNextHighlight} disabled={count === 0} hitSlop={8}>
             <Text style={[styles.docMeta, count > 0 && styles.highlightCount]}>
               {count === 1 ? '1 highlight' : `${count} highlights`}
             </Text>
           </Pressable>
           <Text style={styles.docMeta}>{rate}x · ¶{current + 1}/{paragraphs.length}</Text>
         </View>
+        <TypeBar />
       </View>
       {noteTarget && <NoteModal highlight={noteTarget} onClose={() => setNoteTarget(null)} />}
     </View>
@@ -479,8 +542,8 @@ function NoteModal({ highlight, onClose }: { highlight: Highlight; onClose: () =
             autoFocus
           />
           <View style={styles.modalActions}>
-            <Pressable onPress={onClose} hitSlop={8}><Text style={styles.link}>Cancel</Text></Pressable>
-            <Pressable style={styles.button} onPress={save}><Text style={styles.buttonText}>Save</Text></Pressable>
+            <Pressable role="button" onPress={onClose} hitSlop={8}><Text style={styles.link}>Cancel</Text></Pressable>
+            <Pressable role="button" style={styles.button} onPress={save}><Text style={styles.buttonText}>Save</Text></Pressable>
           </View>
         </Pressable>
       </Pressable>
@@ -529,7 +592,7 @@ function VoicePicker() {
       ? 'voice: on-device'
       : `voice: system${sizeMb ? ` · get on-device (${sizeMb}MB)` : ''}`
   return (
-    <Pressable onPress={() => void toggle()} disabled={!!busy}>
+    <Pressable role="button" onPress={() => void toggle()} disabled={!!busy}>
       <Text style={[styles.link, busy && styles.buttonDisabled]}>{label}</Text>
     </Pressable>
   )
@@ -567,7 +630,7 @@ function SettingsScreen({ onSignOut }: { onSignOut: () => void }) {
   return (
     <View style={styles.flex}>
       <View style={styles.header}>
-        <Pressable onPress={() => useStore.getState().setScreen('library')} hitSlop={8}>
+        <Pressable role="button" onPress={() => useStore.getState().setScreen('library')} hitSlop={8}>
           <Text style={styles.link}>‹ Library</Text>
         </Pressable>
         <Text style={styles.headerTitle} numberOfLines={1}>Settings</Text>
@@ -600,11 +663,11 @@ function SettingsScreen({ onSignOut }: { onSignOut: () => void }) {
               {syncing ? 'syncing…' : lastSync ? `last synced ${new Date(lastSync).toLocaleString()}` : 'not synced yet'}
             </Text>
           </View>
-          <Pressable onPress={() => void refreshLibrary({ full: true })} disabled={syncing} hitSlop={8}>
+          <Pressable role="button" onPress={() => void refreshLibrary({ full: true })} disabled={syncing} hitSlop={8}>
             <Text style={[styles.link, syncing && styles.buttonDisabled]}>Resync library</Text>
           </Pressable>
         </View>
-        <Pressable
+        <Pressable role="button"
           style={[styles.button, styles.signOut, signingOut && styles.buttonDisabled]}
           onPress={() => void signOut()}
           disabled={signingOut}
@@ -664,7 +727,8 @@ const styles = StyleSheet.create({
 
   // reader
   readerContent: { paddingBottom: 24 },
-  paragraph: { fontSize: 17, lineHeight: 27, color: '#3c372e', paddingHorizontal: 20, paddingVertical: 8 },
+  paragraphRow: { paddingHorizontal: 20, paddingVertical: 8 },
+  paragraph: { fontSize: 17, lineHeight: 27, color: '#3c372e' },
   chapterHeading: { fontSize: 22, lineHeight: 30, fontWeight: '700', color: '#1a1712', paddingTop: 28, paddingBottom: 10 },
   currentParagraph: { backgroundColor: '#f3ead8', color: '#1a1712' },
   mark: { backgroundColor: '#f6e7a8', color: '#1a1712' },
@@ -672,6 +736,8 @@ const styles = StyleSheet.create({
   markNote: { color: '#8a5a2b', fontSize: 13 },
   footer: { borderTopWidth: 1, borderTopColor: '#e8e2d6', padding: 12, gap: 8, backgroundColor: '#faf8f4' },
   chatLine: { fontSize: 14, color: '#5a544a', fontStyle: 'italic' },
+  typeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 12, marginBottom: 6 },
+  typeBar: { borderWidth: 1, borderColor: '#e8e2d6', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, fontSize: 14, backgroundColor: '#fff' },
   footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   mic: { fontSize: 14, color: '#8d867a', fontWeight: '600' },
   micOn: { color: '#2b6a3f' },

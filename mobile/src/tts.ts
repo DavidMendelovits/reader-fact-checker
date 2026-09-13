@@ -28,6 +28,32 @@ export class SystemVoice implements VoiceEngine {
   }
 }
 
+/**
+ * No sound, real timing: each utterance "plays" for about as long as it would
+ * take to say. For builds that can't make sound — the web smoke test, where
+ * headless Chromium's speech synthesis never reports finishing.
+ */
+export class SilentVoice implements VoiceEngine {
+  private timer: ReturnType<typeof setTimeout> | null = null
+  private cancel: (() => void) | null = null
+  speak(text: string, rate: number): Promise<'done' | 'stopped'> {
+    this.stop()
+    return new Promise((resolve) => {
+      this.cancel = () => resolve('stopped')
+      this.timer = setTimeout(() => {
+        this.cancel = null
+        resolve('done')
+      }, Math.min(1500, (text.length * 8) / Math.max(0.5, rate)))
+    })
+  }
+  stop() {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+    this.cancel?.()
+    this.cancel = null
+  }
+}
+
 export class Player {
   private paragraphs: string[] = []
   private rate = 1
