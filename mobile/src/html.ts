@@ -55,7 +55,7 @@ export function htmlToChapters(html: string, docTitle: string): Chapter[] {
     if (paragraphs.length > 0) out.push({ title: chapterTitle || docTitle, paragraphs })
   }
   for (const m of clean.matchAll(HEADING)) {
-    push(clean.slice(last, m.index), title, out.length > 0)
+    push(clean.slice(last, m.index), title, last > 0)
     title = toText(m[2]) || title
     last = (m.index ?? 0) + m[0].length
   }

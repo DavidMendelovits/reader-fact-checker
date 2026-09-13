@@ -32,6 +32,11 @@ export async function saveToken(token: string) {
   await AsyncStorage.setItem(TOKEN_KEY, token.trim())
 }
 
+/** Sign out: forget the token. The next launch shows the sign-in screen. */
+export async function clearToken() {
+  await AsyncStorage.removeItem(TOKEN_KEY)
+}
+
 export async function saveApiBase(base: string) {
   apiBase = base.trim().replace(/\/$/, '') || DEFAULT_API_BASE
   await AsyncStorage.setItem(API_BASE_KEY, apiBase)
