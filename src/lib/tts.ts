@@ -147,10 +147,11 @@ export class TtsPlayer {
 
   /**
    * Read paragraphs [index, until] aloud. Resolves 'completed' when the range
-   * finishes, or 'stopped' if pause() cancelled it (the agent's read_aloud tool
-   * distinguishes the two — 'stopped' means the user talked over it).
+   * finishes, 'stopped' if pause() cancelled it (the agent's read_aloud tool
+   * distinguishes the outcomes — 'stopped' means the user talked over it), or
+   * 'failed' when synthesis itself is down — see runRange.
    */
-  async playFrom(index: number, until = Infinity): Promise<'completed' | 'stopped'> {
+  async playFrom(index: number, until = Infinity): Promise<'completed' | 'stopped' | 'failed'> {
     const session = ++this.session
     const last = Math.min(until, this.paragraphs.length - 1)
     this.index = index
@@ -164,8 +165,13 @@ export class TtsPlayer {
     }
   }
 
-  private async runRange(index: number, last: number, session: number): Promise<'completed' | 'stopped'> {
+  private async runRange(index: number, last: number, session: number): Promise<'completed' | 'stopped' | 'failed'> {
     this.index = index
+    // One bad paragraph is worth skipping; a run of them means the TTS endpoint
+    // is down, and "skip" then races through the whole book at network speed —
+    // the position ends up at the last paragraph with nothing read. Stop instead,
+    // holding the position at the first paragraph of the failing stretch.
+    let failStreak = 0
     while (this.index <= last && session === this.session) {
       const i = this.index
       this.onParagraphChange(i)
@@ -179,8 +185,15 @@ export class TtsPlayer {
         this.speaking = this.paragraphs[i]
         await this.playParagraph(i, session)
         if (session !== this.session) return 'stopped'
+        failStreak = 0
       } catch (e) {
+        // pause() aborts the in-flight stream; that rejection is the user, not an outage
+        if (session !== this.session) return 'stopped'
         console.error('TTS error, skipping paragraph', i, e)
+        if (++failStreak >= 3) {
+          this.index = i - failStreak + 1
+          return 'failed'
+        }
       } finally {
         this.remember(this.speaking)
         this.speaking = ''
@@ -216,7 +229,7 @@ export class TtsPlayer {
     this.streamAbort?.abort()
     const abort = new AbortController()
     this.streamAbort = abort
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       this.interrupt = resolve
       attachStream(this.audio, text, abort.signal).then(
         () => {
@@ -229,10 +242,10 @@ export class TtsPlayer {
           this.audio.onerror = () => resolve()
           this.audio.play().catch(() => resolve())
         },
-        (e) => {
-          console.error('TTS stream failed', e)
-          resolve()
-        },
+        // Rejecting (not resolving) is what lets runRange count an outage —
+        // swallowing this here made a dead TTS endpoint indistinguishable from
+        // a paragraph that played fine.
+        reject,
       )
     })
   }
@@ -281,6 +294,10 @@ export class TtsPlayer {
       this.speaking = text
       // the agent's own replies are never prefetchable, so always stream them
       await this.playStreamed(text, this.session)
+    } catch (e) {
+      // the reply is on screen in the chat panel; losing the audio isn't worth
+      // aborting the agent turn that awaits this
+      console.error('TTS speak failed', e)
     } finally {
       this.remember(this.speaking)
       this.speaking = ''

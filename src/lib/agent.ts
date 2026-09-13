@@ -10,7 +10,7 @@ import { useStore } from '../store'
 import { tts } from './tts'
 import { checkPassage, completeField } from './factcheck'
 import { blip } from './earcon'
-import { apiJson } from './api'
+import { apiJsonRetry } from './api'
 import type { Doc, FactCheckJob, Highlight } from '../types'
 
 type Block =
@@ -130,7 +130,7 @@ function buildContext() {
  * Play a range and hold until it ends or the user talks over it. Shared by the
  * read_aloud tool and the "keep going" fast path.
  */
-async function playRange(from: number, to: number): Promise<'completed' | 'stopped'> {
+async function playRange(from: number, to: number): Promise<'completed' | 'stopped' | 'failed'> {
   const s = useStore.getState()
   tts.setParagraphs(s.paragraphs.map((p) => p.text))
   tts.setRate(s.rate)
@@ -140,6 +140,7 @@ async function playRange(from: number, to: number): Promise<'completed' | 'stopp
   // through the settle window and the next model turn made the UI claim it was
   // still reading for seconds after the audio stopped.
   useStore.setState({ agentState: running ? 'thinking' : 'idle' })
+  if (outcome === 'failed') useStore.setState({ notice: 'Narration failed — the speech service is unreachable. Your position is saved.' })
   return outcome
 }
 
@@ -153,6 +154,8 @@ async function readAloud(input: Record<string, unknown>): Promise<string> {
 
   const outcome = await playRange(from, to)
   const stoppedAt = tts.currentIndex
+  if (outcome === 'failed')
+    return `Narration failed — the speech service is unreachable, so nothing past paragraph ${stoppedAt} was read. The user has been shown an error. Do not retry read_aloud this turn.`
   return outcome === 'completed'
     ? `Read paragraphs ${from} through ${to}. Position is now paragraph ${Math.min(to + 1, last)}.`
     : `The user interrupted at paragraph ${stoppedAt}, which reads: "${s.paragraphs[stoppedAt]?.text ?? ''}"`
@@ -514,7 +517,8 @@ async function loop() {
   try {
     for (let turn = 0; turn < MAX_TURNS; turn++) {
       useStore.setState({ agentState: 'thinking' })
-      const { content } = await apiJson<{ content: Block[] }>('/api/agent', {
+      // retried on transient failures: one 529 must not end the conversation
+      const { content } = await apiJsonRetry<{ content: Block[] }>('/api/agent', {
         messages,
         context: buildContext(),
       })
