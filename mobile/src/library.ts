@@ -28,10 +28,14 @@ export class LibraryService {
   sync: SyncState = { lastSync: null }
   onChange: () => void = () => {}
 
-  constructor(
-    private library: Library,
-    private store: KeyValueStore,
-  ) {}
+  private library: Library
+  private store: KeyValueStore
+
+  // plain assignments, not parameter properties: node's type stripping can't run those
+  constructor(library: Library, store: KeyValueStore) {
+    this.library = library
+    this.store = store
+  }
 
   /** Restore the cached library. Instant; the sync that follows fills in changes. */
   async load(): Promise<void> {
@@ -85,6 +89,11 @@ export class LibraryService {
     this.sync = { lastSync: startedAt }
     await this.persist()
     this.onChange()
+  }
+
+  /** A document's text, straight from the library (nothing to cache: it's read once per open). */
+  fetchHtml(id: string): Promise<{ doc: LibraryDoc; html: string | null }> {
+    return this.library.fetchHtml(id)
   }
 
   inLocation(location: Location): LibraryDoc[] {

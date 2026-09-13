@@ -25,9 +25,10 @@ const doc = (id: string, over: Partial<LibraryDoc> = {}): LibraryDoc => ({
   tags: [],
   readingProgress: null,
   publishedDate: null,
-  updatedAt: `2026-01-0${id.charCodeAt(0) % 9 || 1}T00:00:00Z`,
+  updatedAt: '2026-01-01T00:00:00Z',
   ...over,
 })
+const at = (day: number) => `2026-01-${String(day).padStart(2, '0')}T00:00:00Z`
 const remote = (id: string, docId: string): RemoteHighlight => ({ id, docId, text: `text ${id}`, note: null, updatedAt: '2026-01-01T00:00:00Z' })
 const highlight = (id: string, over: Partial<Highlight> = {}): Highlight => ({ id, text: `passage ${id}`, anchor: null, createdAt: 1, ...over })
 
@@ -100,16 +101,16 @@ service.onChange = () => changes++
 
 // ---- load() on an empty store ----
 await service.load()
-assert.deepEqual(service.docs, [])
-assert.deepEqual(service.remoteHighlights, [])
+assert.equal(service.docs.length, 0)
+assert.equal(service.remoteHighlights.length, 0)
 assert.deepEqual(service.sync, { lastSync: null })
 assert.equal(changes, 1)
 
 // ---- first refresh: walks every page of every location, and the highlights, then persists ----
 fake.pages = {
-  new: [[doc('a'), doc('b')], [doc('c')]],
-  later: [[doc('d', { location: 'later' })]],
-  archive: [[doc('e', { location: 'archive' })]],
+  new: [[doc('a', { updatedAt: at(1) }), doc('b', { updatedAt: at(2) })], [doc('c', { updatedAt: at(3) })]],
+  later: [[doc('d', { location: 'later', updatedAt: at(4) })]],
+  archive: [[doc('e', { location: 'archive', updatedAt: at(5) })]],
 }
 fake.highlightPages = [[remote('h1', 'a'), remote('h2', 'a')], [remote('h3', 'b')]]
 await service.refresh()
@@ -162,7 +163,7 @@ assert.ok(service.sync.lastSync! > firstSync!)
 
 // ---- full refresh: forgets what the library no longer has ----
 fake.listCalls = []
-fake.pages = { new: [[doc('a')]], later: [[doc('d', { location: 'later' })]], archive: [[]] }
+fake.pages = { new: [[doc('a', { updatedAt: at(1) })]], later: [[doc('d', { location: 'later', updatedAt: at(4) })]], archive: [[]] }
 fake.highlightPages = [[remote('h1', 'a')]]
 await service.refresh({ full: true })
 assert.ok(fake.listCalls.every((c) => c.updatedAfter === undefined), 'a full sync must not narrow by time')

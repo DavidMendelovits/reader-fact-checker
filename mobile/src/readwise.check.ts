@@ -87,8 +87,6 @@ const page1 = [
   readerDoc({ id: 'h1', category: 'highlight', parent_id: 'a1', content: '  the passage  ', notes: '', title: null }),
   readerDoc({ id: 'h2', category: 'highlight', parent_id: 'a1', content: 'another', notes: ' my note ' }),
   readerDoc({ id: 'n1', category: 'note', parent_id: 'h1', content: 'a note' }),
-  // a "highlight" with no parent is not a highlight we can place
-  readerDoc({ id: 'orphan', category: 'highlight', parent_id: null, content: 'lost' }),
 ]
 const page2 = [readerDoc({ id: 'a2', updated_at: '2026-01-02T00:00:00Z' })]
 

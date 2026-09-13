@@ -27,17 +27,28 @@ The interesting bet is that **the agent drives playback, rather than the UI driv
 
 ## Mobile
 
-`mobile/` is the same idea as a native app, pointed at the **real Readwise Reader API**: sign in with your Reader access token, pick anything from your library, and the agent starts reading it to you. The architecture ports intact — the agent still drives playback through `read_aloud`, transport commands still run locally off partial transcripts, verdicts are still spoken the moment they exist — with `expo-speech-recognition` as the ear (whose native echo cancellation is the upgrade the web version could only approximate). Model keys never ship in the bundle; the app talks to this repo's deployed `/api` routes.
+`mobile/` is a phone client for your **Readwise Reader library**, voice-first. Readwise stays the backend — capture, sync, exports — and this app is the way you read and listen on the phone.
 
-The voice is a choice. The OS voice (`expo-speech`) works out of the box. Tap **voice: system** in the library header to download **Kokoro** (~90MB, once) and narrate on-device through `react-native-sherpa-onnx` — the same model the web app's Unreal Speech voice is built on, so both platforms read in one voice, and the phone does it offline for free. Generation streams a sentence at a time into a native PCM player, and runs a few times faster than real time on a recent phone.
+- **Your library, by voice.** Sign in with your Reader access token and the inbox, later, and archive are cached on the phone and kept in sync incrementally. The mic is live from the first screen: *"what's new?"*, *"open the Hemingway one"*, *"read me that article about sleep"*. The agent searches the library, opens the document, and picks up where you left off.
+- **Books and articles, read to you.** Documents split into chapters at their headings, so *"skip to chapter three"* works and chapter titles are read aloud. Position is remembered per document.
+- **Highlights, in the book.** *"Highlight that, it's the bit for my talk"* — or long-press a paragraph — paints the passage in the text at once and writes it to Readwise in the background (retried until it lands). Highlights you made in Reader are pulled in and painted too. Tap one to add a note or remove it.
+- **Filing by voice.** *"Archive that"*, *"save it for later"*, *"back to the library"*.
+- **The rest of the reader:** fact check anything you just heard, the transport fast paths, the same agent as the web app.
+
+The architecture is the web app's, ported: the agent drives playback through `read_aloud`, transport commands run locally off partial transcripts, and now the phone declares its own library tools to the shared agent (`clientTools` on the agent request), so the server prompt stays one thing. Model keys never ship in the bundle; the app talks to this repo's deployed `/api` routes. Reader's API is behind a `Library` port (`src/ports.ts`); Readwise is the one adapter (`src/readwise.ts`).
+
+The voice is a choice. The OS voice (`expo-speech`) works out of the box. In settings, download **Kokoro** (~90MB, once) to narrate on-device through `react-native-sherpa-onnx` — the same model the web app's Unreal Speech voice is built on, so both platforms read in one voice, and the phone does it offline for free.
 
 ```bash
 cd mobile
 npm install
-npx expo run:ios   # dev build — speech recognition is a native module, so Expo Go won't do
+npm run check      # the data layer against a fake Reader API, under node
+npx expo run:ios   # dev build — speech recognition and Kokoro are native modules, so Expo Go won't do
 ```
 
-Then paste your token from [readwise.io/access_token](https://readwise.io/access_token) and tap an article.
+Then paste your token from [readwise.io/access_token](https://readwise.io/access_token).
+
+Known gaps, in the order they'll matter: no lock-screen controls yet (background audio is enabled, remote commands need a native module); PDFs and videos have no text in Reader's API, so they're listed but say so when opened; no share-sheet capture (save to Reader from other apps as you do today); highlight *notes* live on the phone only, since Readwise's v2 API has no highlight-update call; nothing here has run on a device yet — it typechecks and the data layer is tested, and the first real session will find what a fake Reader can't.
 
 ## Setup (local)
 

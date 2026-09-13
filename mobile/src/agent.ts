@@ -718,8 +718,11 @@ tts.onPlayingChange = (playing) => useStore.setState({ playing })
 
 export function setMicEnabled(enabled: boolean) {
   useStore.setState({ micEnabled: enabled })
-  if (enabled) void voice.start()
-  else voice.stop()
+  if (enabled) {
+    void voice.start()
+    // the ear coming on in the library is the moment to say hello (once)
+    if (!useStore.getState().doc) openingTurn('library')
+  } else voice.stop()
 }
 
 export function play() {
