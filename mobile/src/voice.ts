@@ -8,6 +8,7 @@ import {
   type ExpoSpeechRecognitionErrorEvent,
   type ExpoSpeechRecognitionResultEvent,
 } from 'expo-speech-recognition'
+import { setMicLevel } from './levels'
 import type { Transcriber } from './ports'
 
 const words = (s: string) => s.toLowerCase().match(/[a-z0-9']+/g) ?? []
@@ -82,6 +83,7 @@ export class VoiceListener implements Transcriber {
         }
         // 'no-speech'/'aborted' are routine; the end handler respawns
       }),
+      ExpoSpeechRecognitionModule.addListener('volumechange', (event: { value: number }) => setMicLevel(event.value)),
       ExpoSpeechRecognitionModule.addListener('end', () => {
         // the OS tears recognition down periodically; restart while enabled
         if (this.running) setTimeout(() => this.running && this.spawn(), 250)
@@ -94,6 +96,8 @@ export class VoiceListener implements Transcriber {
       lang: 'en-US',
       interimResults: true,
       continuous: true,
+      // the level behind the voice glow; a report every 80ms is plenty for a glow
+      volumeChangeEventOptions: { enabled: true, intervalMillis: 80 },
       // Echo-cancel the mic against our own TTS so talking over the narration works
       // on the speaker, not just with headphones.
       iosVoiceProcessingEnabled: true,

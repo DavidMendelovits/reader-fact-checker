@@ -24,6 +24,7 @@ The interesting bet is that **the agent drives playback, rather than the UI driv
 - **Resume** — reopening a book restores its position, highlights, cards, and the conversation itself; after a long gap the agent recaps where things stand before continuing
 - **Whole-document scan** — extracts the checkable claims section by section and verifies them in the background
 - **Type instead of talking** — a text box drives the same agent, so you can demo the whole thing with no microphone
+- **The voice glow** — a colour along the bottom of the screen that rises with your voice, gathers into a beam that sweeps side to side while the agent thinks, and follows the narration in cooler tones while it speaks. On the web it's [voice-glow](https://www.npmjs.com/package/voice-glow), fed from the app's own echo-cancelled mic meter rather than a second capture (which would cost the echo cancellation that lets you talk over the narration); on the phone it's rebuilt from soft SVG lobes on a UI-thread layer, driven by the recognizer's own volume reports
 
 ## Mobile
 
@@ -33,7 +34,7 @@ The interesting bet is that **the agent drives playback, rather than the UI driv
 - **Books and articles, read to you.** Documents split into chapters at their headings, so *"skip to chapter three"* works and chapter titles are read aloud. Position is remembered per document.
 - **Highlights, in the book.** *"Highlight that, it's the bit for my talk"* — or long-press a paragraph — paints the passage in the text at once and writes it to Readwise in the background (retried until it lands). Highlights you made in Reader are pulled in and painted too. Tap one to add a note or remove it.
 - **Filing by voice.** *"Archive that"*, *"save it for later"*, *"back to the library"*.
-- **The rest of the reader:** fact check anything you just heard, the transport fast paths, the same agent as the web app.
+- **The rest of the reader:** fact check anything you just heard, the transport fast paths, the same agent as the web app, and the same voice glow along the bottom edge — the recognizer reports the mic level, and the glow rises with it, sweeps while the agent thinks, and pulses while it reads.
 
 The architecture is the web app's, ported: the agent drives playback through `read_aloud`, transport commands run locally off partial transcripts, and now the phone declares its own library tools to the shared agent (`clientTools` on the agent request), so the server prompt stays one thing. Model keys never ship in the bundle; the app talks to this repo's deployed `/api` routes. Reader's API is behind a `Library` port (`src/ports.ts`); Readwise is the one adapter (`src/readwise.ts`).
 

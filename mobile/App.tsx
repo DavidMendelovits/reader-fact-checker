@@ -18,6 +18,7 @@ import {
 } from './src/session'
 import { openingTurn, pause, play, resetConversation, say, setMicEnabled } from './src/agent'
 import { splitRuns } from './src/highlights'
+import { VoiceGlow } from './src/VoiceGlow'
 import type { FlatParagraph, Highlight, LibraryDoc, Location } from './src/types'
 
 const AGENT_LABEL: Record<AgentState, string> = {
@@ -35,7 +36,7 @@ type Choice = { text: string; style?: 'cancel' | 'destructive' | 'default'; onPr
  * prompt; an empty answer is cancel.
  */
 function choose(title: string, message: string, buttons: Choice[]) {
-  if (Platform.OS !== 'web') return choose(title, message, buttons)
+  if (Platform.OS !== 'web') return Alert.alert(title, message, buttons)
   const actions = buttons.filter((b) => b.style !== 'cancel')
   const answer = window.prompt(`${title}\n${message}\n\n${actions.map((b, i) => `${i + 1}. ${b.text}`).join('\n')}`, '1')
   actions[Number(answer) - 1]?.onPress?.()
@@ -80,6 +81,7 @@ export default function App() {
         <LibraryScreen />
       )}
       <Notice />
+      {token && <VoiceGlow />}
     </SafeAreaView>
   )
 }
