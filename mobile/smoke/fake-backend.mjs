@@ -63,6 +63,8 @@ function agentReply(messages, context) {
   const t = text.toLowerCase()
   const reply = (spoken, tool) => ({ content: [{ type: 'text', text: spoken }, ...(tool ? [{ type: 'tool_use', id: `tu-${Date.now()}`, name: tool.name, input: tool.input }] : [])] })
   if (t.includes('[the reader is looking at their library')) return reply('Hi. What would you like to read? The newest thing in your inbox is Why We Sleep, Briefly.')
+  // the app already acted on a decision; a real model just acknowledges
+  if (t.includes('[the app already did this:')) return reply('Okay.')
   if (!t.startsWith('[result:') && t.includes('open') && t.includes('hemingway')) return reply('', { name: 'search_library', input: { query: 'hemingway' } })
   if (t.startsWith('[result:') && t.includes('[doc-sea]') && !t.includes('opened')) return reply('Opening The Old Man and the Sea.', { name: 'open_document', input: { id: 'doc-sea' } })
   if (t.startsWith('[result:') && t.includes('opened "the old man')) return reply('Picking up where you left off.', { name: 'read_aloud', input: {} })
@@ -81,6 +83,31 @@ function agentReply(messages, context) {
   if (t.includes('back to the library') || t.includes('close this')) return reply('Back to the library.', { name: 'close_document', input: {} })
   if (t.startsWith('[result:')) return reply('Done.')
   return reply(`I heard: ${text.slice(0, 60)}`)
+}
+
+// A stand-in for the decision model behind /api/navigate: keyword rules over
+// the candidates the app sent, answered with the shape the real route returns.
+// The interesting part is what the app does with a confident answer, not how
+// the answer was reached.
+function navigateReply({ text, screen, docs = [], chapters = [], shelves = [] }) {
+  const t = text.toLowerCase()
+  const decision = (intent, extra = {}) => ({ enabled: true, decision: { intent, confidence: 0.9, model: 'fake', ...extra } })
+  const named = docs.find((d) => t.includes('hemingway') && /hemingway/i.test(d.author ?? '')) ?? docs.find((d) => t.includes('pdf') && /pdf/i.test(d.title)) ?? docs.find((d) => t.includes('sleep') && /sleep/i.test(d.title))
+  if (/^(open|read|play|start)\b/.test(t) && named) return decision('open', { doc: { id: named.id, confidence: 0.85 } })
+  if (screen === 'document') {
+    const m = t.match(/chapter (\w+)/)
+    if (m) {
+      const n = { one: 1, two: 2, three: 3, four: 4 }[m[1]] ?? Number(m[1])
+      const index = chapters.findIndex((c) => c.startsWith(`Chapter ${n}:`))
+      if (index >= 0) return decision('chapter', { chapter: { index, confidence: 0.9 } })
+    }
+    if (/back to the library|close this/.test(t)) return decision('close')
+    if (/archive/.test(t) && shelves.some((s) => s.id === 'archive')) return decision('file', { shelf: { id: 'archive', confidence: 0.9 } })
+    if (/save it for later/.test(t) && shelves.some((s) => s.id === 'later')) return decision('file', { shelf: { id: 'later', confidence: 0.9 } })
+    if (/^(hold on|wait|shush|that's enough)/.test(t)) return decision('pause')
+  }
+  if (screen === 'library' && /what's new|what is new/.test(t)) return decision('list')
+  return decision('other', { confidence: 0.7 })
 }
 
 http.createServer(async (req, res) => {
@@ -124,6 +151,7 @@ http.createServer(async (req, res) => {
     const { messages, context } = JSON.parse(body)
     return json(res, 200, agentReply(messages, context))
   }
+  if (url.pathname === '/api/navigate' && req.method === 'POST') return json(res, 200, navigateReply(JSON.parse(body)))
   if (url.pathname === '/api/factcheck' && req.method === 'POST') {
     res.writeHead(200, { 'Content-Type': 'application/x-ndjson' })
     res.write(JSON.stringify({ type: 'done', result: { verdict: 'accurate', summary: 'Checks out.', spokenSummary: 'That checks out.', sources: [] } }) + '\n')

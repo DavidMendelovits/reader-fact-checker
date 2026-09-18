@@ -19,9 +19,11 @@ const page = await browser.newPage({ viewport: { width: 390, height: 844 } })
 let answer = '1'
 page.on('dialog', (d) => d.accept(answer))
 const wire = []
+const toldTheModel = [] // what the app sent the conversation model
 page.on('request', (r) => {
   const u = new URL(r.url())
   if (u.pathname.startsWith('/api/')) wire.push(`${r.method()} ${u.pathname}${u.search ? '?' + u.searchParams.toString() : ''}`)
+  if (u.pathname === '/api/agent') toldTheModel.push(r.postData() ?? '')
 })
 const errors = []
 page.on('pageerror', (e) => errors.push(String(e)))
@@ -59,13 +61,27 @@ await page.getByRole('button', { name: /Old Man and the Sea/ }).waitFor()
 await page.getByPlaceholder('Search your library').fill('')
 step('search finds a book in another tab')
 
-// ---- open by voice ----
-await sayIt('open the hemingway book', 7000)
+// ---- open by voice: the decision model names the book, no conversation turn ----
+await sayIt('open the hemingway book', 4000)
 await page.getByText('Chapter 1: The Harbour').waitFor()
+assert.ok(wire.some((w) => w === 'POST /api/navigate'), 'asked the decision model')
+// the app opened it on the decision; the model only heard about it afterwards
+const modelCalled = (name) => toldTheModel.some((b) => JSON.parse(b).messages.some((m) => Array.isArray(m.content) && m.content.some((x) => x.type === 'tool_use' && x.name === name)))
+assert.ok(!modelCalled('open_document') && !modelCalled('search_library'), 'the model did not do the opening')
+step('open by typed command through the decision model, chapters split, remote highlight painted, reading')
+// did the model's history, in any request, carry these words?
+const modelHeard = (words) => toldTheModel.some((b) => JSON.parse(b).messages.some((m) => (typeof m.content === 'string' ? m.content : m.content.map((x) => x.text ?? x.content ?? '').join(' ')).includes(words)))
 assert.ok(wire.some((w) => w.includes('withHtmlContent')), 'fetched the book text')
 assert.equal(await counter(), '1 highlight', "Reader's own highlight adopted")
 assert.ok(await page.getByRole('button', { name: 'Pause' }).isVisible(), 'reading after open')
-step('open by typed command, chapters split, remote highlight painted, reading')
+
+// ---- chapters by voice, the same way ----
+await page.getByRole('button', { name: 'Pause' }).click()
+await sayIt('skip to chapter two', 1500)
+const where = Number((await page.getByText(/¶\d+\/22/).textContent()).match(/¶(\d+)/)[1])
+assert.ok(where >= 8 && where < 13, `reading chapter two (¶${where})`)
+assert.ok(await page.getByRole('button', { name: 'Pause' }).isVisible(), 'reading after the jump')
+step(`chapter jump through the decision model (¶${where}/22)`)
 
 // ---- highlight by long-press, note, remove ----
 // pause first: a long-press while the list follows the narration gets cancelled
@@ -91,18 +107,19 @@ step('long-press highlight, note, remove')
 // ---- highlight, list, archive, close by voice ----
 await sayIt('highlight that', 5000)
 assert.equal(await counter(), '2 highlights', 'agent highlight painted')
-await sayIt('archive that', 4000)
+assert.ok(modelHeard('Opened "The Old Man and the Sea"'), 'the model was told the app opened the book')
+await sayIt('archive that', 2000)
 await page.getByRole('button', { name: 'Archive ▾' }).waitFor()
 assert.ok(wire.some((w) => w === 'PATCH /api/v3/update/doc-sea/'), 'moved in Reader')
-await sayIt('back to the library', 4000)
+await sayIt('back to the library', 2000)
 await page.getByRole('button', { name: 'Inbox' }).waitFor()
-step('agent highlight, archive, close')
+step('agent highlight; archive and close through the decision model')
 
 // ---- a document with no text does not disturb anything ----
 await page.getByRole('button', { name: 'Archive' }).click()
 await page.getByRole('button', { name: /Old Man and the Sea/ }).click()
 await page.getByText('Chapter 1: The Harbour').waitFor()
-await sayIt('open the pdf', 5000)
+await sayIt('open the pdf', 3000)
 assert.ok(await page.getByRole('button', { name: 'Archive ▾' }).isVisible(), 'book still open after a failed open')
 step('opening a PDF fails cleanly, the book stays open')
 
@@ -114,6 +131,8 @@ await page.waitForTimeout(1500)
 const pos = await page.getByText(/¶\d+\/22/).textContent()
 assert.notEqual(pos.trim(), '1x · ¶1/22', `resumed past the start (${pos})`)
 step(`reopen resumes at the saved position (${pos.trim()})`)
+// the failed open is in the history the model saw on that reopen
+assert.ok(modelHeard('already did this: Could not open that') && modelHeard('no readable text'), 'the model was told why the PDF did not open')
 
 // ---- sign out ----
 await page.getByRole('button', { name: 'Back to library' }).click()

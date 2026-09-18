@@ -8,3 +8,4 @@ export { factcheck, factcheckNdjson, passageFromMessages, type FactCheckResult }
 export { extractClaims } from './_lib/claims.js'
 export { ttsStream } from './_lib/speech.js'
 export { fetchArticle } from './_lib/fetch.js'
+export { navigate, type NavigateRequest, type NavigateDecision } from './_lib/navigate.js'

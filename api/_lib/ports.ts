@@ -119,3 +119,26 @@ export interface SpeechSynthesizer {
   readonly maxChars: number | null
   synthesize(text: string): Promise<AudioStream>
 }
+
+// ---- decisions ----
+
+/** A question for a decision model: pick one label, or say yes or no. */
+export type DecisionQuestion =
+  | { type: 'choice'; instructions?: string; criteria: Record<string, string | null> }
+  | { type: 'noul'; instructions?: string }
+
+export type DecisionAnswer =
+  | { type: 'choice'; choice: string; confidence: number; probabilities: Record<string, number> }
+  | { type: 'noul'; noul: number }
+
+/**
+ * Typed judgments about a state, in one round trip and well under a second:
+ * which of these did the reader mean, is this a command or a question. No
+ * text comes back, so nothing is parsed. Used where waiting on the
+ * conversation model would be a round-trip of silence for a decision that
+ * doesn't need its reasoning.
+ */
+export interface Decider {
+  readonly name: string
+  decide(state: unknown, questions: Record<string, DecisionQuestion>): Promise<Record<string, DecisionAnswer>>
+}

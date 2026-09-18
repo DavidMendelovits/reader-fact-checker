@@ -13,6 +13,7 @@ import { checkPassage, completeField } from './factcheck'
 import { blip } from './earcon'
 import { apiNdjson } from './api'
 import { SentenceSplitter } from './sentences'
+import { decide, type NavAction } from './navigate'
 import type { Doc, FactCheckJob, Highlight } from '../types'
 
 type Block =
@@ -340,6 +341,183 @@ function matchFast(text: string): (() => FastResult) | null {
 /** Runs the command if the utterance is only that; returns null to defer to the model. */
 const fastCommand = (text: string): FastResult | null => matchFast(text)?.() ?? null
 
+// ---- fast navigation (see navigate.ts): a decision, then one of these ----
+
+function chapterStart(index: number): number {
+  const i = useStore.getState().paragraphs.findIndex((p) => p.chapterIndex === index)
+  return i < 0 ? 0 : i
+}
+
+/** Say one short line, then read from a paragraph. */
+async function announceAndRead(line: string, from: number) {
+  useStore.getState().pushChat({ id: newId(), role: 'assistant', text: line })
+  useStore.setState({ agentState: 'speaking' })
+  await tts.speak(line)
+  const last = useStore.getState().paragraphs.length - 1
+  void playRange(Math.min(from, last), last)
+}
+
+/** Carry out a navigation decision; what to show and what to tell the model, like the fast-path commands. */
+async function runNav(action: NavAction): Promise<NavResult> {
+  const s = useStore.getState()
+  const chapters = s.doc?.chapters ?? []
+  switch (action.kind) {
+    case 'chapter': {
+      const title = chapters[action.index]?.title ?? `chapter ${action.index + 1}`
+      await announceAndRead(`${title}.`, chapterStart(action.index))
+      return { chat: `${title}.`, note: `Jumped to "${title}" and started reading there.`, spoken: true }
+    }
+    case 'next_chapter':
+    case 'previous_chapter': {
+      const at = s.paragraphs[Math.min(s.currentParagraph, s.paragraphs.length - 1)]
+      const here = at?.chapterIndex ?? 0
+      const target = action.kind === 'next_chapter' ? here + 1 : s.currentParagraph > chapterStart(here) + 2 ? here : here - 1
+      if (target < 0 || target >= chapters.length) {
+        const chat = target < 0 ? 'This is the first chapter.' : 'That was the last chapter.'
+        return { chat, note: chat }
+      }
+      const title = chapters[target].title
+      await announceAndRead(`${title}.`, chapterStart(target))
+      return { chat: `${title}.`, note: `Jumped to "${title}" and started reading there.`, spoken: true }
+    }
+    case 'beginning':
+      await announceAndRead('From the top.', 0)
+      return { chat: 'From the top.', note: 'Started the document over from the beginning.', spoken: true }
+    case 'pause':
+      tts.pause()
+      return { chat: 'Paused.', note: 'Paused playback.', quiet: true }
+    case 'resume': {
+      if (s.paragraphs.length === 0) return { chat: 'Nothing to read.', note: 'No document is loaded.' }
+      const from = Math.min(s.currentParagraph, s.paragraphs.length - 1)
+      void playRange(from, s.paragraphs.length - 1)
+      return { chat: 'Reading.', note: `Resumed reading from paragraph ${from}.`, quiet: true }
+    }
+  }
+}
+
+type NavResult = FastResult & { spoken?: boolean; quiet?: boolean }
+
+/** Show the outcome, and say it unless it was said already or is better left silent ("Paused."). */
+async function deliver(result: NavResult) {
+  if (result.spoken) return
+  useStore.getState().pushChat({ id: newId(), role: 'assistant', text: result.chat })
+  if (result.quiet) return
+  useStore.setState({ agentState: 'speaking' })
+  await tts.speak(result.chat)
+}
+
+/** The action is done outside a turn: let the model know the way the fast path does. */
+async function recordNav(text: string, result: NavResult) {
+  await deliver(result)
+  messages.push({ role: 'user', content: text })
+  messages.push({ role: 'assistant', content: result.note })
+}
+
+/**
+ * The action is done over a turn in flight: the loop hears about it with the
+ * tool results it is about to send — and then ends the turn without asking the
+ * model anything, because the interruption has been dealt with. What was
+ * asked for is happening; a model reply on top of it would only talk over it.
+ */
+async function recordOverTurn(text: string, result: NavResult) {
+  await deliver(result)
+  const done = `${text} [the app already did this: ${result.note}]`
+  pending = pending ? `${pending} ${done}` : done
+  interruptionHandled = result.note
+}
+
+/** Set while a turn is in flight and the app has already done what the interruption asked. */
+let interruptionHandled: string | null = null
+
+/** A final no local command matched: the decision model first, the conversation only if it's unsure. */
+async function decideThenLoop(text: string) {
+  running = true
+  useStore.setState({ agentState: 'thinking' })
+  const action = await decide(text, false)
+  if (action) {
+    await recordNav(text, await runNav(action))
+    running = false
+    if (useStore.getState().agentState === 'thinking') useStore.setState({ agentState: 'idle' })
+    flushPending()
+    return
+  }
+  messages.push({ role: 'user', content: text })
+  await loop()
+}
+
+/**
+ * Something said over a turn in flight — the interruption path. The voice has
+ * already stopped (say() did that); this decides what the words meant while
+ * the loop's settle() holds for them, and hands the loop the outcome the way
+ * the fast-path commands do, so the model hears what happened rather than
+ * being asked to make it happen.
+ */
+async function decideWhileRunning(text: string) {
+  awaitingWords = true // keep settle() waiting on the decision, not just the words
+  const action = await decide(text, false)
+  if (action) {
+    const result = await runNav(action)
+    if (running) await recordOverTurn(text, result)
+    else await recordNav(text, result) // the turn ended while we decided
+  } else {
+    pending = pending ? `${pending} ${text}` : text
+  }
+  awaitingWords = false
+  flushPending()
+}
+
+/** Whatever queued while a turn was in flight starts the next one — if no turn is running any more. */
+function flushPending() {
+  if (running || !pending) return
+  const next = pending
+  pending = null
+  messages.push({ role: 'user', content: next })
+  if (interruptionHandled) {
+    // the turn ended before it could carry the note; nothing to ask the model
+    messages.push({ role: 'assistant', content: interruptionHandled })
+    interruptionHandled = null
+    return
+  }
+  void loop()
+}
+
+let interimTimer: ReturnType<typeof setTimeout> | null = null
+let interimSeq = 0
+let lastInterim = ''
+
+function decideEarly(raw: string, normalized: string) {
+  const seq = ++interimSeq
+  void decide(raw, true).then(async (action) => {
+    if (!action || seq !== interimSeq) return
+    if (handledEarly && Date.now() - handledEarly.at < EARLY_DEDUP_WINDOW) return
+    handledEarly = { text: normalized, at: Date.now(), chatId: null, early: true }
+    const chatId = newId()
+    handledEarly.chatId = chatId
+    const text = raw.trim()
+    useStore.getState().pushChat({ id: chatId, role: 'user', text })
+    if (running) {
+      // over a turn: the reading has stopped already; act, and tell the loop.
+      // settle() keeps holding (awaitingWords) until the note is in place.
+      const result = await runNav(action)
+      if (running) await recordOverTurn(text, result)
+      else await recordNav(text, result)
+      awaitingWords = false
+      flushPending()
+      return
+    }
+    awaitingWords = false
+    running = true
+    useStore.setState({ agentState: 'thinking' })
+    try {
+      await recordNav(text, await runNav(action))
+    } finally {
+      running = false
+      if (useStore.getState().agentState === 'thinking') useStore.setState({ agentState: 'idle' })
+    }
+    flushPending()
+  })
+}
+
 // ---- turn loop ----
 
 let listenTimer: ReturnType<typeof setTimeout> | null = null
@@ -374,7 +552,7 @@ export function beginUtterance() {
  * up so we can drop it. Time-boxed: a final that never arrives must not swallow the
  * next real "pause" minutes later.
  */
-let handledEarly: { text: string; at: number; chatId: string | null } | null = null
+let handledEarly: { text: string; at: number; chatId: string | null; early?: boolean } | null = null
 const EARLY_DEDUP_WINDOW = 6000
 
 /**
@@ -385,14 +563,24 @@ const EARLY_DEDUP_WINDOW = 6000
  */
 export function sayInterim(text: string) {
   const t = normalize(text)
-  if (!t || !matchFast(t)) return
-  // One early command per utterance. A partial arrives several times as it grows,
-  // and "stop" then "stop reading" are the same instruction twice.
+  if (!t) return
+  if (matchFast(t)) {
+    // One early command per utterance. A partial arrives several times as it grows,
+    // and "stop" then "stop reading" are the same instruction twice.
+    if (handledEarly && Date.now() - handledEarly.at < EARLY_DEDUP_WINDOW) return
+    handledEarly = { text: t, at: Date.now(), chatId: null }
+    // A partial is a prefix, so the bubble this posts shows a truncated version of
+    // what the user is still saying. say() corrects it in place once the final lands.
+    handledEarly.chatId = say(text)
+    return
+  }
+  // Not a bare command: ask the decision model as the words come in, so "skip to
+  // chapter three" can be jumping before Chrome decides the sentence is over.
+  if (t === lastInterim || t.split(/\s+/).length < 2) return
   if (handledEarly && Date.now() - handledEarly.at < EARLY_DEDUP_WINDOW) return
-  handledEarly = { text: t, at: Date.now(), chatId: null }
-  // A partial is a prefix, so the bubble this posts shows a truncated version of
-  // what the user is still saying. say() corrects it in place once the final lands.
-  handledEarly.chatId = say(text)
+  lastInterim = t
+  if (interimTimer) clearTimeout(interimTimer)
+  interimTimer = setTimeout(() => decideEarly(text, t), 250)
 }
 
 /** Returns the id of the user bubble it posted, so a partial's can be corrected. */
@@ -406,9 +594,12 @@ export function say(text: string): string | null {
   // already ran is in the transcript, so acting again is at worst a no-op.
   const early = handledEarly
   handledEarly = null
+  if (interimTimer) clearTimeout(interimTimer)
+  interimSeq++ // whatever the partial was asking is moot now
+  lastInterim = ''
   if (early && Date.now() - early.at < EARLY_DEDUP_WINDOW) {
     const n = normalize(trimmed)
-    if ((n === early.text || n.startsWith(`${early.text} `)) && matchFast(n)) {
+    if ((n === early.text || n.startsWith(`${early.text} `)) && (early.early || matchFast(n))) {
       // Same utterance finalizing. Don't run it twice — but do replace the partial
       // we showed with what was actually said ("stop" → "stop reading").
       if (early.chatId) useStore.getState().updateChat(early.chatId, { text: trimmed })
@@ -428,6 +619,7 @@ export function say(text: string): string | null {
       // rides along with the tool result the loop is about to send, so roles alternate
       const done = `${trimmed} [the app already did this: ${fast.note}]`
       pending = pending ? `${pending} ${done}` : done
+      interruptionHandled = fast.note
     } else {
       messages.push({ role: 'user', content: trimmed })
       messages.push({ role: 'assistant', content: fast.note })
@@ -441,12 +633,11 @@ export function say(text: string): string | null {
   if (useStore.getState().agentState !== 'speaking') blip()
 
   if (running) {
-    pending = pending ? `${pending} ${trimmed}` : trimmed
-    tts.pause() // resolves any in-flight read_aloud as 'stopped'
+    tts.pause() // the interruption itself: instant, before anything is decided; resolves any in-flight read_aloud as 'stopped'
+    void decideWhileRunning(trimmed)
     return chatId
   }
-  messages.push({ role: 'user', content: trimmed })
-  void loop()
+  void decideThenLoop(trimmed)
   return chatId
 }
 
@@ -618,6 +809,13 @@ async function loop() {
         pending = null
       }
       messages.push({ role: 'user', content: results })
+      if (interruptionHandled) {
+        // the app did what the interruption asked; nothing to ask the model.
+        // Its side of the exchange is the note, so the history still alternates.
+        messages.push({ role: 'assistant', content: interruptionHandled })
+        interruptionHandled = null
+        break
+      }
     }
   } catch (e) {
     // a failed turn must not leave the panel mid-sentence about what it's doing
@@ -625,13 +823,10 @@ async function loop() {
     useStore.setState({ notice: e instanceof Error ? e.message : String(e) })
   } finally {
     running = false
-    useStore.setState({ agentState: 'idle' })
+    // a turn that ended with the app already reading (an interruption it handled) is still reading
+    useStore.setState({ agentState: useStore.getState().playing ? 'reading' : 'idle' })
   }
 
   // something arrived while the loop was winding down
-  if (pending) {
-    messages.push({ role: 'user', content: pending })
-    pending = null
-    void loop()
-  }
+  flushPending()
 }

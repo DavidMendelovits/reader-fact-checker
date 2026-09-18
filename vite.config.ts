@@ -84,6 +84,15 @@ function apiRoutes(): Plugin {
         }
       })
 
+      server.middlewares.use('/api/navigate', async (req, res) => {
+        try {
+          const decision = await impl.navigate(JSON.parse(await readBody(req)))
+          json(res, 200, decision ? { enabled: true, decision } : { enabled: false })
+        } catch (e) {
+          json(res, 500, { error: e instanceof Error ? e.message : String(e) })
+        }
+      })
+
       server.middlewares.use('/api/tts', async (req, res) => {
         try {
           const { text } = JSON.parse(await readBody(req))

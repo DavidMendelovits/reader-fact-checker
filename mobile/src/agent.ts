@@ -20,6 +20,7 @@ import {
   positionChanged,
   removeHighlight,
 } from './session'
+import { decide, type NavAction } from './navigate'
 import type { Highlight, LibraryDoc, Location } from './types'
 
 type Block =
@@ -536,6 +537,236 @@ function matchFast(text: string): (() => FastResult) | null {
 
 const fastCommand = (text: string): FastResult | null => matchFast(text)?.() ?? null
 
+// ---- fast navigation (see navigate.ts): a decision, then one of these ----
+
+const SHELF_SAID: Record<Location, string> = { new: 'Back in the inbox.', later: 'Saved for later.', archive: 'Archived.', feed: 'Moved to the feed.' }
+
+/** Say one short line, then start reading from a paragraph. */
+async function announceAndRead(line: string, from: number) {
+  const s = useStore.getState()
+  if (line) {
+    useStore.getState().pushChat({ id: newId(), role: 'assistant', text: line })
+    useStore.setState({ agentState: 'speaking' })
+    await tts.speak(line)
+  }
+  void playRange(Math.min(from, s.paragraphs.length - 1), useStore.getState().paragraphs.length - 1)
+}
+
+/** The first paragraph of a chapter, by index into doc.chapters. */
+function chapterStart(index: number): number {
+  const s = useStore.getState()
+  const i = s.paragraphs.findIndex((p) => p.chapterIndex === index)
+  return i < 0 ? 0 : i
+}
+
+/**
+ * Carry out a navigation decision. Returns what to show, and what to tell the
+ * model happened, the way the fast-path commands do; `spoken` says the line
+ * was already read aloud (so the caller doesn't post it twice).
+ */
+async function runNav(action: NavAction): Promise<NavResult> {
+  const s = useStore.getState()
+  switch (action.kind) {
+    case 'open': {
+      try {
+        const { doc, libraryDoc, position } = await openDocument(action.id)
+        const line = `Opening ${doc.title}${libraryDoc.author ? ` by ${libraryDoc.author}` : ''}.`
+        await announceAndRead(line, position)
+        return { chat: line, note: `Opened "${doc.title}" and started reading from paragraph ${position}.`, spoken: true }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        return { chat: msg, note: `Could not open that: ${msg}` }
+      }
+    }
+    case 'list': {
+      const location = s.libraryLocation
+      const docs = library().inLocation(location).sort(byRecent).slice(0, 5)
+      const shelf = LOCATION_NAMES[location]
+      if (docs.length === 0) return { chat: `Nothing on the ${shelf} shelf.`, note: `Told the reader the ${shelf} shelf is empty.` }
+      const names = docs.map((d) => (d.author ? `${d.title} by ${d.author}` : d.title))
+      const chat = `Newest in the ${shelf}: ${names.join('; ')}.`
+      return { chat, note: `Listed the newest on the ${shelf} shelf: ${names.join('; ')}.` }
+    }
+    case 'chapter': {
+      const title = s.doc?.chapters[action.index]?.title ?? `chapter ${action.index + 1}`
+      await announceAndRead(`${title}.`, chapterStart(action.index))
+      return { chat: `${title}.`, note: `Jumped to "${title}" and started reading there.`, spoken: true }
+    }
+    case 'next_chapter':
+    case 'previous_chapter': {
+      const at = s.paragraphs[Math.min(s.currentParagraph, s.paragraphs.length - 1)]
+      const here = at?.chapterIndex ?? 0
+      // "back a chapter" from deep inside one means the start of this one
+      const target = action.kind === 'next_chapter' ? here + 1 : s.currentParagraph > chapterStart(here) + 2 ? here : here - 1
+      const chapters = s.doc?.chapters ?? []
+      if (target < 0 || target >= chapters.length) {
+        const chat = target < 0 ? 'This is the first chapter.' : 'That was the last chapter.'
+        return { chat, note: chat }
+      }
+      const title = chapters[target].title
+      await announceAndRead(`${title}.`, chapterStart(target))
+      return { chat: `${title}.`, note: `Jumped to "${title}" and started reading there.`, spoken: true }
+    }
+    case 'beginning': {
+      await announceAndRead('From the top.', 0)
+      return { chat: 'From the top.', note: 'Started the document over from the beginning.', spoken: true }
+    }
+    case 'close': {
+      await closeDocument()
+      return { chat: 'Back to the library.', note: 'Closed the document; the library is showing.' }
+    }
+    case 'file': {
+      const id = s.libraryDoc?.id
+      if (!id) return { chat: 'Nothing is open to file.', note: 'No document is open.' }
+      try {
+        const doc = await moveDocument(id, action.shelf)
+        return { chat: SHELF_SAID[action.shelf], note: `Moved "${doc.title}" to ${LOCATION_NAMES[action.shelf]}.` }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        return { chat: msg, note: `Could not file it: ${msg}` }
+      }
+    }
+    case 'pause':
+      tts.pause()
+      return { chat: 'Paused.', note: 'Paused playback.', quiet: true }
+    case 'resume': {
+      if (s.paragraphs.length === 0) return { chat: 'Nothing is open to read.', note: 'No document is open.' }
+      const from = Math.min(s.currentParagraph, s.paragraphs.length - 1)
+      void playRange(from, s.paragraphs.length - 1)
+      return { chat: 'Reading.', note: `Resumed reading from paragraph ${from}.`, quiet: true }
+    }
+  }
+}
+
+type NavResult = FastResult & { spoken?: boolean; quiet?: boolean }
+
+/** Show the outcome, and say it unless it was said already or is better left silent ("Paused."). */
+async function deliver(result: NavResult) {
+  if (result.spoken) return
+  useStore.getState().pushChat({ id: newId(), role: 'assistant', text: result.chat })
+  if (result.quiet) return
+  useStore.setState({ agentState: 'speaking' })
+  await tts.speak(result.chat)
+}
+
+/** The action is done outside a turn: let the model know the way the fast path does. */
+async function recordNav(text: string, result: NavResult) {
+  await deliver(result)
+  messages.push({ role: 'user', content: text })
+  messages.push({ role: 'assistant', content: result.note })
+}
+
+/**
+ * The action is done over a turn in flight: the loop hears about it with the
+ * tool results it is about to send — and then ends the turn without asking the
+ * model anything, because the interruption has been dealt with. What was
+ * asked for is happening; a model reply on top of it would only talk over it.
+ */
+async function recordOverTurn(text: string, result: NavResult) {
+  await deliver(result)
+  const done = `${text} [the app already did this: ${result.note}]`
+  pending = pending ? `${pending} ${done}` : done
+  interruptionHandled = result.note
+}
+
+/** Set while a turn is in flight and the app has already done what the interruption asked. */
+let interruptionHandled: string | null = null
+
+/**
+ * The reader has finished a sentence that no local command matched: ask the
+ * decision model first, and only then the conversation. `running` holds for the
+ * whole of it so a second utterance queues behind, as it would behind a turn.
+ */
+async function decideThenLoop(text: string) {
+  running = true
+  useStore.setState({ agentState: 'thinking' })
+  const action = await decide(text, false)
+  if (action) {
+    await recordNav(text, await runNav(action))
+    running = false
+    if (useStore.getState().agentState === 'thinking') useStore.setState({ agentState: 'idle' })
+    flushPending()
+    return
+  }
+  messages.push({ role: 'user', content: text })
+  await loop()
+}
+
+/**
+ * Something said over a turn in flight — the interruption path. The voice has
+ * already stopped (say() did that); this decides what the words meant while
+ * the loop's settle() holds for them, and hands the loop the outcome the way
+ * the fast-path commands do, so the model hears what happened rather than
+ * being asked to make it happen.
+ */
+async function decideWhileRunning(text: string) {
+  awaitingWords = true // keep settle() waiting on the decision, not just the words
+  const action = await decide(text, false)
+  if (action) {
+    const result = await runNav(action)
+    if (running) await recordOverTurn(text, result)
+    else await recordNav(text, result) // the turn ended while we decided
+  } else {
+    pending = pending ? `${pending} ${text}` : text
+  }
+  awaitingWords = false
+  flushPending()
+}
+
+/** Whatever queued while a turn was in flight starts the next one — if no turn is running any more. */
+function flushPending() {
+  if (running || !pending) return
+  const next = pending
+  pending = null
+  messages.push({ role: 'user', content: next })
+  if (interruptionHandled) {
+    // the turn ended before it could carry the note; nothing to ask the model
+    messages.push({ role: 'assistant', content: interruptionHandled })
+    interruptionHandled = null
+    return
+  }
+  void loop()
+}
+
+// A partial transcript is asked about as it grows, debounced; only the newest
+// answer counts, and only if the final hasn't already arrived.
+let interimTimer: ReturnType<typeof setTimeout> | null = null
+let interimSeq = 0
+let lastInterim = ''
+
+function decideEarly(raw: string, normalized: string) {
+  const seq = ++interimSeq
+  void decide(raw, true).then(async (action) => {
+    if (!action || seq !== interimSeq) return
+    if (handledEarly && Date.now() - handledEarly.at < EARLY_DEDUP_WINDOW) return
+    handledEarly = { text: normalized, at: Date.now(), chatId: null, early: true }
+    const chatId = newId()
+    handledEarly.chatId = chatId
+    const text = raw.trim()
+    useStore.getState().pushChat({ id: chatId, role: 'user', text })
+    if (running) {
+      // over a turn: the reading has stopped already; act, and tell the loop.
+      // settle() keeps holding (awaitingWords) until the note is in place.
+      const result = await runNav(action)
+      if (running) await recordOverTurn(text, result)
+      else await recordNav(text, result)
+      awaitingWords = false
+      flushPending()
+      return
+    }
+    awaitingWords = false
+    running = true
+    useStore.setState({ agentState: 'thinking' })
+    try {
+      await recordNav(text, await runNav(action))
+    } finally {
+      running = false
+      if (useStore.getState().agentState === 'thinking') useStore.setState({ agentState: 'idle' })
+    }
+    flushPending()
+  })
+}
+
 // ---- turn loop ----
 
 let listenTimer: ReturnType<typeof setTimeout> | null = null
@@ -552,15 +783,26 @@ export function beginUtterance() {
   }, 5000)
 }
 
-let handledEarly: { text: string; at: number; chatId: string | null } | null = null
+let handledEarly: { text: string; at: number; chatId: string | null; early?: boolean } | null = null
 const EARLY_DEDUP_WINDOW = 6000
 
 export function sayInterim(text: string) {
   const t = normalize(text)
-  if (!t || !matchFast(t)) return
+  if (!t) return
+  if (matchFast(t)) {
+    if (handledEarly && Date.now() - handledEarly.at < EARLY_DEDUP_WINDOW) return
+    handledEarly = { text: t, at: Date.now(), chatId: null }
+    handledEarly.chatId = say(text)
+    return
+  }
+  // Not a bare command: ask the decision model as the words come in, so
+  // "open the Hemingway one" can be opening before the recognizer decides
+  // the reader has finished. One ask per change, a beat after it.
+  if (t === lastInterim || t.split(/\s+/).length < 2) return
   if (handledEarly && Date.now() - handledEarly.at < EARLY_DEDUP_WINDOW) return
-  handledEarly = { text: t, at: Date.now(), chatId: null }
-  handledEarly.chatId = say(text)
+  lastInterim = t
+  if (interimTimer) clearTimeout(interimTimer)
+  interimTimer = setTimeout(() => decideEarly(text, t), 250)
 }
 
 export function say(text: string): string | null {
@@ -568,10 +810,16 @@ export function say(text: string): string | null {
   if (!trimmed) return null
   const early = handledEarly
   handledEarly = null
+  if (interimTimer) clearTimeout(interimTimer)
+  interimSeq++ // whatever the partial was asking is moot now
+  lastInterim = ''
   if (early && Date.now() - early.at < EARLY_DEDUP_WINDOW) {
     const n = normalize(trimmed)
-    if ((n === early.text || n.startsWith(`${early.text} `)) && matchFast(n)) {
+    // the final of something already done off its partial: a command, or a
+    // navigation the decider was sure of. The bubble gets the words as said.
+    if ((n === early.text || n.startsWith(`${early.text} `)) && (early.early || matchFast(n))) {
       if (early.chatId) useStore.getState().updateChat(early.chatId, { text: trimmed })
+      awaitingWords = false
       return early.chatId
     }
   }
@@ -586,6 +834,7 @@ export function say(text: string): string | null {
     if (running) {
       const done = `${trimmed} [the app already did this: ${fast.note}]`
       pending = pending ? `${pending} ${done}` : done
+      interruptionHandled = fast.note
     } else {
       messages.push({ role: 'user', content: trimmed })
       messages.push({ role: 'assistant', content: fast.note })
@@ -594,12 +843,11 @@ export function say(text: string): string | null {
   }
 
   if (running) {
-    pending = pending ? `${pending} ${trimmed}` : trimmed
-    tts.pause()
+    tts.pause() // the interruption itself: instant, before anything is decided
+    void decideWhileRunning(trimmed)
     return chatId
   }
-  messages.push({ role: 'user', content: trimmed })
-  void loop()
+  void decideThenLoop(trimmed)
   return chatId
 }
 
@@ -687,20 +935,24 @@ async function loop() {
         pending = null
       }
       messages.push({ role: 'user', content: results })
+      if (interruptionHandled) {
+        // the app did what the interruption asked; nothing to ask the model.
+        // Its side of the exchange is the note, so the history still alternates.
+        messages.push({ role: 'assistant', content: interruptionHandled })
+        interruptionHandled = null
+        break
+      }
     }
   } catch (e) {
     tts.pause()
     useStore.setState({ notice: e instanceof Error ? e.message : String(e) })
   } finally {
     running = false
-    useStore.setState({ agentState: 'idle' })
+    // a turn that ended with the app already reading (an interruption it handled) is still reading
+    useStore.setState({ agentState: useStore.getState().playing ? 'reading' : 'idle' })
   }
 
-  if (pending) {
-    messages.push({ role: 'user', content: pending })
-    pending = null
-    void loop()
-  }
+  flushPending()
 }
 
 // ---- controller wiring (the web keeps this in controller.ts; here it's a few lines) ----

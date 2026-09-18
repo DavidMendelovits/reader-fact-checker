@@ -6,20 +6,24 @@
 //   CLAIMS_PROVIDER     json           anthropic (default)
 //   FACTCHECK_PROVIDER  search         perplexity (default)
 //   TTS_PROVIDER        speech         unreal if UNREAL_SPEECH_API_KEY is set, else openai
+//   DECIDER_PROVIDER    decider        typesafe if TYPESAFE_API_KEY is set, else none (no fast navigation)
 //
 // Instances are built lazily and memoized per name, so a request never pays for
 // a client it doesn't use, and a test can point env at a fake before first use.
-import type { ConversationModel, JsonCompletion, SearchModel, SpeechSynthesizer } from './ports.js'
+import type { ConversationModel, Decider, JsonCompletion, SearchModel, SpeechSynthesizer } from './ports.js'
 import { anthropicAdapter } from './adapters/anthropic.js'
 import { perplexityAdapter } from './adapters/perplexity.js'
 import { openaiSpeech } from './adapters/openai-speech.js'
 import { unrealSpeech } from './adapters/unreal-speech.js'
+import { typesafeDecider } from './adapters/typesafe.js'
 
 export interface Providers {
   conversation: ConversationModel
   json: JsonCompletion
   search: SearchModel
   speech: SpeechSynthesizer
+  /** Null when nothing is configured: the feature it backs is skipped, not broken. */
+  decider: Decider | null
 }
 
 const anthropic = () =>
@@ -39,6 +43,9 @@ const registry = {
     openai: () => openaiSpeech({ model: 'gpt-4o-mini-tts', voice: process.env.OPENAI_TTS_VOICE ?? 'nova' }),
     unreal: () => unrealSpeech({ voice: process.env.UNREAL_SPEECH_VOICE ?? 'Sierra' }),
   } as Record<string, Factory<SpeechSynthesizer>>,
+  decider: {
+    typesafe: () => typesafeDecider({ model: process.env.TYPESAFE_MODEL ?? 'jev-latest' }),
+  } as Record<string, Factory<Decider>>,
 }
 
 const instances = new Map<string, unknown>()
@@ -59,6 +66,11 @@ function speechProvider(): string {
   return env('TTS_PROVIDER') ?? (process.env.UNREAL_SPEECH_API_KEY ? 'unreal' : 'openai')
 }
 
+function deciderProvider(): string | null {
+  const name = env('DECIDER_PROVIDER') ?? (process.env.TYPESAFE_API_KEY ? 'typesafe' : 'none')
+  return name === 'none' ? null : name
+}
+
 const overrides: Partial<Providers> = {}
 
 /** The live wiring. Env is read on every access, so a switch needs no restart of the process' state. */
@@ -75,6 +87,11 @@ export function providers(): Providers {
     },
     get speech() {
       return overrides.speech ?? pick('speech', speechProvider())
+    },
+    get decider() {
+      if ('decider' in overrides) return overrides.decider ?? null
+      const name = deciderProvider()
+      return name ? pick('decider', name) : null
     },
   }
 }
