@@ -21,7 +21,10 @@ export function play(fromIndex?: number) {
   const start = fromIndex ?? s.currentParagraph
   tts.setParagraphs(s.paragraphs.map((p) => p.text))
   tts.setRate(s.rate)
-  void tts.playFrom(start)
+  void tts.playFrom(start).then((outcome) => {
+    if (outcome === 'failed')
+      useStore.setState({ notice: 'Narration failed — the speech service is unreachable. Your position is saved.' })
+  })
 }
 
 export function pause() {

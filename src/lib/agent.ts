@@ -11,7 +11,7 @@ import type { SpeechStream } from './tts'
 import { tts } from './providers'
 import { checkPassage, completeField } from './factcheck'
 import { blip } from './earcon'
-import { apiNdjson } from './api'
+import { apiNdjson, isTransient, RETRY_WAITS } from './api'
 import { SentenceSplitter } from './sentences'
 import { decide, type NavAction } from './navigate'
 import type { Doc, FactCheckJob, Highlight } from '../types'
@@ -133,7 +133,7 @@ function buildContext() {
  * Play a range and hold until it ends or the user talks over it. Shared by the
  * read_aloud tool and the "keep going" fast path.
  */
-async function playRange(from: number, to: number): Promise<'completed' | 'stopped'> {
+async function playRange(from: number, to: number): Promise<'completed' | 'stopped' | 'failed'> {
   const s = useStore.getState()
   tts.setParagraphs(s.paragraphs.map((p) => p.text))
   tts.setRate(s.rate)
@@ -143,6 +143,7 @@ async function playRange(from: number, to: number): Promise<'completed' | 'stopp
   // through the settle window and the next model turn made the UI claim it was
   // still reading for seconds after the audio stopped.
   useStore.setState({ agentState: running ? 'thinking' : 'idle' })
+  if (outcome === 'failed') useStore.setState({ notice: 'Narration failed — the speech service is unreachable. Your position is saved.' })
   return outcome
 }
 
@@ -156,6 +157,8 @@ async function readAloud(input: Record<string, unknown>): Promise<string> {
 
   const outcome = await playRange(from, to)
   const stoppedAt = tts.currentIndex
+  if (outcome === 'failed')
+    return `Narration failed — the speech service is unreachable, so nothing past paragraph ${stoppedAt} was read. The user has been shown an error. Do not retry read_aloud this turn.`
   return outcome === 'completed'
     ? `Read paragraphs ${from} through ${to}. Position is now paragraph ${Math.min(to + 1, last)}.`
     : `The user interrupted at paragraph ${stoppedAt}, which reads: "${s.paragraphs[stoppedAt]?.text ?? ''}"`
@@ -748,12 +751,23 @@ async function speakTurn(): Promise<Block[]> {
   }
 
   try {
-    await apiNdjson<AgentLine>('/api/agent-stream', { messages, context: buildContext() }, (msg) => {
-      if (msg.type === 'text') onText(msg.text)
-      else if (msg.type === 'text_end') onTextEnd()
-      else if (msg.type === 'done') st.content = msg.content
-      else throw new Error(msg.error)
-    })
+    // Retried on transient failures (429/5xx/network): one 529 must not end the
+    // conversation. Only while nothing has been spoken yet — a stream that dies
+    // mid-sentence has already been heard, and a replay would say it twice.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await apiNdjson<AgentLine>('/api/agent-stream', { messages, context: buildContext() }, (msg) => {
+          if (msg.type === 'text') onText(msg.text)
+          else if (msg.type === 'text_end') onTextEnd()
+          else if (msg.type === 'done') st.content = msg.content
+          else throw new Error(msg.error)
+        })
+        break
+      } catch (e) {
+        if (st.sofar || attempt >= RETRY_WAITS.length || !isTransient(e)) throw e
+        await new Promise((r) => setTimeout(r, RETRY_WAITS[attempt]))
+      }
+    }
     if (!st.content) throw new Error('The agent stream ended without a response.')
   } catch (e) {
     tts.pause() // drops whatever is queued; end() below then resolves at once

@@ -7,5 +7,5 @@ export { agentTurn, agentNdjson, type AgentContext, type ClientExtras } from './
 export { factcheck, factcheckNdjson, passageFromMessages, type FactCheckResult } from './_lib/factcheck.js'
 export { extractClaims } from './_lib/claims.js'
 export { ttsStream } from './_lib/speech.js'
-export { fetchArticle } from './_lib/fetch.js'
+export { fetchArticle, blockedHost } from './_lib/fetch.js'
 export { navigate, type NavigateRequest, type NavigateDecision } from './_lib/navigate.js'

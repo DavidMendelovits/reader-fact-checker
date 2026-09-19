@@ -14,6 +14,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       clientTools?: ClientExtras['tools']
       clientSystem?: ClientExtras['system']
     }
+    if (!Array.isArray(messages) || messages.length === 0 || typeof context !== 'object' || !context)
+      return res.status(400).json({ error: 'messages and context required' })
     res.status(200).json(await agentTurn(messages, context, undefined, undefined, { tools: clientTools, system: clientSystem }))
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) })

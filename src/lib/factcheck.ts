@@ -80,10 +80,14 @@ async function runCheck(
     buffer = lines.pop() ?? '' // trailing partial line
     for (const line of lines) {
       if (!line.trim()) continue
-      const msg = JSON.parse(line) as
-        | { type: 'delta'; text: string }
-        | { type: 'done'; result: FactCheckResult }
-        | { type: 'error'; error: string }
+      let msg: { type: 'delta'; text: string } | { type: 'done'; result: FactCheckResult } | { type: 'error'; error: string }
+      try {
+        msg = JSON.parse(line)
+      } catch {
+        // a connection cut mid-line leaves a truncated tail; a garbled delta is
+        // not worth failing a verdict that may still complete
+        continue
+      }
       if (msg.type === 'delta') {
         raw += msg.text
         onPartial?.(raw)
