@@ -21,6 +21,36 @@ export function apiFetch(path: string, init: RequestInit = {}): Promise<Response
   return fetch(path, init)
 }
 
+/**
+ * POST to a route that answers in newline-delimited JSON, handing each parsed line
+ * to `onLine` as it lands. Resolves when the stream closes.
+ */
+export async function apiNdjson<T>(path: string, body: unknown, onLine: (msg: T) => void): Promise<void> {
+  const res = await apiFetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '')
+    throw new ApiError(`${path} failed (${res.status}): ${detail.slice(0, 300)}`, res.status)
+  }
+  if (!res.body) throw new Error(`${path} returned no body`)
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? '' // trailing partial line
+    for (const line of lines) {
+      if (line.trim()) onLine(JSON.parse(line) as T)
+    }
+  }
+}
+
 export async function apiJson<T>(path: string, body: unknown): Promise<T> {
   const res = await apiFetch(path, {
     method: 'POST',
@@ -35,7 +65,7 @@ export async function apiJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 // ponytail: fixed two-retry schedule; make it a parameter when a second caller wants one
-const RETRY_WAITS = [1000, 2500]
+export const RETRY_WAITS = [1000, 2500]
 
 /**
  * apiJson with retries on transient failures. A voice turn dying to a single

@@ -282,6 +282,8 @@ input::placeholder { color: var(--text-tertiary); }
 
 /* ---- layout ---- */
 .app { display: flex; flex-direction: column; height: 100vh; }
+/* the voice glow wraps the whole screen; the beam's own layers sit above the app, under nothing */
+.voice-glow { height: 100vh; background: var(--background-canvas); }
 .main { display: flex; flex: 1; overflow: hidden; }
 
 /* ---- player bar: minimal icon-ish toolbar, content leads ---- */

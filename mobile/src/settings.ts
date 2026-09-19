@@ -3,24 +3,38 @@
 // nothing secret ever ships in this bundle.
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
-export const DEFAULT_API_BASE = 'https://reader-fact-checker.vercel.app'
+export const DEFAULT_API_BASE = process.env.EXPO_PUBLIC_API_BASE ?? 'https://reader-fact-checker.vercel.app'
 
 const TOKEN_KEY = 'readwise-token'
 const API_BASE_KEY = 'api-base'
+const VOICE_KEY = 'voice'
+
+/** Which voice narrates: the OS voice, or Kokoro running on the device (see kokoro.ts). */
+export type VoicePreference = 'system' | 'kokoro'
 
 export let apiBase = DEFAULT_API_BASE
 
-export async function loadSettings(): Promise<{ token: string | null }> {
-  const [token, base] = await Promise.all([
+export async function loadSettings(): Promise<{ token: string | null; voice: VoicePreference }> {
+  const [token, base, voice] = await Promise.all([
     AsyncStorage.getItem(TOKEN_KEY),
     AsyncStorage.getItem(API_BASE_KEY),
+    AsyncStorage.getItem(VOICE_KEY),
   ])
   if (base) apiBase = base
-  return { token }
+  return { token, voice: voice === 'kokoro' ? 'kokoro' : 'system' }
+}
+
+export async function saveVoice(voice: VoicePreference) {
+  await AsyncStorage.setItem(VOICE_KEY, voice)
 }
 
 export async function saveToken(token: string) {
   await AsyncStorage.setItem(TOKEN_KEY, token.trim())
+}
+
+/** Sign out: forget the token. The next launch shows the sign-in screen. */
+export async function clearToken() {
+  await AsyncStorage.removeItem(TOKEN_KEY)
 }
 
 export async function saveApiBase(base: string) {

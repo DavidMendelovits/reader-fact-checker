@@ -1,15 +1,65 @@
-// Same surface as the web player (src/lib/tts.ts), implemented on expo-speech.
-// playFrom() is the contract the agent's read_aloud tool leans on: it resolves
-// only when the range finishes or pause() cuts it off.
+// Same surface as the web player (src/lib/tts.ts). playFrom() is the contract the
+// agent's read_aloud tool leans on: it resolves only when the range finishes or
+// pause() cuts it off.
+//
+// The voice itself is pluggable. The system voice (expo-speech) is the default
+// and needs nothing; the on-device Kokoro voice in kokoro.ts is the upgrade —
+// the same model the web app narrates with, run locally for free.
 import * as Speech from 'expo-speech'
+import type { VoiceEngine } from './ports'
 
 const RECENT_WINDOW_MS = 15000
 
-class Tts {
+/** The OS voice. Always available; sounds like an OS voice. */
+export class SystemVoice implements VoiceEngine {
+  speak(text: string, rate: number): Promise<'done' | 'stopped'> {
+    return new Promise((resolve) => {
+      Speech.speak(text, {
+        rate,
+        onDone: () => resolve('done'),
+        onStopped: () => resolve('stopped'),
+        onError: () => resolve('done'), // a bad utterance shouldn't wedge the range
+      })
+    })
+  }
+
+  stop() {
+    void Speech.stop()
+  }
+}
+
+/**
+ * No sound, real timing: each utterance "plays" for about as long as it would
+ * take to say. For builds that can't make sound — the web smoke test, where
+ * headless Chromium's speech synthesis never reports finishing.
+ */
+export class SilentVoice implements VoiceEngine {
+  private timer: ReturnType<typeof setTimeout> | null = null
+  private cancel: (() => void) | null = null
+  speak(text: string, rate: number): Promise<'done' | 'stopped'> {
+    this.stop()
+    return new Promise((resolve) => {
+      this.cancel = () => resolve('stopped')
+      this.timer = setTimeout(() => {
+        this.cancel = null
+        resolve('done')
+      }, Math.min(1500, (text.length * 8) / Math.max(0.5, rate)))
+    })
+  }
+  stop() {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+    this.cancel?.()
+    this.cancel = null
+  }
+}
+
+export class Player {
   private paragraphs: string[] = []
   private rate = 1
   private generation = 0
   private recent: { text: string; at: number }[] = []
+  private engine: VoiceEngine = new SystemVoice()
 
   /** Text currently coming out of the speaker, for echo rejection. */
   speaking = ''
@@ -28,6 +78,12 @@ class Tts {
     if (text) this.recent.push({ text, at: Date.now() })
   }
 
+  /** Swap the voice. Whatever is playing stops; the next utterance uses the new one. */
+  setEngine(engine: VoiceEngine) {
+    this.pause()
+    this.engine = engine
+  }
+
   setParagraphs(paragraphs: string[]) {
     this.paragraphs = paragraphs
   }
@@ -36,16 +92,8 @@ class Tts {
     this.rate = rate
   }
 
-  /** Speak one utterance to completion, resolving 'stopped' if Speech.stop() cut it. */
   private speakOnce(text: string): Promise<'done' | 'stopped'> {
-    return new Promise((resolve) => {
-      Speech.speak(text, {
-        rate: this.rate,
-        onDone: () => resolve('done'),
-        onStopped: () => resolve('stopped'),
-        onError: () => resolve('done'), // a bad utterance shouldn't wedge the range
-      })
-    })
+    return this.engine.speak(text, this.rate)
   }
 
   async playFrom(index: number, until = Infinity): Promise<'completed' | 'stopped'> {
@@ -75,7 +123,7 @@ class Tts {
     this.generation++
     this.remember(this.speaking)
     this.speaking = ''
-    void Speech.stop()
+    void this.engine.stop()
     this.onPlayingChange(false)
   }
 
@@ -92,4 +140,3 @@ class Tts {
   }
 }
 
-export const tts = new Tts()

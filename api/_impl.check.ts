@@ -1,7 +1,7 @@
 // Self-check for the /api/fetch host guard and the client's retry classifier.
 // Run it with:
 //
-//   node --experimental-strip-types api/_impl.check.ts
+//   node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/_impl.check.ts
 //
 // The guard exists because /api/fetch is an unauthenticated proxy: without it,
 // "paste an article URL" reaches localhost, the private ranges, and the cloud

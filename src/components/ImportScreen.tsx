@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { extractFromUrl, extractFromEpub } from '../lib/extract'
 import { useStore } from '../store'
-import { tts } from '../lib/tts'
+import { tts } from '../lib/providers'
 import { loadLibrary, openEntry, forgetEntry } from '../lib/persist'
 import type { LibraryEntry } from '../lib/persist'
 

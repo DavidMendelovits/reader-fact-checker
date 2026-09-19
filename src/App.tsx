@@ -6,6 +6,7 @@ import { PlayerBar } from './components/PlayerBar'
 import { FactCheckPanel } from './components/FactCheckPanel'
 import { ChatPanel } from './components/ChatPanel'
 import { SpeakingIndicator } from './components/SpeakingIndicator'
+import { VoiceGlow } from './components/VoiceGlow'
 import { Notice } from './components/Notice'
 
 export default function App() {
@@ -13,17 +14,19 @@ export default function App() {
   return (
     <>
       {doc ? (
-        <div className="app">
-          <PlayerBar />
-          <div className="main">
-            <Reader />
-            <aside className="sidebar">
-              <ChatPanel />
-              <FactCheckPanel />
-            </aside>
+        <VoiceGlow>
+          <div className="app">
+            <PlayerBar />
+            <div className="main">
+              <Reader />
+              <aside className="sidebar">
+                <ChatPanel />
+                <FactCheckPanel />
+              </aside>
+            </div>
+            <SpeakingIndicator />
           </div>
-          <SpeakingIndicator />
-        </div>
+        </VoiceGlow>
       ) : (
         <ImportScreen />
       )}

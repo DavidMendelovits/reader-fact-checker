@@ -40,11 +40,26 @@ function apiRoutes(): Plugin {
 
       server.middlewares.use('/api/factcheck', async (req, res) => {
         try {
-          const { messages } = JSON.parse(await readBody(req))
+          const body = JSON.parse(await readBody(req))
+          const passage = typeof body.passage === 'string' ? body.passage.trim() : impl.passageFromMessages(body.messages ?? [])
+          if (!passage) return json(res, 400, { error: 'passage required' })
           res.statusCode = 200
           res.setHeader('Content-Type', 'application/x-ndjson')
           res.setHeader('Cache-Control', 'no-cache, no-transform')
-          await impl.factcheckNdjson(messages, (line) => res.write(line))
+          await impl.factcheckNdjson(passage, (line) => res.write(line))
+          res.end()
+        } catch (e) {
+          json(res, 500, { error: e instanceof Error ? e.message : String(e) })
+        }
+      })
+
+      server.middlewares.use('/api/agent-stream', async (req, res) => {
+        try {
+          const { messages, context, clientTools, clientSystem } = JSON.parse(await readBody(req))
+          res.statusCode = 200
+          res.setHeader('Content-Type', 'application/x-ndjson')
+          res.setHeader('Cache-Control', 'no-cache, no-transform')
+          await impl.agentNdjson(messages, context, (line) => res.write(line), { tools: clientTools, system: clientSystem })
           res.end()
         } catch (e) {
           json(res, 500, { error: e instanceof Error ? e.message : String(e) })
@@ -53,8 +68,8 @@ function apiRoutes(): Plugin {
 
       server.middlewares.use('/api/agent', async (req, res) => {
         try {
-          const { messages, context } = JSON.parse(await readBody(req))
-          json(res, 200, await impl.agentTurn(messages, context))
+          const { messages, context, clientTools, clientSystem } = JSON.parse(await readBody(req))
+          json(res, 200, await impl.agentTurn(messages, context, undefined, undefined, { tools: clientTools, system: clientSystem }))
         } catch (e) {
           json(res, 500, { error: e instanceof Error ? e.message : String(e) })
         }
@@ -64,6 +79,15 @@ function apiRoutes(): Plugin {
         try {
           const { section } = JSON.parse(await readBody(req))
           json(res, 200, { claims: await impl.extractClaims(section) })
+        } catch (e) {
+          json(res, 500, { error: e instanceof Error ? e.message : String(e) })
+        }
+      })
+
+      server.middlewares.use('/api/navigate', async (req, res) => {
+        try {
+          const decision = await impl.navigate(JSON.parse(await readBody(req)))
+          json(res, 200, decision ? { enabled: true, decision } : { enabled: false })
         } catch (e) {
           json(res, 500, { error: e instanceof Error ? e.message : String(e) })
         }
