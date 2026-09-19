@@ -13,7 +13,8 @@
         "UIBackgroundModes": [
           "audio"
         ]
-      }
+      },
+      "appleTeamId": "LS2MX383L8"
     },
     "android": {
       "adaptiveIcon": {
