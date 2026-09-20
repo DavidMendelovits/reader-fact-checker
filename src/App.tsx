@@ -1,32 +1,39 @@
+import { useState } from 'react'
 import { Analytics } from '@vercel/analytics/react'
 import { useStore } from './store'
 import { ImportScreen } from './components/ImportScreen'
 import { Reader } from './components/Reader'
-import { PlayerBar } from './components/PlayerBar'
+import { Header } from './components/Header'
 import { FactCheckPanel } from './components/FactCheckPanel'
 import { ChatPanel } from './components/ChatPanel'
-import { SpeakingIndicator } from './components/SpeakingIndicator'
-import { VoiceGlow } from './components/VoiceGlow'
+import { Composer } from './components/Composer'
+import { TranscriptSheet } from './components/TranscriptSheet'
+import { Aurora } from './components/Aurora'
 import { Notice } from './components/Notice'
 
 export default function App() {
   const doc = useStore((s) => s.doc)
+  const [sheet, setSheet] = useState(false)
+
   return (
     <>
+      {/* behind everything, at the window's edges; the app's surfaces are opaque */}
+      <Aurora />
       {doc ? (
-        <VoiceGlow>
-          <div className="app">
-            <PlayerBar />
-            <div className="main">
-              <Reader />
-              <aside className="sidebar">
-                <ChatPanel />
-                <FactCheckPanel />
-              </aside>
-            </div>
-            <SpeakingIndicator />
+        // header / scroll region / Composer, at 100dvh so the soft keyboard pushes
+        // the Composer up instead of hiding it
+        <div className="app">
+          <Header />
+          <div className="main">
+            <Reader />
+            <aside className="sidebar">
+              <ChatPanel />
+              <FactCheckPanel />
+            </aside>
           </div>
-        </VoiceGlow>
+          <Composer onOpenTranscript={() => setSheet(true)} />
+          {sheet && <TranscriptSheet onClose={() => setSheet(false)} />}
+        </div>
       ) : (
         <ImportScreen />
       )}

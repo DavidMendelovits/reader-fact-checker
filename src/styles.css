@@ -43,6 +43,23 @@
   /* Readwise's signature highlight — wash behind the text, full strength underneath */
   --highlight: hsl(50deg 96% 67%);
 
+  /* The aurora's two ramps (DESIGN.md). The shader reads them from here by name,
+     so the theme owns the colour and the canvas owns nothing. */
+  --aurora-user-0: #ffc915;
+  --aurora-user-1: #ffb07a;
+  --aurora-user-2: #eb64a0;
+  --aurora-user-3: #ff8a3d;
+  --aurora-user-4: #f26d4b;
+  --aurora-user-5: #ffd9a0;
+  --aurora-user-6: #c2417a;
+  --aurora-agent-0: #7ec4ff;
+  --aurora-agent-1: #9aa0ff;
+  --aurora-agent-2: #7fd9ee;
+  --aurora-agent-3: #5fa8e8;
+  --aurora-agent-4: #b3a6ff;
+  --aurora-agent-5: #6fe0c8;
+  --aurora-agent-6: #4f7fd4;
+
   /* ---- type ---- */
   --font-ui: -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, sans-serif;
   --font-reading: 'Source Serif 4', 'Source Serif VF', Georgia, serif;
@@ -219,6 +236,8 @@ input::placeholder { color: var(--text-tertiary); }
 
 /* ---- import screen ---- */
 .import-screen {
+  position: relative;
+  z-index: 1;
   max-width: 640px;
   margin: 12vh auto;
   padding: 0 var(--spacer-7);
@@ -234,41 +253,64 @@ input::placeholder { color: var(--text-tertiary); }
   color: var(--text-secondary);
   font-size: var(--font-size-lg);
   line-height: var(--line-lg);
-  margin-bottom: var(--spacer-9);
+  margin-bottom: var(--spacer-8);
 }
-.import-screen form { display: flex; gap: var(--spacer-3); margin-bottom: var(--spacer-6); }
+
+/* One card holds both ways in. The dashed border is a drag affordance, so it
+   only exists while something is actually being dragged over it. */
+.import-card {
+  padding: var(--spacer-6);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-lg);
+  background: var(--background-primary);
+  text-align: left;
+}
+.import-card.dragging {
+  border-style: dashed;
+  border-color: var(--border-focus);
+  background: var(--background-secondary);
+}
+.import-screen form { display: flex; gap: var(--spacer-3); margin-bottom: var(--spacer-4); }
 /* min-width:0 or the input's intrinsic size wins and shoves the button off-page */
-.import-screen input[type='url'] { flex: 1; min-width: 0; padding: var(--spacer-3) var(--spacer-4); }
+.import-screen input[type='url'] {
+  flex: 1;
+  min-width: 0;
+  padding: var(--spacer-3) var(--spacer-4);
+  font-size: var(--font-size-lg);
+}
+.import-screen input:disabled { opacity: 0.5; }
 .import-screen form button {
+  min-height: 44px;
   background: var(--background-interactive);
   color: var(--text-on-accent);
 }
-.import-screen form button:hover { background: var(--blue-40); }
+.import-screen form button:hover:not(:disabled) { background: var(--blue-40); }
 
-.drop-zone {
-  border: 1px dashed var(--border-primary);
-  border-radius: var(--radius-lg);
-  padding: var(--spacer-9);
-  color: var(--text-secondary);
-  background: var(--background-primary);
+.dots {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: var(--radius-pill);
+  animation: spin 700ms linear infinite;
 }
-/* The native file input is wider than its own control and was pushing the page
-   sideways. Give it the pill treatment and let it wrap inside the zone. */
-.drop-zone label {
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.drop-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
   gap: var(--spacer-3);
+  color: var(--text-secondary);
 }
-.drop-zone input[type='file'] {
+.drop-row input[type='file'] {
   max-width: 100%;
   border: 0;
   background: none;
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
 }
-.drop-zone input[type='file']::file-selector-button {
+.drop-row input[type='file']::file-selector-button {
   margin-right: var(--spacer-3);
   padding: var(--spacer-2) var(--spacer-4);
   border: 0;
@@ -278,77 +320,139 @@ input::placeholder { color: var(--text-tertiary); }
   font: 500 var(--font-size-base) var(--font-ui);
   cursor: pointer;
 }
-.drop-zone input[type='file']::file-selector-button:hover { background: var(--background-button-hover); }
+.drop-row input[type='file']::file-selector-button:hover { background: var(--background-button-hover); }
+.import-screen > .error { margin: var(--spacer-4) 0 0; text-align: left; }
 
 /* ---- layout ---- */
-.app { display: flex; flex-direction: column; height: 100vh; }
-/* the voice glow wraps the whole screen; the beam's own layers sit above the app, under nothing */
-.voice-glow { height: 100vh; background: var(--background-canvas); }
-.main { display: flex; flex: 1; overflow: hidden; }
-
-/* ---- player bar: minimal icon-ish toolbar, content leads ---- */
-.player-bar {
+/* header / scroll region / Composer. dvh, not vh: the soft keyboard shrinks the
+   layout viewport (see index.html's interactive-widget) and the Composer rides up
+   with it instead of ending up underneath it. */
+.app {
+  position: relative;
+  z-index: 1;
   display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+.main { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+
+/* the aurora is behind everything and touches nothing */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* ---- header: back · title · speed · check ---- */
+.header {
+  display: flex;
+  flex: none;
   align-items: center;
   gap: var(--spacer-3);
-  flex-wrap: wrap;
-  padding: var(--spacer-3) var(--spacer-5);
+  padding: var(--spacer-2) var(--spacer-5);
   background: var(--background-primary);
   border-bottom: 1px solid var(--border-secondary);
 }
-.player-bar .play-btn {
-  background: var(--background-interactive);
-  color: var(--text-on-accent);
-  font-weight: 500;
+.header-back {
+  flex: none;
+  min-height: 44px;
+  background: none;
+  color: var(--text-secondary);
 }
-.player-bar .play-btn:hover { background: var(--blue-40); }
-.player-bar .position {
-  font-size: var(--font-size-sm);
-  line-height: var(--line-sm);
-  color: var(--text-tertiary);
+.header-back:hover { background: var(--background-button); }
+.header-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-lg);
+  line-height: var(--line-lg);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.speed { position: relative; flex: none; }
+.speed-pill {
+  min-width: 44px;
+  height: 44px;
+  justify-content: center;
+  border-radius: var(--radius-pill);
   font-variant-numeric: tabular-nums;
 }
-.player-bar label {
+.speed-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--spacer-2));
+  z-index: 50;
   display: flex;
-  align-items: center;
-  gap: var(--spacer-2);
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
+  flex-direction: column;
+  padding: var(--spacer-2);
+  border-radius: var(--radius);
+  background: var(--background-elevated);
+  box-shadow: var(--shadow-300);
 }
-.player-bar select { padding: var(--spacer-2) var(--spacer-3); }
-.player-bar .mic.on {
-  background: var(--blue-90);
-  color: var(--blue-40);
+.speed-menu button { justify-content: center; min-height: 44px; background: none; }
+.speed-menu button:hover { background: var(--background-button-hover); }
+.speed-menu button.on { color: var(--text-interactive); font-weight: 600; }
+.header-check { position: relative; flex: none; min-height: 44px; overflow: hidden; }
+/* progress is the button's own underline, so the row never changes height */
+.check-bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 2px;
+  transform-origin: left;
+  background: var(--background-interactive);
+  transition: transform 150ms ease-out;
 }
-.player-bar .mute.on {
-  background: var(--red-90);
-  color: var(--red-30);
+@media (max-width: 560px) {
+  .header { padding-inline: var(--spacer-3); }
+  .header-check .wide { display: none; }
 }
-.player-bar .debug { opacity: 0.5; }
-.player-bar .back { margin-left: auto; color: var(--text-secondary); }
 
 /* ---- reader ---- */
+/* The transparent border is the 12px margin the aurora never crosses: the
+   background is clipped to the padding box, so the wash shows in the border and
+   body text always sits on paper. */
 .reader {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
-  padding: var(--spacer-9) var(--spacer-10);
+  padding: var(--spacer-8) var(--spacer-9);
+  border: 12px solid transparent;
+  background: var(--background-canvas);
+  background-clip: padding-box;
   /* the measure stays fixed and centres in whatever space the panes leave */
-  max-width: calc(var(--reading-measure) + var(--spacer-10) * 2);
+  max-width: calc(var(--reading-measure) + var(--spacer-9) * 2 + 24px);
   margin-inline: auto;
 }
 
-/* Below this the fixed sidebar leaves the reader nothing, so the panes stack and
-   the contextual panel goes under the text rather than beside it. */
-@media (max-width: 900px) {
-  .main { flex-direction: column; overflow-y: auto; }
-  .reader { flex: none; overflow-y: visible; padding: var(--spacer-7) var(--spacer-6); }
-  .sidebar {
-    width: auto;
-    border-left: 0;
-    border-top: 1px solid var(--border-secondary);
-    max-height: 70vh;
-  }
+/* Below this the sidebar leaves the reader nothing, so it becomes the Transcript
+   sheet instead and the reader has the window to itself. */
+@media (max-width: 899px) {
+  .main > .sidebar { display: none; }
+  .reader { padding: var(--spacer-6) var(--spacer-5); }
 }
+
+/* the pill that brings you back to where the voice is */
+.back-to-voice {
+  position: fixed;
+  left: 50%;
+  bottom: calc(60px + env(safe-area-inset-bottom, 0px) + var(--spacer-3));
+  z-index: 35;
+  transform: translateX(-50%);
+  padding: var(--spacer-3) var(--spacer-5);
+  border-radius: var(--radius-pill);
+  background: var(--background-inverse);
+  color: var(--background-primary);
+  box-shadow: var(--shadow-300);
+}
+.back-to-voice:hover { background: var(--background-inverse); opacity: 0.9; }
+
 .reader h1 {
   font-family: var(--font-reading);
   font-size: 1.75rem;
@@ -366,6 +470,10 @@ input::placeholder { color: var(--text-tertiary); }
 }
 .reader p {
   position: relative;
+  /* a book is a few hundred paragraphs; only the visible ones cost anything */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+  transition: background 150ms ease-out;
   font-family: var(--font-reading);
   font-size: var(--reading-size);
   line-height: var(--reading-line-height);
@@ -621,37 +729,159 @@ input::placeholder { color: var(--text-tertiary); }
 }
 .library-forget:hover { color: var(--text-error); border-color: var(--border-error); background: none; }
 
-/* ---- speaking indicator ---- */
-.speaking-indicator {
-  position: fixed;
-  bottom: var(--spacer-9);
-  left: 50%;
-  z-index: 40;
+/* ---- the Composer: mic · line · play · transcript · keyboard ---- */
+.composer {
+  flex: none;
+  background: var(--background-primary);
+  border-top: 1px solid var(--border-secondary);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.composer-row {
   display: flex;
   align-items: center;
-  gap: var(--spacer-4);
-  padding: var(--spacer-3) var(--spacer-6);
+  gap: var(--spacer-3);
+  height: 60px;
+  padding: 0 var(--spacer-5);
+  margin-inline: auto;
+}
+@media (min-width: 700px) { .composer-row { max-width: 640px; } }
+/* on a phone the five controls are the fixed cost; the line gets what is left, so
+   the gutters and gaps give it back as much of the row as they can */
+@media (max-width: 430px) {
+  .composer-row { gap: var(--spacer-2); padding-inline: var(--spacer-3); }
+  .composer-btn.transcript { padding: 0 var(--spacer-3); font-size: var(--font-size-sm); }
+}
+/* the sidebar is still there at this width, and the Composer belongs under the
+   reader column, not under the panel — the bar stays one surface, its row moves */
+@media (min-width: 900px) { .composer { padding-right: 380px; } }
+
+.composer-btn {
+  flex: none;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
   border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--neutral-10) 92%, transparent);
-  backdrop-filter: blur(8px);
-  box-shadow: var(--shadow-300);
-  font-size: var(--font-size-xs);
-  pointer-events: none;
-  transition: opacity 180ms ease, transform 180ms ease;
+  font-size: var(--font-size-lg);
 }
-.speaking-indicator[data-active='off'] { opacity: 0; transform: translate(-50%, 8px); }
-.speaking-indicator[data-active='on'] { opacity: 1; transform: translate(-50%, 0); }
-.speaking-indicator canvas { width: 200px; height: 28px; display: block; }
-.speaking-label {
-  color: var(--neutral-60);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  min-width: 52px;
+.composer-btn.transcript {
+  width: auto;
+  padding: 0 var(--spacer-4);
+  font-size: var(--font-size-base);
 }
-/* the canvas reads this, so who's talking is a styling decision, not a JS constant */
-.speaking-indicator { --indicator-bar: var(--indicator-agent); }
-.speaking-indicator[data-who='user'] { --indicator-bar: var(--indicator-user); }
-.speaking-indicator[data-who='user'] .speaking-label { color: var(--neutral-100); }
+/* at this width the sidebar is showing the same thing, so the sheet is not used */
+@media (min-width: 900px) { .composer-btn.transcript { display: none; } }
+
+.composer-btn.mic { position: relative; border: 1px solid var(--border-primary); background: none; }
+.composer-btn.mic:hover { background: var(--background-button); }
+.composer-btn.mic[data-mic='live'] {
+  border-color: transparent;
+  background: var(--green-50);
+  /* the ring breathes with what the mic hears; --mic-level is written by a rAF */
+  box-shadow: 0 0 0 calc(2px + 6px * var(--mic-level, 0)) color-mix(in srgb, var(--green-50) 30%, transparent);
+}
+.composer-btn.mic[data-mic='muted'] {
+  border-color: transparent;
+  background: var(--background-tertiary);
+  opacity: 0.6;
+}
+.composer-btn.mic[data-mic='denied'] { border-color: var(--border-error); }
+/* the slash: drawn, not typed, so it themes and never depends on a font */
+.composer-btn.mic[data-mic='denied']::after,
+.composer-btn.mic:disabled::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: calc(50% - 1px);
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--text-error);
+  transform: rotate(-45deg);
+}
+
+.composer-line {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-lg);
+  line-height: var(--line-lg);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-line.interim { font-style: italic; color: var(--text-primary); }
+
+.composer-type { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--spacer-2); }
+/* 16px exactly: anything smaller and iOS Safari zooms the page on focus */
+.composer-type input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  padding: 0 var(--spacer-4);
+  font-size: 16px;
+}
+
+/* ---- transcript sheet (under 900px) ---- */
+.sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(12, 17, 23, 0.32);
+}
+.sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 80dvh;
+  background: var(--background-primary);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow-400);
+  transition: transform 150ms ease-out;
+}
+.sheet:focus { outline: none; }
+.sheet-grab {
+  display: flex;
+  justify-content: center;
+  padding: var(--spacer-3);
+  cursor: grab;
+  touch-action: none;
+}
+.sheet-grab span {
+  display: block;
+  width: 36px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--border-primary);
+}
+.sheet-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--spacer-2);
+  padding: 0 var(--spacer-4);
+  border-bottom: 1px solid var(--border-secondary);
+}
+.sheet-tabs button { min-height: 44px; background: none; color: var(--text-secondary); }
+.sheet-tabs button:hover { background: var(--background-button); }
+.sheet-tabs button.on { color: var(--text-primary); box-shadow: inset 0 -2px 0 var(--text-interactive); }
+.sheet-close { margin-left: auto; width: 44px; justify-content: center; }
+.sheet-body { flex: 1; min-height: 0; display: flex; }
+.sheet-body > section { flex: 1; min-height: 0; border: 0; }
+/* the tab above it already says Conversation */
+.sheet-body .chat-panel h3 { display: none; }
+
+/* announcements only — the line itself is never read aloud as it changes */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 
 /* ---- conversation ---- */
 .chat-panel {
@@ -667,6 +897,7 @@ input::placeholder { color: var(--text-tertiary); }
 .chat-msg {
   padding: var(--spacer-3) var(--spacer-4);
   border-radius: var(--radius-lg);
+  font-size: var(--font-size-lg);
   line-height: var(--line-lg);
   max-width: 92%;
 }
@@ -680,8 +911,17 @@ input::placeholder { color: var(--text-tertiary); }
   background: var(--background-secondary);
   color: var(--text-primary);
 }
-.chat-status { color: var(--text-tertiary); font-style: italic; font-size: var(--font-size-sm); }
-.chat-input { display: flex; gap: var(--spacer-2); margin-top: var(--spacer-3); }
-.chat-input input { flex: 1; min-width: 0; padding: var(--spacer-3) var(--spacer-4); }
-.chat-input button { background: var(--background-interactive); color: var(--text-on-accent); }
-.chat-input button:hover { background: var(--blue-40); }
+
+/* ---- library rows ---- */
+.library-open { min-height: 56px; justify-content: center; }
+.library-title { font-size: var(--font-size-lg); line-height: var(--line-lg); }
+.library-forget { width: 44px; min-height: 44px; justify-content: center; padding: 0; }
+
+/* ---- reduced motion: nothing moves, including the aurora (see Aurora.tsx) ---- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

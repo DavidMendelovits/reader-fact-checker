@@ -11,10 +11,17 @@ interface State {
   // voice agent
   micEnabled: boolean
   micMuted: boolean
+  /** The browser refused the mic. Sticky until the mic actually comes up again. */
+  micDenied: boolean
   // 'listening' = we heard speech start, transcript not in yet. Note that 'reading'
   // only means the read tool is in flight — `playing` is the truth about audio.
   agentState: 'idle' | 'listening' | 'thinking' | 'speaking' | 'reading'
   chat: ChatMessage[]
+  /** Words the recognizer has heard but not finalised. Only the Composer line reads it. */
+  interim: string
+  /** The last thing the agent said, and when — the Composer line holds it for a beat. */
+  lastAgentLine: string | null
+  lastAgentLineAt: number | null
   // jobs
   jobs: FactCheckJob[]
   highlights: Highlight[]
@@ -29,6 +36,8 @@ interface State {
   setPlaying: (p: boolean) => void
   setRate: (r: number) => void
   setMicEnabled: (m: boolean) => void
+  setMicDenied: (d: boolean) => void
+  setInterim: (t: string) => void
   pushChat: (m: ChatMessage) => void
   updateChat: (id: string, patch: Partial<ChatMessage>) => void
   addJob: (job: FactCheckJob) => void
@@ -57,22 +66,41 @@ export const useStore = create<State>((set) => ({
   rate: 1,
   micEnabled: false,
   micMuted: false,
+  micDenied: false,
   agentState: 'idle',
   chat: [],
+  interim: '',
+  lastAgentLine: null,
+  lastAgentLineAt: null,
   jobs: [],
   highlights: [],
   docCheckProgress: null,
   notice: null,
 
-  setDoc: (doc) => set({ doc, paragraphs: flatten(doc), currentParagraph: 0, playing: false, jobs: [], highlights: [], chat: [], docCheckProgress: null }),
-  clearDoc: () => set({ doc: null, paragraphs: [], playing: false, jobs: [], highlights: [], chat: [], docCheckProgress: null }),
+  setDoc: (doc) => set({ doc, paragraphs: flatten(doc), currentParagraph: 0, playing: false, jobs: [], highlights: [], chat: [], interim: '', lastAgentLine: null, lastAgentLineAt: null, docCheckProgress: null }),
+  clearDoc: () => set({ doc: null, paragraphs: [], playing: false, jobs: [], highlights: [], chat: [], interim: '', lastAgentLine: null, lastAgentLineAt: null, docCheckProgress: null }),
   setCurrentParagraph: (currentParagraph) => set({ currentParagraph }),
   setPlaying: (playing) => set({ playing }),
   setRate: (rate) => set({ rate }),
   setMicEnabled: (micEnabled) => set({ micEnabled }),
-  pushChat: (m) => set((s) => ({ chat: [...s.chat, m] })),
+  setMicDenied: (micDenied) => set({ micDenied }),
+  setInterim: (interim) => set({ interim }),
+  // The line shows the agent's last reply, so the Composer never has to walk the
+  // chat log backwards to find it.
+  pushChat: (m) =>
+    set((s) => ({
+      chat: [...s.chat, m],
+      ...(m.role === 'assistant' ? { lastAgentLine: m.text, lastAgentLineAt: Date.now() } : null),
+    })),
+  // A streamed reply arrives as a push of its first words and then a run of
+  // patches, so the line has to follow the patches too or it keeps the first chunk.
   updateChat: (id, patch) =>
-    set((s) => ({ chat: s.chat.map((m) => (m.id === id ? { ...m, ...patch } : m)) })),
+    set((s) => {
+      const chat = s.chat.map((m) => (m.id === id ? { ...m, ...patch } : m))
+      const patched = chat.find((m) => m.id === id)
+      if (patch.text === undefined || patched?.role !== 'assistant') return { chat }
+      return { chat, lastAgentLine: patch.text, lastAgentLineAt: Date.now() }
+    }),
   addJob: (job) => set((s) => ({ jobs: [job, ...s.jobs] })),
   addHighlight: (h) => set((s) => ({ highlights: [h, ...s.highlights] })),
   removeHighlight: (id) => set((s) => ({ highlights: s.highlights.filter((h) => h.id !== id) })),

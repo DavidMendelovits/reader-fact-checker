@@ -2,9 +2,12 @@
 // and the echo bookkeeping the ear needs. Where the audio comes from is an
 // AudioSource (ports.ts); the default is the server's /api/tts, which hides the
 // vendor. Position unit = flat paragraph index (see store).
-import { apiFetch } from './api'
-import { attachOutput } from './audio-levels'
-import type { AudioSource } from './ports'
+// extension-explicit so this file can run under node --experimental-strip-types
+import { apiFetch } from './api.ts'
+import { attachOutput } from './audio-levels.ts'
+import type { AudioSource } from './ports.ts'
+// the hold policy is shared with the phone player; its checks live next to it
+import { HoldGate } from '../../shared/voice/holdGate.ts'
 
 /** The server's /api/tts route. Whatever vendor is configured there. */
 export const serverSpeech: AudioSource = {
@@ -101,7 +104,13 @@ async function attachStream(
 }
 
 export class TtsPlayer {
-  constructor(private source: AudioSource) {}
+  private source: AudioSource
+
+  // a plain field, not a constructor parameter property: this file is loaded by
+  // its own check under node's strip-only TypeScript
+  constructor(source: AudioSource) {
+    this.source = source
+  }
 
   private audio = new Audio()
   private session = 0 // bumped to cancel in-flight playback loops
@@ -135,6 +144,7 @@ export class TtsPlayer {
   }
   private streamAbort: AbortController | null = null
   private narrating = false
+  private gate = new HoldGate()
   // Resolves the paragraph currently awaited in playFrom. A paused <audio> never
   // fires 'ended', so without this an interruption left read_aloud hanging forever.
   private interrupt: (() => void) | null = null
@@ -145,6 +155,11 @@ export class TtsPlayer {
 
   get currentIndex() {
     return this.index
+  }
+
+  /** Parked mid-range by hold(): silent, but the range is still live. */
+  get held(): boolean {
+    return this.gate.held
   }
 
   private setNarrating(on: boolean) {
@@ -182,6 +197,13 @@ export class TtsPlayer {
     let failStreak = 0
     while (this.index <= last && session === this.session) {
       const i = this.index
+      // The one park site (see hold(), and the diagram in shared/voice/holdGate.ts).
+      // `this.index` never moved, so a release replays this paragraph from its
+      // start — out of the blob cache when it was prefetched, streamed again if not.
+      if (this.gate.held) {
+        const resume = await this.gate.wait()
+        if (session !== this.session || resume === 'abandon') return 'stopped'
+      }
       this.onParagraphChange(i)
       // Prefetch two ahead. One was enough when every paragraph cost a full
       // synthesis wait; now that the current one streams, a deeper queue is what
@@ -197,16 +219,21 @@ export class TtsPlayer {
       } catch (e) {
         // pause() aborts the in-flight stream; that rejection is the user, not an outage
         if (session !== this.session) return 'stopped'
-        console.error('TTS error, skipping paragraph', i, e)
-        if (++failStreak >= 3) {
-          this.index = i - failStreak + 1
-          return 'failed'
+        // so is hold()'s abort — counting it as an outage would skip the paragraph
+        // the hold is parked on.
+        if (!this.gate.held) {
+          console.error('TTS error, skipping paragraph', i, e)
+          if (++failStreak >= 3) {
+            this.index = i - failStreak + 1
+            return 'failed'
+          }
         }
       } finally {
         this.remember(this.speaking)
         this.speaking = ''
       }
       if (session !== this.session) return 'stopped'
+      if (this.gate.held) continue // park at the top; the index stays on this paragraph
       this.index = i + 1
     }
     if (session !== this.session) return 'stopped'
@@ -275,13 +302,38 @@ export class TtsPlayer {
     })
   }
 
-  pause() {
-    this.session++ // cancels the loop
+  /**
+   * Duck the narration without ending the range: the session is untouched, so the
+   * agent's read_aloud is still waiting and release() replays the paragraph from
+   * its start. pause() is the same stop with the range given up.
+   */
+  hold() {
+    if (this.gate.held) return
+    this.gate.hold()
+    this.stopAudio()
+    // `playing` deliberately stays true: the range is still live, the row tint has
+    // not moved, and a cough must cost nothing. `held` is the separate signal.
+  }
+
+  /** Resume the paragraph the hold parked on. No-op if pause() got there first. */
+  release() {
+    this.gate.release()
+  }
+
+  private stopAudio() {
     this.streamAbort?.abort()
     this.streamAbort = null
     this.audio.pause()
+    // a paused <audio> never fires 'ended'; without this the paragraph's promise
+    // would never settle and the loop would never reach its park
     this.interrupt?.()
     this.interrupt = null
+  }
+
+  pause() {
+    this.session++ // cancels the loop
+    this.gate.abandon() // a parked loop unwinds as 'stopped'
+    this.stopAudio()
     this.setNarrating(false)
   }
 

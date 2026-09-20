@@ -47,6 +47,7 @@ export function ImportScreen() {
   const [error, setError] = useState<string | null>(null)
   const [library, setLibrary] = useState(loadLibrary)
   const [query, setQuery] = useState('')
+  const [dragging, setDragging] = useState(false)
 
   async function load(fn: () => Promise<Parameters<typeof setDoc>[0]>) {
     setBusy(true)
@@ -69,38 +70,46 @@ export function ImportScreen() {
         Listen to any article or book, and talk to it — interrupt any time to ask what’s true.
       </p>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (url.trim()) void load(() => extractFromUrl(url.trim()))
-        }}
-      >
-        <input
-          type="url"
-          placeholder="Paste an article URL (e.g. https://en.wikipedia.org/wiki/Moon_landing)"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          disabled={busy}
-        />
-        <button type="submit" disabled={busy || !url.trim()}>
-          {busy ? 'Loading…' : 'Read article'}
-        </button>
-      </form>
-
+      {/* One card: paste a URL, or drop a file. Two ways in, one place to look. */}
       <div
-        className="drop-zone"
-        onDragOver={(e) => e.preventDefault()}
+        className={`import-card${dragging ? ' dragging' : ''}`}
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDragging(true)
+        }}
+        onDragLeave={() => setDragging(false)}
         onDrop={(e) => {
           e.preventDefault()
+          setDragging(false)
           const file = e.dataTransfer.files[0]
           if (file) void load(() => extractFromEpub(file))
         }}
       >
-        <label>
-          Drop an EPUB here, or{' '}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (url.trim()) void load(() => extractFromUrl(url.trim()))
+          }}
+        >
+          <input
+            type="url"
+            placeholder="Paste an article URL"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            disabled={busy}
+          />
+          <button type="submit" disabled={busy || !url.trim()}>
+            {busy && <span className="dots" aria-hidden="true" />}
+            {busy ? 'Loading…' : 'Read article'}
+          </button>
+        </form>
+
+        <label className="drop-row">
+          <span>or drop an EPUB here</span>
           <input
             type="file"
             accept=".epub"
+            disabled={busy}
             onChange={(e) => {
               const file = e.target.files?.[0]
               if (file) void load(() => extractFromEpub(file))
@@ -150,6 +159,7 @@ export function ImportScreen() {
                     </button>
                     <button
                       className="library-forget"
+                      aria-label={`Remove ${entry.title} from the library`}
                       title="Remove from library"
                       onClick={() => {
                         forgetEntry(entry.id)
