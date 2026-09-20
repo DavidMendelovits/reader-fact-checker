@@ -24,28 +24,33 @@ The interesting bet is that **the agent drives playback, rather than the UI driv
 - **Highlights** — say *"highlight that, it's the bit for my talk"* and your comment is saved as the note; or select text in the reader for a highlight / fact-check toolbar
 - **Resume** — reopening a book restores its position, highlights, cards, and the conversation itself; after a long gap the agent recaps where things stand before continuing
 - **Whole-document scan** — extracts the checkable claims section by section and verifies them in the background
-- **Type instead of talking** — a text box drives the same agent, so you can demo the whole thing with no microphone
-- **The voice glow** — a colour along the bottom of the screen that rises with your voice, gathers into a beam that sweeps side to side while the agent thinks, and follows the narration in cooler tones while it speaks. On the web it's [voice-glow](https://www.npmjs.com/package/voice-glow), fed from the app's own echo-cancelled mic meter rather than a second capture (which would cost the echo cancellation that lets you talk over the narration); on the phone it's rebuilt from soft SVG lobes on a UI-thread layer, driven by the recognizer's own volume reports
+- **One Composer bar** — the same bar on the phone and on the web: mic, a single status line (your words as you say them, then the agent's reply, then "Reading ¶12/340"), play/pause, a transcript sheet (under 900px; wider windows keep the conversation panel beside the reader), and a keyboard glyph; a speed pill and **Check document** sit in the header
+- **Barge-in on sound** — narration stops on the first sound of your voice, off the mic level, before a word is recognized; a cough holds it for a moment and it picks back up on its own
+- **Type instead of talking** — the Composer's keyboard glyph opens a text field that drives the same agent, so you can demo the whole thing with no microphone
+- **The aurora** — a colour around the edges of the screen that rises with your voice, sweeps side to side while the agent thinks, and pulses in cooler tones while it reads; quiet at rest, and a still wash under reduced motion. One shader (`shared/voice/aurora.shader.ts`) runs on both platforms: WebGL on the web, fed from the app's own echo-cancelled mic meter rather than a second capture (which would cost the echo cancellation that lets you talk over the narration); Skia on the phone, driven by the recognizer's own volume reports
 
 ## Mobile
 
 `mobile/` is a phone client for your **Readwise Reader library**, voice-first. Readwise stays the backend — capture, sync, exports — and this app is the way you read and listen on the phone.
 
-- **Your library, by voice.** Sign in with your Reader access token and the inbox, later, and archive are cached on the phone and kept in sync incrementally. The mic is live from the first screen: *"what's new?"*, *"open the Hemingway one"*, *"read me that article about sleep"*. The agent searches the library, opens the document, and picks up where you left off.
+- **Your library, by voice.** Sign in with your Reader access token (kept in the device keychain) and the inbox, later, and archive are cached on the phone and kept in sync incrementally. The mic is live from the first screen: *"what's new?"*, *"open the Hemingway one"*, *"read me that article about sleep"*. The agent searches the library, opens the document, and picks up where you left off.
 - **Books and articles, read to you.** Documents split into chapters at their headings, so *"skip to chapter three"* works and chapter titles are read aloud. Position is remembered per document.
 - **Highlights, in the book.** *"Highlight that, it's the bit for my talk"* — or long-press a paragraph — paints the passage in the text at once and writes it to Readwise in the background (retried until it lands). Highlights you made in Reader are pulled in and painted too. Tap one to add a note or remove it.
 - **Filing by voice.** *"Archive that"*, *"save it for later"*, *"back to the library"*.
 - **Fast by decision.** Opening, chapters, filing, closing, and stopping are decided by the server's decision model off the partial transcript (see "Navigation is decided" above), so a book is opening before the recognizer has finished listening; the conversation model only hears what the decision model wasn't sure about.
-- **The rest of the reader:** fact check anything you just heard, the transport fast paths, the same agent as the web app, and the same voice glow along the bottom edge — the recognizer reports the mic level, and the glow rises with it, sweeps while the agent thinks, and pulses while it reads.
+- **The Composer bar.** One bar on every signed-in screen: mic, a single line (your words as you say them, then the agent's reply, then "Reading ¶12/340"), play/pause while a book is open, a transcript sheet with filing, and a keyboard glyph that opens a text field that rides above the keyboard instead of hiding under it.
+- **Barge-in on sound.** Narration stops on the first sound of your voice, off the mic level rather than after three recognized words; a cough holds it for a moment and it picks back up on its own. Books open at the saved spot, and a "Back to the voice" pill appears when you scroll away while it reads.
+- **Paper and Ink.** A light theme and a dark one, following the system or pinned in Settings; reading is a serif. The tokens are in [DESIGN.md](DESIGN.md).
+- **The rest of the reader:** fact check anything you just heard, the transport fast paths, a speed pill in the header, the same agent as the web app, and the same aurora around the edges — the recognizer reports the mic level, and the aurora rises with it, sweeps while the agent thinks, and pulses while it reads.
 
-The architecture is the web app's, ported: the agent drives playback through `read_aloud`, transport commands run locally off partial transcripts, and now the phone declares its own library tools to the shared agent (`clientTools` on the agent request), so the server prompt stays one thing. Model keys never ship in the bundle; the app talks to this repo's deployed `/api` routes. Reader's API is behind a `Library` port (`src/ports.ts`); Readwise is the one adapter (`src/readwise.ts`).
+The architecture is the web app's, and the voice code is now literally shared: the conversation loop (`shared/voice/agent.ts`), the hold/release barge-in, recognizer restarts and echo handling live in `shared/voice/` and run on both platforms, with `src/lib/agent.ts` and `mobile/src/agent.ts` as thin adapters. The agent drives playback through `read_aloud`, transport commands run locally off partial transcripts, and the phone declares its own library tools to the shared agent (`clientTools` on the agent request), so the server prompt stays one thing. Model keys never ship in the bundle; the app talks to this repo's deployed `/api` routes. Reader's API is behind a `Library` port (`src/ports.ts`); Readwise is the one adapter (`src/readwise.ts`).
 
 The voice is a choice. The OS voice (`expo-speech`) works out of the box. In settings, download **Kokoro** (~90MB, once) to narrate on-device through `react-native-sherpa-onnx` — the same model the web app's Unreal Speech voice is built on, so both platforms read in one voice, and the phone does it offline for free.
 
 ```bash
 cd mobile
 npm install
-npm run check      # the data layer against a fake Reader API, under node
+npm run check      # shared voice, data layer, layout, tts, voice, theme, under node + tsc
 npm run smoke:web  # the whole app in a headless browser, against a fake Reader and a scripted model
 npx expo run:ios   # dev build — speech recognition and Kokoro are native modules, so Expo Go won't do
 ```
@@ -60,15 +65,15 @@ Known gaps, in the order they'll matter: no lock-screen controls yet (background
 
 ```bash
 npm run check                    # root: shared/voice, web, api checks + tsc
-cd mobile && npm run check       # data layer, layout, tts, voice + tsc
+cd mobile && npm run check       # shared voice, data layer, theme, layout, tts, voice, settings + tsc
 cd mobile && npm run smoke:web   # the whole app in a headless browser
 ```
 
-`smoke:web` needs a Chromium: Playwright's (`npx playwright install chromium`) or any Chrome via `SMOKE_CHROME=/path/to/chrome`. `SMOKE_PORT=8092` moves it off 8082 when a dev server already has that port.
+`smoke:web` needs a Chromium: Playwright's (`npx playwright install chromium`) or any Chrome via `SMOKE_CHROME=/path/to/chrome`. `SMOKE_PORT=8092` moves the app off 8082 when a dev server already has that port, and `SMOKE_BACKEND_PORT` moves the fake backend off 5300. `EXPO_PUBLIC_READWISE_BASE` points a dev build at a stand-in Reader, and `EXPO_PUBLIC_SILENT_VOICE` silences narration; in dev and silent builds, a line starting with `>` in the Composer's text field goes to the ear as if you had said it.
 
 The ear, the aurora and the keyboard are native modules, so none of the above is the definition of done. That is:
 
-1. `npm run ios` (or `eas build --profile development`) → install the dev client → cold start it.
+1. `cd mobile && npm run ios` (or `npm run android`, or `eas build --profile development`) → install the dev client → cold start it.
 2. Exercise the aurora, the keyboard and speech on the iOS simulator **and** on an Android emulator, API 35.
 
 **iOS, loud speaker, no headphones**
@@ -90,13 +95,13 @@ cp .env.local.example .env.local   # then paste your keys in
 npm run dev
 ```
 
-`.env.local` needs all three (server-side only — never bundled into the browser):
+`.env.local` needs these three (server-side only — never bundled into the browser):
 
 - `ANTHROPIC_API_KEY` — the conversation agent and claim extraction (`claude-sonnet-5`)
 - `PERPLEXITY_API_KEY` — fact checking (`sonar`)
 - `OPENAI_API_KEY` — text-to-speech (`gpt-4o-mini-tts`)
 
-Optionally, `UNREAL_SPEECH_API_KEY` switches text-to-speech to [Unreal Speech](https://unrealspeech.com) — hosted Kokoro, about a third the price per hour of narration and ~300ms to first audio against ~1.2s. Their streaming endpoint takes 1,000 characters a call, so the server splits paragraphs at sentence boundaries and pipes the pieces back as one MP3; the client never knows. `TTS_PROVIDER=openai` forces OpenAI even with the key set; `UNREAL_SPEECH_VOICE` picks the voice.
+Optionally, `TYPESAFE_API_KEY` turns on the decision model for navigation (see "Navigation is decided" above); without it every command goes through the conversation. And optionally, `UNREAL_SPEECH_API_KEY` switches text-to-speech to [Unreal Speech](https://unrealspeech.com) — hosted Kokoro, about a third the price per hour of narration and ~300ms to first audio against ~1.2s. Their streaming endpoint takes 1,000 characters a call, so the server splits paragraphs at sentence boundaries and pipes the pieces back as one MP3; the client never knows. `TTS_PROVIDER=openai` forces OpenAI even with the key set; `UNREAL_SPEECH_VOICE` picks the voice.
 
 Restart `npm run dev` after editing `.env.local`.
 
@@ -107,13 +112,13 @@ Fact checks run on Perplexity rather than an agentic search-then-read loop becau
 Best in **Chrome** (speech recognition is Chrome-only) with **headphones**, so the mic doesn't hear the narration. Every step below also works by typing, if you'd rather skip the audio setup.
 
 1. Paste `https://en.wikipedia.org/wiki/Moon_landing` — it starts reading on its own
-2. Click **🎙 Enable mic** and allow it
+2. Tap the mic in the Composer bar and allow it
 3. Talk over the narration: *"wait, is that right?"* → it says a holding line, searches, speaks the verdict, and pins a card with sources
 4. *"highlight that, it contradicts what he said earlier"* → saved with your comment as the note
 5. *"skip ahead to the Apollo program"* → it locates the passage by content and reads from there
 6. Say *"pause"* mid-sentence — it stops immediately, before the model is involved
 7. Reload the page and reopen the book from **Continue reading** — same position, same highlights, same conversation
-8. **Fact check whole document** runs a background scan while you keep listening
+8. **Check document** in the header runs a background scan while you keep listening
 9. There's a Project Gutenberg EPUB at `public/test.epub` for the book-import path
 
 ## POC limits (deliberate)
@@ -127,13 +132,14 @@ Best in **Chrome** (speech recognition is Chrome-only) with **headphones**, so t
 
 ## Deploy (Vercel)
 
-`api/` holds the serverless functions (`/api/agent-stream`, `/api/agent`, `/api/factcheck`, `/api/claims`, `/api/tts`, `/api/fetch`); `vite.config.ts` mirrors the same routes in dev, so dev and prod behave identically. All keys stay server-side. The web app uses the streaming agent route; `/api/agent` is the buffered version the mobile app still uses, since React Native's fetch can't read a body incrementally.
+`api/` holds the serverless functions (`/api/agent-stream`, `/api/agent`, `/api/navigate`, `/api/factcheck`, `/api/claims`, `/api/tts`, `/api/fetch`); `vite.config.ts` mirrors the same routes in dev, so dev and prod behave identically. All keys stay server-side. The web app uses the streaming agent route; `/api/agent` is the buffered version the mobile app still uses, since React Native's fetch can't read a body incrementally.
 
 ```bash
 npx vercel                          # link + first deploy
 npx vercel env add ANTHROPIC_API_KEY
 npx vercel env add PERPLEXITY_API_KEY
 npx vercel env add OPENAI_API_KEY
+npx vercel env add TYPESAFE_API_KEY        # optional, see Setup
 npx vercel env add UNREAL_SPEECH_API_KEY   # optional, see Setup
 npx vercel --prod
 ```
@@ -173,15 +179,34 @@ src/lib/voice.ts           Transcriber on Chrome's SpeechRecognition + echo reje
 src/lib/tts.ts             the player: per-paragraph synth with prefetch, sentence
                            stream for replies; serverSpeech is the default AudioSource
 src/lib/sentences.ts       streaming sentence splitter (what decides when a reply starts)
-src/lib/agent.ts           the conversation: tool dispatch, the turn loop, fast-path
-                           commands, interruption handling — the heart of the app
+src/lib/agent.ts           the browser's half of the agent: what a player, a store, a
+                           transport and a tool are here, for the shared loop
 src/lib/controller.ts      wiring for everything the conversation doesn't own: manual
                            transport, mic lifecycle, highlight + whole-document jobs
 src/lib/persist.ts         localStorage library: position, cards, highlights, transcript
 src/lib/extract.ts         URL/EPUB → { title, chapters: [{ title, paragraphs }] }
 src/store.ts               zustand: doc, position, agent state, jobs, highlights, chat
-src/components/            ImportScreen, Reader, PlayerBar, ChatPanel, FactCheckPanel
+src/components/            ImportScreen, Header, Reader, Composer, TranscriptSheet,
+                           Aurora, Notice, ChatPanel, FactCheckPanel
 
+shared/voice/agent.ts      the conversation loop, once, for both apps: the turn loop,
+                           fast-path commands, decide-then-loop, interruption handling
+shared/voice/holdGate.ts   barge-in policy without a player: hold on sound, release on
+                           a false start, or convert into the real interruption
+shared/voice/bargeIn.ts    when to hold, decided from mic level alone
+shared/voice/restartPolicy.ts  who may start the recognizer, and when (a generation token)
+shared/voice/echo.ts       the echo filter: drops the recognizer's transcription of the
+                           narration itself
+shared/voice/line.ts       the Composer's one line of text: one priority, one string
+shared/voice/aurora.shader.ts  the aurora shader, run by Skia on the phone and WebGL on
+                           the web
+
+mobile/src/agent.ts        the phone's half of the agent (library tools, navigation kinds)
+mobile/src/voice.ts        Transcriber on expo-speech-recognition + level-based barge-in
+mobile/src/theme.ts        Paper / Ink tokens (see DESIGN.md)
+mobile/src/ui/             Composer, ReaderList, LibraryScreen, ReaderScreen, SettingsScreen,
+                           SignInScreen, TranscriptSheet, SpeedSheet, NoteSheet,
+                           BackToVoicePill, Toast
 mobile/src/ports.ts        VoiceEngine, Transcriber
 mobile/src/providers.ts    composition root: the ear, the player, and which voice
                            engine it runs on (system or on-device Kokoro)
@@ -196,6 +221,7 @@ Provider selection on the server:
 | `AGENT_PROVIDER` | conversation | `anthropic` |
 | `CLAIMS_PROVIDER` | json | `anthropic` |
 | `FACTCHECK_PROVIDER` | search | `perplexity` |
+| `DECIDER_PROVIDER` | decider | `typesafe` if `TYPESAFE_API_KEY` is set, else `none` |
 | `TTS_PROVIDER` | speech | `unreal` if `UNREAL_SPEECH_API_KEY` is set, else `openai` |
 
 To add a text-to-speech vendor, say: write `api/_lib/adapters/<vendor>.ts` returning a
@@ -214,3 +240,5 @@ Two ideas hold it together:
 **The flat paragraph index is the universal position unit.** It drives playback, the reading highlight, the text the agent is shown around your position, highlight anchors, and job anchors — click any verdict card to jump to the passage it came from.
 
 **The tool-use transcript is the real conversation.** The chat bubbles are a lossy view of it, so persistence round-trips the transcript rather than the bubbles; reopening a book resumes the actual conversation, including what the agent was in the middle of doing.
+
+Design tokens, type, spacing and motion are in [DESIGN.md](DESIGN.md); deferred work is in [TODOS.md](TODOS.md); releases are in [CHANGELOG.md](CHANGELOG.md).
