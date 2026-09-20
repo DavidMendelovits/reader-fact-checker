@@ -1,6 +1,7 @@
 // Continuous speech input on expo-speech-recognition, mirroring the web
 // VoiceListener (src/lib/voice.ts): no wake word, mic live during narration,
-// isEcho() throwing away the recognizer's transcription of the narration itself.
+// the shared isEcho() throwing away the recognizer's transcription of the
+// narration itself.
 // iOS voice processing (AEC) is the native upgrade the web version could only
 // wish for — the speakerphone story mostly just works here.
 import {
@@ -10,26 +11,13 @@ import {
 } from 'expo-speech-recognition'
 import { setMicLevel } from './levels'
 import type { Transcriber } from './ports'
+// one echo filter for both listeners; its checks live next to it
+import { isEcho } from '../../shared/voice/echo'
 
 const words = (s: string) => s.toLowerCase().match(/[a-z0-9']+/g) ?? []
 const countWords = (s: string) => words(s).length
 
 const MIN_INTERIM_WORDS = 3
-
-/** Verbatim port of the web isEcho — sliding-window overlap against what just played. */
-export function isEcho(heard: string, spoken: string): boolean {
-  if (!spoken) return false
-  const hw = words(heard)
-  if (hw.length === 0) return true
-  const sw = words(spoken)
-  let best = 0
-  for (let i = 0; i < sw.length && best < 1; i++) {
-    const window = new Set(sw.slice(i, i + hw.length))
-    const overlap = hw.filter((w) => window.has(w)).length / hw.length
-    if (overlap > best) best = overlap
-  }
-  return hw.length < 5 ? best === 1 : best > 0.6
-}
 
 export class VoiceListener implements Transcriber {
   private running = false

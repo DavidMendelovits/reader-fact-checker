@@ -1,7 +1,7 @@
-// Self-check for the echo filter — the one piece of voice.ts with logic worth
-// pinning down. Run it with:
+// Self-check for the echo filter, the one piece of the listeners with logic worth
+// pinning down (both listeners import it from here). Run it with:
 //
-//   node --experimental-strip-types src/lib/voice.check.ts
+//   node --experimental-strip-types shared/voice/echo.check.ts
 //
 // The regression it exists for: scoring `heard` against the whole of `spoken` as a
 // bag of words makes the denominator every word recently narrated, and any English
@@ -10,7 +10,7 @@
 // straight over the user. Every "real speech" case below was rejected by that
 // version. Windowing is what fixes it — keep these passing.
 import assert from 'node:assert/strict'
-import { isEcho } from './voice.ts'
+import { isEcho, stripEcho } from './echo.ts'
 
 // what getRecentSpokenText() returns mid-narration: a few paragraphs' worth
 const NARRATION =
@@ -81,4 +81,43 @@ for (const [heard, reply] of [
 // nothing playing means nothing to echo
 assert.equal(isEcho('pause', ''), false)
 
-console.log('isEcho: ok')
+// ---- stripEcho: keep the barge-in that arrived glued to a mouthful of narration ----
+
+// all narration, nothing of the user's left
+assert.equal(stripEcho('the tribes that had spent generations at war with one another', NARRATION), null)
+// one surviving word is as likely a stray from the book as a command
+assert.equal(stripEcho('at war', NARRATION), null)
+
+// the case this exists for: the recognizer merged the tail of a paragraph with
+// the interruption. isEcho drops the whole line; this keeps the command.
+{
+  const rest = stripEcho('was not just an army but a system of roads and messengers stop the book', NARRATION)
+  assert.ok(rest, 'dropped a barge-in glued to an echo')
+  assert.ok(rest.includes('stop'), `lost the command: ${rest}`)
+  assert.ok(rest.includes('book'), `lost the command: ${rest}`)
+  assert.ok(!rest.includes('messengers'), `kept the narration: ${rest}`)
+  assert.ok(!rest.includes('army'), `kept the narration: ${rest}`)
+}
+{
+  const rest = stripEcho('at war with one another go back to the hemingway', NARRATION)
+  assert.ok(rest, 'dropped a barge-in glued to an echo')
+  assert.ok(rest.includes('hemingway'), `lost the command: ${rest}`)
+  // ponytail: set subtraction, so a word the window happened to miss ('another')
+  // rides along. Harmless — the agent normalizes and the command is intact.
+  assert.ok(!rest.includes('war'), `kept the narration: ${rest}`)
+}
+
+// the agent's own reply, same story
+{
+  const rest = stripEcho('let me check that no i meant the other one', 'Let me check that.')
+  assert.ok(rest, "dropped a barge-in over the agent's reply")
+  assert.ok(rest.includes('meant'), rest)
+  assert.ok(!rest.includes('check'), rest)
+}
+
+// nothing playing means nothing to strip
+assert.equal(stripEcho('pause the book', ''), 'pause the book')
+// clean speech survives whole
+assert.equal(stripEcho('open the hemingway one', 'Let me check that.'), 'open the hemingway one')
+
+console.log('echo: ok')

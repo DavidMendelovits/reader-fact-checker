@@ -4,5 +4,8 @@
     "strict": true,
     "allowImportingTsExtensions": true,
     "types": ["node"]
-  }
+  },
+  // expo/tsconfig.base has no include, so naming ../shared means naming the app's
+  // own files as well. No path aliases: shared/ is reached by relative import.
+  "include": ["**/*.ts", "**/*.tsx", "../shared/**/*.ts"]
 }

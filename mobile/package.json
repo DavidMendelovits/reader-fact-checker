@@ -31,7 +31,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "check": "node --experimental-strip-types src/html.check.ts && node --experimental-strip-types src/highlights.check.ts && node --experimental-strip-types src/readwise.check.ts && node --experimental-strip-types src/library.check.ts && node --experimental-strip-types src/theme.check.ts",
+    "check": "node --experimental-strip-types ../shared/voice/echo.check.ts && node --experimental-strip-types ../shared/voice/holdGate.check.ts && node --experimental-strip-types ../shared/voice/bargeIn.check.ts && node --experimental-strip-types ../shared/voice/restartPolicy.check.ts && node --experimental-strip-types ../shared/voice/line.check.ts && node --experimental-strip-types ../shared/voice/aurora.check.ts && node --experimental-strip-types src/html.check.ts && node --experimental-strip-types src/highlights.check.ts && node --experimental-strip-types src/readwise.check.ts && node --experimental-strip-types src/library.check.ts && node --experimental-strip-types src/theme.check.ts && npx tsc --noEmit -p .",
     "smoke:web": "node smoke/run.mjs"
   },
   "private": true
