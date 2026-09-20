@@ -306,5 +306,21 @@ assert.deepEqual(ids('sea', 1), ['seastories'], 'limit')
   fake.failDelete = false
 }
 
+// ---- each page paints as it lands: the list fills in instead of appearing at the end ----
+{
+  const paged = new FakeLibrary()
+  paged.pages = {
+    new: [[doc('p1', { updatedAt: at(1) })], [doc('p2', { updatedAt: at(2) })], [doc('p3', { updatedAt: at(3) })]],
+  }
+  const svc = new LibraryService(paged, new MemoryStore())
+  const seen: string[][] = []
+  svc.onChange = () => seen.push(svc.docs.map((d) => d.id))
+  await svc.refresh()
+  assert.deepEqual(seen.slice(0, 3), [['p1'], ['p2', 'p1'], ['p3', 'p2', 'p1']], 'one paint per page as it lands, newest first')
+  // the other shelves' (empty) pages and the persist each repaint the full list; it never goes backwards
+  assert.ok(seen.length > 3)
+  for (const paint of seen.slice(3)) assert.deepEqual(paint, ['p3', 'p2', 'p1'])
+}
+
 console.warn = realWarn
 console.log('library.check: ok')
