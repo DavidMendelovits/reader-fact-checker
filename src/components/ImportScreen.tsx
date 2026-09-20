@@ -64,7 +64,7 @@ export function ImportScreen() {
 
   return (
     <div className="import-screen">
-      <h1>Reader Fact Checker</h1>
+      <h1>readwithme</h1>
       <p className="tagline">
         Listen to any article or book, and talk to it — interrupt any time to ask what’s true.
       </p>

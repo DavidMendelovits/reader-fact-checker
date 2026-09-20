@@ -8,24 +8,37 @@ export const DEFAULT_API_BASE = process.env.EXPO_PUBLIC_API_BASE ?? 'https://rea
 const TOKEN_KEY = 'readwise-token'
 const API_BASE_KEY = 'api-base'
 const VOICE_KEY = 'voice'
+const THEME_KEY = 'theme'
 
 /** Which voice narrates: the OS voice, or Kokoro running on the device (see kokoro.ts). */
 export type VoicePreference = 'system' | 'kokoro'
 
+/** Follow the OS, or pin the light (Paper) or dark (Ink) theme. See theme.ts. */
+export type ThemePreference = 'system' | 'paper' | 'ink'
+
 export let apiBase = DEFAULT_API_BASE
 
-export async function loadSettings(): Promise<{ token: string | null; voice: VoicePreference }> {
-  const [token, base, voice] = await Promise.all([
+export async function loadSettings(): Promise<{ token: string | null; voice: VoicePreference; theme: ThemePreference }> {
+  const [token, base, voice, theme] = await Promise.all([
     AsyncStorage.getItem(TOKEN_KEY),
     AsyncStorage.getItem(API_BASE_KEY),
     AsyncStorage.getItem(VOICE_KEY),
+    AsyncStorage.getItem(THEME_KEY),
   ])
   if (base) apiBase = base
-  return { token, voice: voice === 'kokoro' ? 'kokoro' : 'system' }
+  return {
+    token,
+    voice: voice === 'kokoro' ? 'kokoro' : 'system',
+    theme: theme === 'paper' || theme === 'ink' ? theme : 'system',
+  }
 }
 
 export async function saveVoice(voice: VoicePreference) {
   await AsyncStorage.setItem(VOICE_KEY, voice)
+}
+
+export async function saveTheme(theme: ThemePreference) {
+  await AsyncStorage.setItem(THEME_KEY, theme)
 }
 
 export async function saveToken(token: string) {

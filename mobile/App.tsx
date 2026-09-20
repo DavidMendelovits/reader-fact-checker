@@ -178,7 +178,7 @@ function TokenScreen({ onSaved }: { onSaved: (t: string) => void }) {
 
   return (
     <View style={styles.tokenScreen}>
-      <Text style={styles.h1}>Reader, out loud</Text>
+      <Text style={styles.h1}>readwithme</Text>
       <Text style={styles.body}>
         Paste your Readwise access token (readwise.io/access_token). It stays on this device.
       </Text>
