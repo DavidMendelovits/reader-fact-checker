@@ -50,6 +50,14 @@ const highlights = [
 ]
 let nextHighlightId = 1000
 
+// ---- failure switches, for the states the test cannot reach any other way ----
+// GET /__fail?list=1 makes every library list call fail, and ?agent=1 drops every
+// /api/agent connection on the floor — which is what going offline mid-turn looks
+// like to fetch. Both stay on until turned off with 0: a browser quietly retries a
+// POST whose kept-alive connection dies, so failing once is not failing at all.
+let failList = false
+let failAgent = false
+
 function json(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify(body))
@@ -121,9 +129,16 @@ http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
   if (req.method === 'OPTIONS') return res.writeHead(204).end()
 
+  if (url.pathname === '/__fail') {
+    if (url.searchParams.has('list')) failList = url.searchParams.get('list') === '1'
+    if (url.searchParams.has('agent')) failAgent = url.searchParams.get('agent') === '1'
+    return json(res, 200, { failList, failAgent })
+  }
+
   // Reader v3
   if (url.pathname === '/api/v3/list/') {
     if (!auth.startsWith('Token ')) return json(res, 401, { detail: 'no' })
+    if (failList) return json(res, 503, { detail: 'the sync is down' })
     const q = url.searchParams
     let results = [...docs, ...highlights]
     if (q.get('id')) results = results.filter((d) => d.id === q.get('id'))
@@ -148,6 +163,7 @@ http.createServer(async (req, res) => {
 
   // the app's own server
   if (url.pathname === '/api/agent' && req.method === 'POST') {
+    if (failAgent) return res.destroy() // no status, no body: the request never landed
     const { messages, context } = JSON.parse(body)
     return json(res, 200, agentReply(messages, context))
   }

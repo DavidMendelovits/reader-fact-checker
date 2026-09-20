@@ -2,12 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Reader Fact Checker</title>
+    <!-- interactive-widget: the soft keyboard shrinks the layout viewport, so a
+         100dvh app puts its Composer above the keyboard instead of under it. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <title>readwithme</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Reading face only; the chrome runs on the system stack (--font-ui). -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@300..600&family=Source+Serif+4:opsz,wght@8..60,400..600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..600&display=swap"
       rel="stylesheet"
     />
   </head>

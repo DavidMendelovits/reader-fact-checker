@@ -12,3 +12,6 @@ dist
 tsconfig.tsbuildinfo
 .expo/
 .env*.local
+.gstack/
+.context/
+mobile/assets/icon-concepts/

@@ -72,6 +72,9 @@ export class LibraryService {
       for (let page = 0; page < MAX_PAGES; page++) {
         const res = await this.library.listDocuments({ location, updatedAfter: since, cursor })
         for (const d of res.items) byId.set(d.id, d)
+        // each page paints as it lands, so the list fills in instead of appearing at the end
+        this.docs = sortDocs(byId.values())
+        this.onChange()
         if (!res.nextCursor) break
         cursor = res.nextCursor
       }
@@ -84,7 +87,7 @@ export class LibraryService {
       if (!res.nextCursor) break
       cursor = res.nextCursor
     }
-    this.docs = [...byId.values()].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+    this.docs = sortDocs(byId.values())
     this.remoteHighlights = [...remote.values()]
     this.sync = { lastSync: startedAt }
     await this.persist()
@@ -195,6 +198,8 @@ export class LibraryService {
     return { ...state, highlights: out }
   }
 }
+
+const sortDocs = (docs: Iterable<LibraryDoc>) => [...docs].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
 
 const STOP = new Set(['the', 'a', 'an', 'of', 'to', 'in', 'on', 'by', 'and', 'or', 'that', 'this', 'one', 'about', 'book', 'article', 'open', 'read', 'me', 'my', 'please'])
 const tokens = (s: string): string[] => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').match(/[a-z0-9']+/g) ?? []

@@ -14,6 +14,8 @@ export interface Transcriber {
   stop(): void
   /** User-controlled mute. Recognition keeps running so unmuting is instant. */
   setUserMuted(muted: boolean): void
+  /** Narration state, for the level-gated barge-in: only playback can be barged in on. */
+  setPlaying(playing: boolean): void
 
   /** Fires on each finalized utterance that survived echo rejection. */
   onUtterance: (text: string) => void
@@ -21,6 +23,8 @@ export interface Transcriber {
   onInterim: (text: string) => void
   /** Fires as soon as the user is audibly talking, before any transcript. */
   onSpeechStart: () => void
+  /** It was a cough — no words followed the hold. Resume where the hold parked. */
+  onFalseStart: () => void
   onError: (msg: string) => void
   /** Text currently playing through the speakers, for echo rejection. */
   getSpokenText: () => string

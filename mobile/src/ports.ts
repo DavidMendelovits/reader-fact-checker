@@ -4,8 +4,16 @@ import type { LibraryDoc, Location, RemoteHighlight } from './types'
 
 /** Speak one utterance to completion, or report that stop() cut it off. */
 export interface VoiceEngine {
-  speak(text: string, rate: number): Promise<'done' | 'stopped'>
+  /**
+   * `onStart` fires when audio actually begins. The player arms a watchdog on it
+   * (a "keep going" that is acknowledged and then silent is the failure it
+   * catches), so an engine that can't report a start must leave `reportsStart`
+   * false or every utterance is retried for nothing.
+   */
+  speak(text: string, rate: number, opts?: { onStart?: () => void }): Promise<'done' | 'stopped'>
   stop(): void | Promise<void>
+  /** True when speak() calls its `onStart`. Absent means "taken on trust". */
+  readonly reportsStart?: boolean
 }
 
 /**
@@ -16,9 +24,14 @@ export interface VoiceEngine {
 export interface Transcriber {
   start(): Promise<void>
   stop(): void
+  /** Narration state, for the level-gated barge-in: only playback can be barged in on. */
+  setPlaying(playing: boolean): void
   onUtterance: (text: string) => void
   onInterim: (text: string) => void
+  /** The user is audibly talking: duck the narration now, before any transcript. */
   onSpeechStart: () => void
+  /** It was a cough — no words followed the hold. Resume where the hold parked. */
+  onFalseStart: () => void
   onError: (msg: string) => void
   getRecentSpokenText: () => string
 }

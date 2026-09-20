@@ -1,33 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useStore } from '../store'
-import { say } from '../lib/agent'
 
-const STATUS: Record<string, string> = {
-  listening: 'listening…',
-  thinking: 'thinking…',
-  speaking: 'speaking…',
-  // agentState says 'reading' from the moment the tool starts, which is before any
-  // audio exists — `playing` is what actually tracks sound coming out
-  reading: 'starting the audio…',
-}
-const READING = 'reading — talk any time to interrupt'
-const READING_MUTED = 'reading — mic muted, type to interrupt'
+// History only. What the app is doing right now is the Composer's line — this used
+// to say it too, in its own words, and the two could disagree.
 
 export function ChatPanel() {
   const chat = useStore((s) => s.chat)
-  const agentState = useStore((s) => s.agentState)
-  const micMuted = useStore((s) => s.micMuted)
-  const playing = useStore((s) => s.playing)
-  const [draft, setDraft] = useState('')
   const endRef = useRef<HTMLDivElement>(null)
 
+  // Only a new line scrolls. Following `agentState` meant the log jumped every time
+  // the agent blinked.
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chat.length, agentState, playing])
-
-  // Playing beats everything: it's the only signal that survives a manual Play, a
-  // failed synthesis, or a loop that ended while the audio kept going.
-  const status = playing ? (micMuted ? READING_MUTED : READING) : STATUS[agentState]
+  }, [chat.length])
 
   return (
     <section className="chat-panel">
@@ -44,24 +29,8 @@ export function ChatPanel() {
             {m.text}
           </div>
         ))}
-        {status && <div className="chat-status">{status}</div>}
         <div ref={endRef} />
       </div>
-      <form
-        className="chat-input"
-        onSubmit={(e) => {
-          e.preventDefault()
-          say(draft)
-          setDraft('')
-        }}
-      >
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Type instead of talking…"
-        />
-        <button type="submit">Send</button>
-      </form>
     </section>
   )
 }

@@ -3,15 +3,23 @@
 // The agent conversation has no wake word: whatever you say is a turn. That means
 // the mic stays live *while the document is being read* so you can talk over it —
 // which is also how the recognizer ends up transcribing the narration itself.
-// isEcho() throws those away.
+// isEcho()/stripEcho() (shared/voice/echo.ts) throw those away.
+//
+// Three policies are shared with the phone listener and checked next to
+// themselves: BargeInGate decides when the user is audibly talking (from the mic
+// level, ~160ms in, rather than from a transcript that arrives a second late),
+// RestartPolicy decides who may respawn the recognizer, and echo.ts decides what
+// was the book talking. What is left here is the browser.
 
-// extension-explicit so voice.check.ts can run this file under node
-import { getMicStream } from './audio-levels.ts'
+// extension-explicit so this file can run under node --experimental-strip-types
+import { getMicStream, readLevels, SPEECH_FLOOR } from './audio-levels.ts'
 import type { Transcriber } from './ports.ts'
+import { BargeInGate } from '../../shared/voice/bargeIn.ts'
+import { isEcho, stripEcho } from '../../shared/voice/echo.ts'
+import { RestartPolicy } from '../../shared/voice/restartPolicy.ts'
 
 type UtteranceHandler = (text: string) => void
 
-// guarded so isEcho stays importable outside a browser (see voice.check.ts)
 const SpeechRecognitionCtor =
   typeof window === 'undefined'
     ? undefined
@@ -33,47 +41,47 @@ const MIN_INTERIM_WORDS = 3
 const MIN_CONFIDENCE = 0.5
 const confident = (c: number) => c <= 0 || c >= MIN_CONFIDENCE
 
-/**
- * True when `heard` looks like the recognizer picking up `spoken` out of the
- * speakers rather than the user talking.
- *
- * The comparison slides a window the length of `heard` along `spoken` and scores
- * the best-matching stretch. Scoring against the whole text instead makes the
- * denominator the entire paragraph, and any English sentence overlaps a paragraph
- * of English by more than half on function words alone — so real speech reads as
- * an echo and the barge-in never fires. An actual echo is a transcription of one
- * stretch of audio, so it aligns with one window; incidental vocabulary overlap
- * does not.
- *
- * ponytail: O(spoken × heard) per result, a few hundred × ten a few times a second.
- * Reliable with headphones, mostly right on speakers (Chrome applies its own AEC
- * before we see a transcript). The upgrade is a real AEC path — own the mic via
- * getUserMedia with echoCancellation and feed recognition from that stream.
- */
-export function isEcho(heard: string, spoken: string): boolean {
-  if (!spoken) return false
-  const hw = words(heard)
-  if (hw.length === 0) return true
-  const sw = words(spoken)
-  let best = 0
-  for (let i = 0; i < sw.length && best < 1; i++) {
-    const window = new Set(sw.slice(i, i + hw.length))
-    const overlap = hw.filter((w) => window.has(w)).length / hw.length
-    if (overlap > best) best = overlap
-  }
-  // short utterances share common words by chance, so demand near-total overlap
-  return hw.length < 5 ? best === 1 : best > 0.6
-}
+/** How often the mic level is read for the barge-in gate, matching the phone's. */
+const LEVEL_INTERVAL_MS = 80
+// SPEECH_FLOOR is audio-levels.ts's: it belongs to the meter that produces the
+// level, and the aurora reads the same one. The phone's scale is different, so it
+// keeps the gate's own default.
+/** Respawn delay after a routine `end`. */
+const RESTART_DELAY_MS = 250
+/** A session that ends this soon after starting never really ran. */
+const RAPID_DEATH_MS = 1000
+const MAX_RAPID_DEATHS = 8
+const MAX_BACKOFF_MS = 8000
 
 export class VoiceListener implements Transcriber {
   readonly supported = speechSupported
   private rec: any = null
-  private running = false
   private track: MediaStreamTrack | null = null
   private userMuted = false
   private talking = false // mid-utterance: interim words seen, final not yet in
+  private playing = false
   private spawnedAt = 0
   private rapidDeaths = 0 // consecutive spawns that died almost immediately
+  private gen = 0
+  private meter: ReturnType<typeof setInterval> | null = null
+  private backoff: ReturnType<typeof setTimeout> | null = null
+  private bars = new Float32Array(8)
+
+  private barge = new BargeInGate({
+    floor: SPEECH_FLOOR,
+    now: () => Date.now(),
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: (h) => clearTimeout(h),
+  })
+
+  private restart = new RestartPolicy(
+    {
+      setTimeout: (fn, ms) => setTimeout(fn, ms),
+      clearTimeout: (h) => clearTimeout(h),
+      delayMs: RESTART_DELAY_MS,
+    },
+    (gen) => this.spawn(gen),
+  )
 
   /** Fires on each finalized utterance that survived the echo filter. */
   onUtterance: UtteranceHandler = () => {}
@@ -89,6 +97,8 @@ export class VoiceListener implements Transcriber {
    * second or two of the book reading over you.
    */
   onSpeechStart: () => void = () => {}
+  /** It was a cough: the hold ran its silence out with no words. Resume. */
+  onFalseStart: () => void = () => {}
   onError: (msg: string) => void = () => {}
   /** Text currently playing through the speakers, for echo rejection. */
   getSpokenText: () => string = () => ''
@@ -98,31 +108,40 @@ export class VoiceListener implements Transcriber {
    */
   getRecentSpokenText: () => string = () => ''
 
+  constructor() {
+    this.barge.onHold = () => {
+      this.talking = true
+      this.onSpeechStart()
+    }
+    this.barge.onRelease = () => {
+      this.talking = false
+      this.onFalseStart()
+    }
+  }
+
   /**
    * Recognition runs on our own echo-cancelled capture rather than the implicit one
    * Chrome opens for itself. That is the whole speakerphone story: without the
    * cancelled stream the mic hears the narration as clearly as it hears the user,
    * the transcript is a mixture of both, and isEcho() below throws away the result.
-   *
-   * SpeechRecognition.start() taking a MediaStreamTrack is recent; if this Chrome
-   * doesn't honour it we fall back to the default capture, which is exactly the old
-   * behaviour — headphones fine, speakers poor.
    */
   async start() {
-    if (!speechSupported || this.running) return
-    this.running = true
+    if (!speechSupported) return
     this.rapidDeaths = 0 // a fresh start (mic re-enabled) retries from a clean slate
-    try {
-      this.track = (await getMicStream()).getAudioTracks()[0] ?? null
-    } catch (e) {
-      this.track = null
-      console.warn('mic capture unavailable; recognition falls back to the default device', e)
+    this.gen = this.restart.start() // refuses a second start; spawn() does the work
+    if (this.meter === null) {
+      this.meter = setInterval(() => this.level(readLevels('mic', this.bars)), LEVEL_INTERVAL_MS)
     }
-    if (this.running) this.spawn() // stop() may have landed while we were awaiting
   }
 
   stop() {
-    this.running = false
+    this.gen = this.restart.stop()
+    this.talking = false
+    this.barge.reset() // a hold outliving the mic releases rather than stranding the book
+    if (this.meter !== null) clearInterval(this.meter)
+    this.meter = null
+    if (this.backoff !== null) clearTimeout(this.backoff)
+    this.backoff = null
     this.track = null
     this.rec?.stop()
     this.rec = null
@@ -136,7 +155,38 @@ export class VoiceListener implements Transcriber {
     this.userMuted = muted
   }
 
-  private spawn() {
+  /** Narration state: only playback can be barged in on. */
+  setPlaying(playing: boolean) {
+    this.playing = playing
+  }
+
+  /**
+   * One normalized 0..1 mic level. The meter feeds this every 80ms; it is public
+   * so the check can drive the barge-in without a microphone.
+   */
+  level(v: number) {
+    if (this.userMuted) return
+    this.barge.level(v, this.playing)
+  }
+
+  private spawn(gen: number) {
+    // The capture is the async gap the policy's `starting` lock covers: without it
+    // a second start() while getUserMedia is prompting spawns two recognizers.
+    void (async () => {
+      if (!this.track) {
+        try {
+          this.track = (await getMicStream()).getAudioTracks()[0] ?? null
+        } catch (e) {
+          this.track = null
+          console.warn('mic capture unavailable; recognition falls back to the default device', e)
+        }
+        if (!this.restart.shouldSpawn(gen)) return // stop() landed while we were awaiting
+      }
+      this.open(gen)
+    })()
+  }
+
+  private open(gen: number) {
     const rec = new SpeechRecognitionCtor()
     this.rec = rec
     rec.continuous = true
@@ -168,22 +218,23 @@ export class VoiceListener implements Transcriber {
         }
       }
 
-      // Duck narration on the first credible interim words of an utterance. Credible
-      // is deliberately strict: ducking on a cough or a passing conversation stops
-      // the book for no reason, and the cost of a miss is only that the first word
-      // of a real command plays over.
+      const recent = this.getRecentSpokenText()
       const partial = interim.trim()
-      if (partial && confident(interimConf) && !isEcho(partial, this.getRecentSpokenText())) {
+      if (partial && confident(interimConf) && !isEcho(partial, recent)) {
         // Every credible partial goes out. Transport commands are one or two words,
         // so they never reach the ducking threshold below, and Chrome only finalizes
         // an utterance after a beat of trailing silence — waiting for that put a
         // second between "stop" and anything happening. The consumer acts only on
         // partials that can't mean anything else.
-        this.onInterim(partial)
+        this.barge.words() // the turn is real; the hold is the caller's now
+        // The level gate fires ~160ms in; this is the fallback for a start it missed.
+        // It runs *before* onInterim: the interim is what converts a hold into the
+        // real interruption, and there is nothing to convert until the hold is taken.
         if (!this.talking && countWords(partial) >= MIN_INTERIM_WORDS) {
           this.talking = true
           this.onSpeechStart()
         }
+        this.onInterim(partial)
       }
 
       const heard = finalText.trim()
@@ -192,35 +243,67 @@ export class VoiceListener implements Transcriber {
       // A single low-confidence word is almost always room noise the recognizer
       // guessed at. Finals with real confidence always pass, so "pause" survives.
       if (countWords(heard) <= 1 && !confident(finalConf)) return
-      if (isEcho(heard, this.getRecentSpokenText())) return
-      this.onUtterance(heard)
+      // A final that is part narration and part user keeps its user half: dropping
+      // the whole line loses the command (echo.ts).
+      const kept = isEcho(heard, recent) ? stripEcho(heard, recent) : heard
+      if (!kept) return
+      this.barge.utteranceDone() // the utterance is over; the next one may hold again
+      this.onUtterance(kept)
     }
 
     rec.onerror = (e: any) => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-        this.running = false
+        this.stop()
         this.onError('Microphone access denied')
+        return
       }
-      // 'no-speech'/'aborted' are routine; onend restarts
+      // 'no-speech'/'aborted' are routine; onend restarts. They do end the
+      // utterance, though: `talking` stuck true here killed barge-in for the
+      // rest of the session.
+      if (e.error === 'no-speech' || e.error === 'aborted') {
+        this.talking = false
+        // reset() releases the gate's own hold through onRelease; a hold the word
+        // path took is one the gate knows nothing about, and has no other releaser.
+        const wasHeld = this.barge.held
+        this.barge.reset()
+        if (!wasHeld) this.onFalseStart()
+      }
     }
 
     rec.onend = () => {
-      if (!this.running) return
-      // Chrome stops recognition periodically; restart while enabled. A healthy
+      // A routine restart keeps the same generation, so `gen` alone does not tell a
+      // late end from the session that replaced it apart: the recognizer object does.
+      if (this.rec !== rec) return
+      if (!this.restart.shouldSpawn(gen)) return // an end from a session that is over
+      this.talking = false
+      const wasHeld = this.barge.held
+      this.barge.reset()
+      if (!wasHeld) this.onFalseStart() // a hold taken by the word path has no other releaser
+      // Chrome stops recognition periodically; the policy restarts it. A healthy
       // session runs for a while before ending — one that dies within a second of
       // starting (recognition service unreachable, mic gone) would respawn in a
-      // 250ms hot loop forever, invisibly. Back off on those, and after a sustained
-      // run of them stop and say so: the mic button flipping off is the honest
-      // signal, and tapping it retries.
-      const rapid = Date.now() - this.spawnedAt < 1000
+      // hot loop forever, invisibly. Back off on those, and after a sustained run
+      // of them stop and say so: the mic button flipping off is the honest signal,
+      // and tapping it retries.
+      const rapid = Date.now() - this.spawnedAt < RAPID_DEATH_MS
       this.rapidDeaths = rapid ? this.rapidDeaths + 1 : 0
-      if (this.rapidDeaths >= 8) {
-        this.running = false
+      if (this.rapidDeaths >= MAX_RAPID_DEATHS) {
+        this.stop()
         this.onError('Voice recognition keeps failing — tap the mic to try again')
         return
       }
-      const delay = rapid ? Math.min(250 * 2 ** this.rapidDeaths, 8000) : 250
-      setTimeout(() => this.running && this.spawn(), delay)
+      if (!rapid) return this.restart.ended(gen)
+      // The policy owns the respawn; the backoff is the extra wait before handing
+      // it over. stop() clears this timer, and the generation makes a late
+      // hand-over a no-op anyway.
+      if (this.backoff !== null) clearTimeout(this.backoff)
+      this.backoff = setTimeout(
+        () => {
+          this.backoff = null
+          this.restart.ended(gen)
+        },
+        Math.min(RESTART_DELAY_MS * 2 ** this.rapidDeaths, MAX_BACKOFF_MS),
+      )
     }
 
     // Chrome tears recognition down every so often and onend respawns it, so the
@@ -243,6 +326,6 @@ export class VoiceListener implements Transcriber {
         }
       }
     }
+    this.restart.started(gen)
   }
 }
-

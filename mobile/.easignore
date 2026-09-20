@@ -1,0 +1,7 @@
+dist-smoke/
+ios/build/
+ios/Pods/
+android/build/
+.expo/
+*.log
+assets/icon-concepts/

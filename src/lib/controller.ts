@@ -5,7 +5,7 @@
 // not need a model round-trip, and a batch scan is a job, not a conversation.
 import { useStore } from '../store'
 import { tts, voice } from './providers'
-import { beginUtterance, openingTurn, say, sayInterim } from './agent'
+import { beginUtterance, falseStart, openingTurn, say, sayInterim } from './agent'
 import { startMicMeter, stopMicMeter } from './audio-levels'
 import { checkPassage, completeField, extractClaims } from './factcheck'
 import { mapLimit } from './maplimit'
@@ -59,6 +59,7 @@ document.addEventListener('visibilitychange', () => {
 tts.onPlayingChange = (playing) => {
   useStore.setState({ playing })
   void setWakeLock(playing)
+  voice.setPlaying(playing) // the level gate only fires during narration (3.2A)
 }
 tts.onEnded = () => useStore.setState({ playing: false })
 // The agent's replies used to mute the mic outright, plus a 1200ms tail to cover the
@@ -76,6 +77,9 @@ voice.onUtterance = (text) => say(text)
 // transport commands are run off the partial transcript instead.
 voice.onInterim = (text) => sayInterim(text)
 voice.onSpeechStart = () => beginUtterance()
+// The level gate held the narration and no words came: release it, the book
+// carries on and the row tint never moved (3.2A / X2).
+voice.onFalseStart = () => falseStart()
 voice.getSpokenText = () => tts.speaking
 voice.getRecentSpokenText = () => tts.recentlySpoken
 voice.onError = (msg) => {

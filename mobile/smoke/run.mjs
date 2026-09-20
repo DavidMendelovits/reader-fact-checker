@@ -9,8 +9,10 @@ import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const dist = join(root, 'dist-smoke')
-const BACKEND = 5300
-const APP = 8082
+// Overridable: a dev server (`expo start --port 8082`) may already own the
+// default, and the test does not care which port it runs on.
+const BACKEND = Number(process.env.SMOKE_BACKEND_PORT || 5300)
+const APP = Number(process.env.SMOKE_PORT || 8082)
 
 const env = {
   ...process.env,
@@ -65,7 +67,7 @@ await ready(`http://localhost:${BACKEND}/api/v3/list/?location=new`, { Authoriza
 // spawn, not spawnSync: the static server above lives in this process and has
 // to keep answering while the test runs
 const status = await new Promise((resolve) => {
-  const test = spawn(process.execPath, [join(root, 'smoke', 'web.mjs')], { env: { ...process.env, SMOKE_APP_URL: `http://localhost:${APP}` }, stdio: 'inherit' })
+  const test = spawn(process.execPath, [join(root, 'smoke', 'web.mjs')], { env: { ...process.env, SMOKE_APP_URL: `http://localhost:${APP}`, SMOKE_BACKEND_URL: `http://localhost:${BACKEND}` }, stdio: 'inherit' })
   test.on('exit', (code) => resolve(code ?? 1))
 })
 

@@ -1,12 +1,12 @@
 {
   "name": "reader-fact-checker",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "check": "node --experimental-strip-types src/lib/voice.check.ts && node --experimental-strip-types src/lib/maplimit.check.ts && node --experimental-strip-types src/lib/sentences.check.ts && node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/tts.check.ts && node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/navigate.check.ts && node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/_impl.check.ts",
+    "check": "node --experimental-strip-types shared/voice/echo.check.ts && node --experimental-strip-types shared/voice/holdGate.check.ts && node --experimental-strip-types shared/voice/bargeIn.check.ts && node --experimental-strip-types shared/voice/restartPolicy.check.ts && node --experimental-strip-types shared/voice/line.check.ts && node --experimental-strip-types shared/voice/agent.check.ts && node --experimental-strip-types shared/voice/aurora.check.ts && node --experimental-strip-types src/lib/maplimit.check.ts && node --experimental-strip-types src/lib/sentences.check.ts && node --experimental-strip-types src/lib/tts.check.ts && node --experimental-strip-types src/lib/voice.check.ts && node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/tts.check.ts && node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/navigate.check.ts && node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/_impl.check.ts && node --experimental-strip-types shared/voice/agent.errors.check.ts && node --experimental-strip-types src/store.check.ts && npx tsc --noEmit -p .",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -16,7 +16,6 @@
     "epubjs": "^0.3.93",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "voice-glow": "^0.2.0",
     "zustand": "^5.0.2"
   },
   "devDependencies": {

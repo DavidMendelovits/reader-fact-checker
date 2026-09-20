@@ -1,84 +1,205 @@
-// Self-check for the echo filter — the one piece of voice.ts with logic worth
-// pinning down. Run it with:
+// Self-check for the browser listener's wiring. Run it with:
 //
 //   node --experimental-strip-types src/lib/voice.check.ts
 //
-// The regression it exists for: scoring `heard` against the whole of `spoken` as a
-// bag of words makes the denominator every word recently narrated, and any English
-// sentence overlaps a few paragraphs of English by more than half on function words
-// alone. Real speech read as echo, so barge-in never fired and the book read
-// straight over the user. Every "real speech" case below was rejected by that
-// version. Windowing is what fixes it — keep these passing.
+// The decisions themselves are checked next to the policies (bargeIn.check.ts,
+// restartPolicy.check.ts, echo.check.ts). What is checked here is that this file
+// hands them the right things: levels only count while narration plays and never
+// while muted, a final that is half narration keeps its other half, and a
+// recognizer dying on arrival backs off, gives up, and cancels its pending
+// restart when the mic goes off.
+//
+// The real level feed is readLevels('mic'), which needs WebAudio; level() is
+// driven directly here instead.
 import assert from 'node:assert/strict'
-import { isEcho } from './voice.ts'
 
-// what getRecentSpokenText() returns mid-narration: a few paragraphs' worth
-const NARRATION =
-  'He was born on the steppe and by the time he was a grown man he had united ' +
-  'the tribes that had spent generations at war with one another. What he built ' +
-  'was not just an army but a system of roads and messengers that carried word ' +
-  'across the continent faster than anything the world had seen before it. ' +
-  'The empire that came out of this was the largest the world would ever see, ' +
-  'and what it did to the places it touched is still argued about today. Was it ' +
-  'a catastrophe, or was it the thing that finally connected east and west? Ask ' +
-  'a historian in one country and you will get an answer that a historian in ' +
-  'another would not recognise at all.'
+/** Chrome's SpeechRecognition, as this file uses it. */
+class FakeRec {
+  static last: FakeRec | null = null
+  static starts = 0
+  continuous = false
+  interimResults = false
+  lang = ''
+  onresult: ((e: any) => void) | null = null
+  onerror: ((e: any) => void) | null = null
+  onend: (() => void) | null = null
 
-// real speech over the narration — all of this has to reach the agent
-for (const heard of [
-  'what was that',
-  'wait what was that',
-  'was that actually true',
-  'go back to the part about the messengers',
-  'what did he say about the tribes',
-  'is that really what happened or is it just a story',
-  'hold on what was the thing about the roads',
-  'go back a bit',
-  'keep going',
-]) {
-  assert.equal(isEcho(heard, NARRATION), false, `swallowed real speech: ${heard}`)
+  constructor() {
+    FakeRec.last = this
+  }
+
+  start() {
+    FakeRec.starts++
+  }
+
+  stop() {}
+}
+;(globalThis as any).window = { webkitSpeechRecognition: FakeRec }
+// getMicStream() is the one capture; a track that is not 'live' takes the same
+// path as a Chrome that won't accept one.
+Object.defineProperty(globalThis, 'navigator', {
+  value: { mediaDevices: { getUserMedia: async () => ({ getAudioTracks: () => [] }) } },
+  configurable: true,
+})
+
+const { VoiceListener } = await import('./voice.ts')
+
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
+const tick = async () => {
+  for (let i = 0; i < 4; i++) await delay(0)
 }
 
-// the recognizer transcribing the narration out of the speakers — has to be dropped
-for (const heard of [
-  'was not just an army but a system of roads and messengers',
-  'the tribes that had spent generations at war with one another',
-  'at war with one another',
-  // near-verbatim: recognition mishears a word or two and it still counts
-  'was not just an army but a system of rhodes and messengers',
-]) {
-  assert.equal(isEcho(heard, NARRATION), true, `leaked an echo: ${heard}`)
+/** One recognition event, shaped the way onresult reads it. */
+const result = (transcript: string, isFinal: boolean, confidence = 0.9) => ({
+  resultIndex: 0,
+  results: [{ 0: { transcript, confidence }, isFinal }],
+})
+
+async function listener() {
+  FakeRec.starts = 0
+  const l = new VoiceListener()
+  await l.start()
+  await tick()
+  assert.equal(FakeRec.starts, 1)
+  return l
 }
 
-// The agent's own reply, which is what showed up as a user turn in the bug report.
-// This case now carries real weight: the mic used to be muted outright while the
-// agent spoke, which threw away anything the recognizer finalized in that window —
-// whole sentences went missing and barging in over a reply was impossible. isEcho
-// is the only guard left, so it has to hold on the agent's short replies too.
-const REPLY = "That's exactly what we're doing — let's get into it."
-assert.equal(isEcho("that's exactly what we're doing let's get into it", REPLY), true)
+// --- the level gate holds only while narration plays, and never while muted ---
+{
+  const l = await listener()
+  let starts = 0
+  let falseStarts = 0
+  l.onSpeechStart = () => starts++
+  l.onFalseStart = () => falseStarts++
 
-for (const [heard, reply] of [
-  ['let me check that', 'Let me check that.'],
-  ['sure picking up from where we left off', "Sure — picking up from where we left off."],
-  ['the claim holds up the figure is about right', 'The claim holds up. The figure is about right.'],
-  // a fragment of the reply, caught mid-sentence
-  ['picking up from where', "Sure — picking up from where we left off."],
-] as const) {
-  assert.equal(isEcho(heard, reply), true, `leaked the agent's own reply: ${heard}`)
+  l.level(0.4)
+  l.level(0.4)
+  assert.equal(starts, 0, 'nothing to barge in on while nothing is playing')
+
+  l.setPlaying(true)
+  l.setUserMuted(true)
+  l.level(0.4)
+  l.level(0.4)
+  assert.equal(starts, 0, 'a muted mic hears nothing')
+
+  l.setUserMuted(false)
+  l.level(0.4)
+  assert.equal(starts, 0, 'one loud report is a door closing')
+  l.level(0.4)
+  assert.equal(starts, 1, 'two in a row is a voice')
+
+  // the recognizer ending under a hold releases it rather than stranding the book
+  FakeRec.last?.onend?.()
+  assert.equal(falseStarts, 1)
+  l.stop()
 }
 
-// ...while a barge-in over that same reply still gets through
-for (const [heard, reply] of [
-  ['stop', 'Let me check that.'],
-  ['no i meant the other one', 'Let me check that.'],
-  ['what', "Sure — picking up from where we left off."],
-  ['go back to chapter two', 'The claim holds up. The figure is about right.'],
-] as const) {
-  assert.equal(isEcho(heard, reply), false, `swallowed a barge-in: ${heard}`)
+// --- a final that is half narration keeps the other half ----------------------
+{
+  const l = await listener()
+  const heard: string[] = []
+  l.onUtterance = (t) => heard.push(t)
+  l.getRecentSpokenText = () => 'they were at war with one another for a hundred years'
+
+  FakeRec.last?.onresult?.(result('at war with one another wait go back', true))
+  assert.deepEqual(heard, ['wait go back'], 'the command survives the echo it arrived inside')
+
+  FakeRec.last?.onresult?.(result('for a hundred years', true))
+  assert.deepEqual(heard, ['wait go back'], 'a whole echo is still dropped')
+
+  FakeRec.last?.onresult?.(result('open the next chapter', true))
+  assert.deepEqual(heard, ['wait go back', 'open the next chapter'])
+  l.stop()
 }
 
-// nothing playing means nothing to echo
-assert.equal(isEcho('pause', ''), false)
+// --- the three-word interim stays as a fallback, and `talking` resets ---------
+{
+  const l = await listener()
+  let starts = 0
+  l.onSpeechStart = () => starts++
 
-console.log('isEcho: ok')
+  FakeRec.last?.onresult?.(result('stop', false))
+  assert.equal(starts, 0, 'one word is not enough to duck on')
+  FakeRec.last?.onresult?.(result('stop reading this', false))
+  assert.equal(starts, 1)
+  FakeRec.last?.onresult?.(result('stop reading this now', false))
+  assert.equal(starts, 1, 'once per utterance')
+
+  FakeRec.last?.onerror?.({ error: 'no-speech' })
+  FakeRec.last?.onresult?.(result('wait go back', false))
+  assert.equal(starts, 2, 'no-speech ends the utterance')
+  l.stop()
+}
+
+// --- a recognizer that dies on arrival backs off, then gives up ---------------
+{
+  const l = await listener()
+  const errors: string[] = []
+  l.onError = (m) => errors.push(m)
+
+  const rec = FakeRec.last
+  for (let i = 0; i < 7; i++) rec?.onend?.()
+  assert.deepEqual(errors, [], 'seven deaths still get a restart')
+  await delay(100)
+  assert.equal(FakeRec.starts, 1, 'the backoff is longer than 100ms by the seventh')
+
+  rec?.onend?.()
+  assert.deepEqual(errors, ['Voice recognition keeps failing — tap the mic to try again'])
+  l.stop()
+}
+
+// --- stop() cancels the pending restart --------------------------------------
+{
+  const l = await listener()
+  FakeRec.last?.onend?.() // rapid: schedules a backed-off respawn
+  l.stop()
+  await delay(800)
+  assert.equal(FakeRec.starts, 1, 'a stopped session never respawns')
+}
+
+// --- a denied mic stops rather than spinning ---------------------------------
+{
+  const l = await listener()
+  const errors: string[] = []
+  l.onError = (m) => errors.push(m)
+  FakeRec.last?.onerror?.({ error: 'not-allowed' })
+  assert.deepEqual(errors, ['Microphone access denied'])
+  FakeRec.last?.onend?.()
+  await delay(600)
+  assert.equal(FakeRec.starts, 1)
+  l.stop()
+}
+
+// --- a hold taken by the word path is released when the recognizer ends -------
+{
+  const l = await listener()
+  let starts = 0
+  let falseStarts = 0
+  l.onSpeechStart = () => starts++
+  l.onFalseStart = () => falseStarts++
+
+  // no level reports: the gate never holds, so only the three-word fallback does
+  FakeRec.last?.onresult?.(result('stop reading this', false))
+  assert.equal(starts, 1, 'the word path took the hold')
+
+  FakeRec.last?.onend?.()
+  assert.equal(falseStarts, 1, 'a hold the gate never took is still released when the ear dies')
+  l.stop()
+}
+
+// --- an end from a session that has been replaced does not spawn --------------
+{
+  const l = await listener()
+  const dead = FakeRec.last // this session's recognizer
+
+  dead?.onend?.() // it dies on arrival: a backed-off respawn
+  await delay(800)
+  assert.equal(FakeRec.starts, 2, 'the death respawned')
+
+  dead?.onend?.() // the dead recognizer's end, arriving late
+  await delay(800)
+  assert.equal(FakeRec.starts, 2, 'a stale end does not respawn over the live session')
+  l.stop()
+}
+
+console.log('voice.check: ok')
