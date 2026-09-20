@@ -1,6 +1,6 @@
 # readwithme — design system
 
-Written from `mobile/src/theme.ts` (phone) and `src/styles.css` (web); the semantic names are the same on both surfaces, so this is one document.
+Written from `mobile/src/theme.ts` (phone). The Paper/Ink tokens below are the phone's; the web keeps Readwise's neutral-ramp palette and its own `--background-*` / `--text-*` names in `src/styles.css` (blue accent, cyan→violet progress gradient), sharing only the aurora ramps, the type roles, spacing, motion and target sizes with the phone.
 
 ## Themes
 
