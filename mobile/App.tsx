@@ -10,7 +10,7 @@ import {
 } from 'react-native'
 import { useStore, type AgentState } from './src/store'
 import { apiBase, clearToken, loadSettings, saveApiBase, saveToken } from './src/settings'
-import { activeVoice, enableKokoro, useVoice } from './src/providers'
+import { activeVoice, enableKokoro, useVoice, voice } from './src/providers'
 import { kokoroSizeMb } from './src/kokoro'
 import {
   closeDocument, highlightParagraph, library, moveDocument, openDocument, refreshLibrary,
@@ -51,19 +51,22 @@ export default function App() {
 
   useEffect(() => {
     void loadSettings().then(async ({ token, voice }) => {
-      await useVoice(voice) // loads the on-device model now rather than on the first paragraph
       if (token) {
         try {
-          await startLibrary(token)
+          await startLibrary(token) // the cached list, instantly; the sync fills in behind it
         } catch (e) {
           useStore.getState().setNotice(`Couldn't open your library: ${errorText(e)}`)
         }
       }
       setToken(token)
       setBooted(true)
-      // Voice-first: the ear is on from the moment the library shows. The header
-      // toggle is for turning it off, not for finding it.
-      if (token) setMicEnabled(true)
+      // After the first paint: the voice model (heavy), then the ear. Voice-first
+      // still — the header toggle is for turning the mic off, not for finding it.
+      // (not InteractionManager: the glow's endless animation loop would hold it forever)
+      setTimeout(async () => {
+        await useVoice(voice)
+        if (token) setMicEnabled(true)
+      }, 0)
     })
   }, [])
 
@@ -111,6 +114,15 @@ function TypeBar() {
     const t = text.trim()
     if (!t) return
     setText('')
+    // dev only: ">words" plays the line through the ear's own handlers (speech
+    // start, interim, final), so the voice path can be driven without a mic
+    if (__DEV__ && t.startsWith('>')) {
+      const spoken = t.slice(1).trim()
+      voice.onSpeechStart()
+      voice.onInterim(spoken)
+      voice.onUtterance(spoken)
+      return
+    }
     say(t)
   }
   return (
