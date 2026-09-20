@@ -43,7 +43,8 @@
           "microphonePermission": "The mic stays live while it reads so you can talk over the narration.",
           "speechRecognitionPermission": "Your speech is transcribed so the reading agent can respond to it."
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "extra": {
       "eas": {
