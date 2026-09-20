@@ -5,7 +5,7 @@ All notable changes to readwithme are documented here. Versions are MAJOR.MINOR.
 ## [0.2.0.0] - 2026-09-20
 
 ### Added
-- One Composer bar on every screen, on the phone and on the web: mic, a single status line (your live words while you talk, then the agent's reply, then "Reading ¶12/340"), play/pause, a transcript sheet, and a keyboard glyph that opens a text field that never hides behind the keyboard.
+- One Composer bar on every screen, on the phone and on the web: mic, a single status line (your live words while you talk, then the agent's reply, then "Reading ¶12/340"), play/pause while a book is open, a transcript sheet, and a keyboard glyph that opens a text field that never hides behind the keyboard.
 - Talk over the narration and it stops on the first sound, not after three recognized words; a cough pauses it for a moment and it picks up by itself.
 - Books open at the saved spot with no scroll animation; a "Back to the voice" pill appears when you scroll away while it reads.
 - An aurora around the edges of the screen that rises with your voice, sweeps while the agent thinks, and pulses while it reads (Skia on the phone, WebGL on the web); it stays quiet at rest and still under reduced motion.

@@ -8,7 +8,7 @@
 
 **Why:** Echo cancellation degrades on Bluetooth (output latency drifts), so a floor tuned on the speaker can pause narration on its own voice through AirPods.
 
-**Context:** `mobile/src/voice.ts` fires `onSpeechStart` when two consecutive `volumechange` reports exceed the floor while narration plays (plan: ~/.claude/plans/mobile-ui-overhaul.md, 3.2A). AVAudioSession route-change events identify the route. Needs a device matrix (AirPods, wired, speaker) to tune three constants.
+**Context:** `mobile/src/voice.ts` fires `onSpeechStart` when two consecutive `volumechange` reports exceed the floor while narration plays (the overhaul plan, decision 3.2A; the plan lives outside the repo). AVAudioSession route-change events identify the route. Needs a device matrix (AirPods, wired, speaker) to tune three constants.
 
 **Effort:** M
 **Priority:** P3
