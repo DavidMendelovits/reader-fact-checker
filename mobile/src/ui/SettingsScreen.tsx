@@ -16,6 +16,7 @@ import { Composer } from './Composer'
 import { errorText } from './kit'
 import { COLUMN_MAX_WIDTH } from './layout'
 import { useBottomInset } from './useBottomInset'
+import app from '../../app.json'
 
 const THEMES: { value: ThemePreference; label: string }[] = [
   { value: 'system', label: 'System' },
@@ -131,6 +132,8 @@ export function SettingsScreen({ onSignOut }: { onSignOut: () => void }) {
           >
             {signingOut ? <ActivityIndicator color={theme.canvas} /> : <Text style={s.signOutText}>Sign out</Text>}
           </Pressable>
+          {/* the cheapest "did this build land" check: the version, on screen */}
+          <Text style={s.version} accessibilityLabel={`readwithme version ${app.expo.version}`}>readwithme {app.expo.version}</Text>
         </ScrollView>
       </KeyboardAvoidingView>
       <Composer />
@@ -246,6 +249,7 @@ function build(theme: Theme) {
     row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md },
     label: { ...type_.ui, fontWeight: '600', color: theme.textPrimary },
     hint: { ...type_.meta, color: theme.textTertiary },
+    version: { ...type_.meta, color: theme.textTertiary, textAlign: 'center', marginTop: space.xl },
     error: { ...type_.meta, color: theme.danger },
     input: {
       borderWidth: 1, borderColor: theme.hairline, borderRadius: radius.input,
