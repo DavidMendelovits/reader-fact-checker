@@ -96,6 +96,9 @@ export const radius = { input: 8, card: 12, pill: 999 } as const
 let preference: ThemePreference = 'system'
 const listeners = new Set<() => void>()
 
+/** The override as it stands. Settings' theme control reads it to show itself. */
+export const themePreference = (): ThemePreference => preference
+
 /** Set (and remember) the override. Pass what `loadSettings()` returned on boot. */
 export function setThemePreference(next: ThemePreference) {
   if (next === preference) return

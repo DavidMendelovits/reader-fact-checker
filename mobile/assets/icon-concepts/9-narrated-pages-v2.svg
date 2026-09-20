@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="glow" x1="0" y1="1" x2="0" y2="0"><stop stop-color="#7FCBF3"/><stop offset="1" stop-color="#7FCBF3" stop-opacity="0"/></linearGradient>
+    <clipPath id="pages"><path d="M142 292c132-30 251-3 370 82v430c-119-85-238-112-370-82V292Z"/><path d="M882 292c-132-30-251-3-370 82v430c119-85 238-112 370-82V292Z"/></clipPath>
+  </defs>
+  <rect width="1024" height="1024" fill="#E6F4FE"/>
+  <path d="M142 292c132-30 251-3 370 82v430c-119-85-238-112-370-82V292Z" fill="#fff"/>
+  <path d="M882 292c-132-30-251-3-370 82v430c119-85 238-112 370-82V292Z" fill="#fff"/>
+  <rect x="142" y="500" width="740" height="304" fill="url(#glow)" clip-path="url(#pages)"/>
+  <path d="M316 672v-110M412 672V462M612 672V462M708 672v-110" fill="none" stroke="#1479B8" stroke-width="40" stroke-linecap="round"/>
+  <path d="M142 292c132-30 251-3 370 82v430c-119-85-238-112-370-82V292Z" fill="none" stroke="#1479B8" stroke-width="34" stroke-linejoin="round"/>
+  <path d="M882 292c-132-30-251-3-370 82v430c119-85 238-112 370-82V292Z" fill="none" stroke="#1479B8" stroke-width="34" stroke-linejoin="round"/>
+  <path d="M512 374v420" stroke="#1479B8" stroke-width="34" stroke-linecap="butt"/>
+</svg>

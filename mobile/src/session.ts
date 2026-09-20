@@ -43,10 +43,16 @@ export async function refreshLibrary(opts: { full?: boolean } = {}): Promise<voi
   const s = useStore.getState()
   if (s.syncing) return
   s.setSyncing(true)
+  s.setSyncError(null)
   try {
     await library().refresh(opts)
-  } catch (e) {
-    useStore.getState().setNotice(`Library sync failed: ${(e as Error).message ?? e}`)
+  } catch {
+    // Not a toast: a failed sync is not an emergency, the cached library is
+    // still on screen. The hairline under the tabs goes red and the Composer's
+    // line says so, because the line is where the app talks (Pass 2).
+    const st = useStore.getState()
+    st.setSyncError(Date.now())
+    st.pushChat({ id: newId(), role: 'assistant', text: "Couldn't sync. Showing what's saved." })
   } finally {
     useStore.getState().setSyncing(false)
   }

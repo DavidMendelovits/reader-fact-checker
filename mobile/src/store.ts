@@ -6,6 +6,12 @@ import type { ChatMessage, Doc, FlatParagraph, Highlight, LibraryDoc, Location }
 
 export type Screen = 'library' | 'reader' | 'settings'
 export type AgentState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'reading'
+/**
+ * What the Composer's mic button shows. `notAsked` is a fresh install — the OS
+ * prompts fire on the first tap, not at sign-in (3.1A); `denied` comes from the
+ * recognizer's error, and only Settings can undo it.
+ */
+export type MicState = 'notAsked' | 'live' | 'muted' | 'denied' | 'off'
 
 interface State {
   screen: Screen
@@ -16,6 +22,8 @@ interface State {
   libraryQuery: string
   syncing: boolean
   lastSync: string | null
+  /** When the last sync failed, in ms. The library's hairline reads red for 2s after it. */
+  syncError: number | null
 
   // ---- the open document ----
   doc: Doc | null
@@ -26,8 +34,14 @@ interface State {
   playing: boolean
   rate: number
   micEnabled: boolean
+  micState: MicState
   agentState: AgentState
   chat: ChatMessage[]
+  /** The agent's last line, and when it landed: the Composer's line holds it for 3s. */
+  lastAgentLine: string | null
+  lastAgentLineAt: number | null
+  /** The transcript as it is being spoken. Only the Composer reads it. */
+  interim: string
   highlights: Highlight[]
   notice: string | null
 
@@ -36,14 +50,17 @@ interface State {
   setLibraryLocation: (location: Location) => void
   setLibraryQuery: (query: string) => void
   setSyncing: (syncing: boolean) => void
+  setSyncError: (at: number | null) => void
 
   setDoc: (doc: Doc, libraryDoc: LibraryDoc, position: number, highlights: Highlight[]) => void
   clearDoc: () => void
   setCurrentParagraph: (i: number) => void
   setRate: (r: number) => void
   setMicEnabled: (on: boolean) => void
+  setMicState: (m: MicState) => void
   setAgentState: (s: AgentState) => void
   pushChat: (m: ChatMessage) => void
+  setInterim: (t: string) => void
   updateChat: (id: string, patch: Partial<ChatMessage>) => void
   setHighlights: (highlights: Highlight[]) => void
   setNotice: (n: string | null) => void
@@ -67,6 +84,7 @@ export const useStore = create<State>((set) => ({
   libraryQuery: '',
   syncing: false,
   lastSync: null,
+  syncError: null,
 
   doc: null,
   libraryDoc: null,
@@ -75,8 +93,12 @@ export const useStore = create<State>((set) => ({
   playing: false,
   rate: 1,
   micEnabled: false,
+  micState: 'notAsked',
   agentState: 'idle',
   chat: [],
+  lastAgentLine: null,
+  lastAgentLineAt: null,
+  interim: '',
   highlights: [],
   notice: null,
 
@@ -85,6 +107,7 @@ export const useStore = create<State>((set) => ({
   setLibraryLocation: (libraryLocation) => set({ libraryLocation }),
   setLibraryQuery: (libraryQuery) => set({ libraryQuery }),
   setSyncing: (syncing) => set({ syncing }),
+  setSyncError: (syncError) => set({ syncError }),
 
   setDoc: (doc, libraryDoc, position, highlights) => {
     const paragraphs = flatten(doc)
@@ -103,8 +126,18 @@ export const useStore = create<State>((set) => ({
   setCurrentParagraph: (currentParagraph) => set({ currentParagraph }),
   setRate: (rate) => set({ rate }),
   setMicEnabled: (micEnabled) => set({ micEnabled }),
+  setMicState: (micState) => set({ micState }),
   setAgentState: (agentState) => set({ agentState }),
-  pushChat: (m) => set((s) => ({ chat: [...s.chat, m] })),
+  // The agent's line is tracked here rather than derived: the Composer would
+  // otherwise have to subscribe to the whole chat array to find the last of it.
+  pushChat: (m) =>
+    set((s) => ({
+      chat: [...s.chat, m],
+      ...(m.role === 'assistant' && m.text.trim()
+        ? { lastAgentLine: m.text, lastAgentLineAt: Date.now() }
+        : null),
+    })),
+  setInterim: (interim) => set({ interim }),
   updateChat: (id, patch) =>
     set((s) => ({ chat: s.chat.map((m) => (m.id === id ? { ...m, ...patch } : m)) })),
   setHighlights: (highlights) => set({ highlights }),

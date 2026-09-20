@@ -16,6 +16,7 @@ registerHooks({
   resolve(spec, ctx, next) {
     if (spec === 'react-native') return { url: RN, shortCircuit: true }
     if (spec.includes('async-storage')) return { url: EMPTY, shortCircuit: true }
+    if (spec === 'expo-secure-store') return { url: EMPTY, shortCircuit: true }
     return next(spec, ctx)
   },
 })
