@@ -12,7 +12,7 @@
 // was the book talking. What is left here is the browser.
 
 // extension-explicit so this file can run under node --experimental-strip-types
-import { getMicStream, readLevels } from './audio-levels.ts'
+import { getMicStream, readLevels, SPEECH_FLOOR } from './audio-levels.ts'
 import type { Transcriber } from './ports.ts'
 import { BargeInGate } from '../../shared/voice/bargeIn.ts'
 import { isEcho, stripEcho } from '../../shared/voice/echo.ts'
@@ -43,14 +43,9 @@ const confident = (c: number) => c <= 0 || c >= MIN_CONFIDENCE
 
 /** How often the mic level is read for the barge-in gate, matching the phone's. */
 const LEVEL_INTERVAL_MS = 80
-/**
- * Above this, readLevels('mic') is a voice rather than the room — the same floor
- * the aurora uses to decide the level it draws is the user's (plan 3.2A). The
- * phone's scale is different, so it keeps the gate's own default. Tuning either
- * takes a real speaker at full volume; a hold that turns out to be nothing costs
- * a 1.5s silence and resumes on its own.
- */
-const SPEECH_FLOOR = 0.08
+// SPEECH_FLOOR is audio-levels.ts's: it belongs to the meter that produces the
+// level, and the aurora reads the same one. The phone's scale is different, so it
+// keeps the gate's own default.
 /** Respawn delay after a routine `end`. */
 const RESTART_DELAY_MS = 250
 /** A session that ends this soon after starting never really ran. */
@@ -232,12 +227,14 @@ export class VoiceListener implements Transcriber {
         // second between "stop" and anything happening. The consumer acts only on
         // partials that can't mean anything else.
         this.barge.words() // the turn is real; the hold is the caller's now
-        this.onInterim(partial)
         // The level gate fires ~160ms in; this is the fallback for a start it missed.
+        // It runs *before* onInterim: the interim is what converts a hold into the
+        // real interruption, and there is nothing to convert until the hold is taken.
         if (!this.talking && countWords(partial) >= MIN_INTERIM_WORDS) {
           this.talking = true
           this.onSpeechStart()
         }
+        this.onInterim(partial)
       }
 
       const heard = finalText.trim()
@@ -250,7 +247,7 @@ export class VoiceListener implements Transcriber {
       // the whole line loses the command (echo.ts).
       const kept = isEcho(heard, recent) ? stripEcho(heard, recent) : heard
       if (!kept) return
-      this.barge.words()
+      this.barge.utteranceDone() // the utterance is over; the next one may hold again
       this.onUtterance(kept)
     }
 
@@ -265,14 +262,23 @@ export class VoiceListener implements Transcriber {
       // rest of the session.
       if (e.error === 'no-speech' || e.error === 'aborted') {
         this.talking = false
+        // reset() releases the gate's own hold through onRelease; a hold the word
+        // path took is one the gate knows nothing about, and has no other releaser.
+        const wasHeld = this.barge.held
         this.barge.reset()
+        if (!wasHeld) this.onFalseStart()
       }
     }
 
     rec.onend = () => {
+      // A routine restart keeps the same generation, so `gen` alone does not tell a
+      // late end from the session that replaced it apart: the recognizer object does.
+      if (this.rec !== rec) return
       if (!this.restart.shouldSpawn(gen)) return // an end from a session that is over
       this.talking = false
+      const wasHeld = this.barge.held
       this.barge.reset()
+      if (!wasHeld) this.onFalseStart() // a hold taken by the word path has no other releaser
       // Chrome stops recognition periodically; the policy restarts it. A healthy
       // session runs for a while before ending — one that dies within a second of
       // starting (recognition service unreachable, mic gone) would respawn in a

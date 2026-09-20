@@ -3,7 +3,7 @@
 // pending/interruptionHandled dance, the hold that barge-in converts into a real
 // interruption. This file is the adapter: it says what a player, a store, a
 // transport and a tool are on this platform, and re-exports the same functions
-// controller.ts, persist.ts and ChatPanel have always imported.
+// controller.ts, persist.ts and the Composer have always imported.
 //
 // The conversation is the app. Everything the user says becomes a turn; the agent
 // drives playback and fact-checking through tools it calls back into the client.
@@ -160,7 +160,7 @@ type AgentLine =
  * speaking step. Tools run after that, same as before: read_aloud and the next
  * tts.speak() both take the player, and would cut the reply off mid-word.
  */
-async function speakTurn(messages: Msg[], context: unknown): Promise<Block[]> {
+async function speakTurn(messages: Msg[], context: unknown, extras: Record<string, unknown>): Promise<Block[]> {
   const splitter = new SentenceSplitter()
   // assigned from inside the stream callback, which is why it's a holder and not
   // three lets — control-flow narrowing can't see writes from a closure
@@ -196,7 +196,7 @@ async function speakTurn(messages: Msg[], context: unknown): Promise<Block[]> {
     // mid-sentence has already been heard, and a replay would say it twice.
     for (let attempt = 0; ; attempt++) {
       try {
-        await apiNdjson<AgentLine>('/api/agent-stream', { messages, context }, (msg) => {
+        await apiNdjson<AgentLine>('/api/agent-stream', { messages, context, ...extras }, (msg) => {
           if (msg.type === 'text') onText(msg.text)
           else if (msg.type === 'text_end') onTextEnd()
           else if (msg.type === 'done') st.content = msg.content
@@ -258,7 +258,7 @@ const agent = createAgent<NavAction>({
     setNotice: (notice) => useStore.setState({ notice }),
   },
   decide: (text, early) => decide(text, early),
-  api: async (messages, context) => ({ content: await speakTurn(messages, context), spoken: true }),
+  api: async (messages, context, extras) => ({ content: await speakTurn(messages, context, extras), spoken: true }),
   // Every nav kind the browser decider can return is one the shared loop handles
   // itself (chapter, next, previous, beginning, pause, resume) — the library kinds
   // are the phone's. Nothing routes here.

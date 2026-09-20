@@ -56,6 +56,8 @@ export function Reader() {
   // Follow-the-voice is off while the reader is reading ahead by hand, until the
   // playhead comes back into view or the pill is tapped.
   const userScrolled = useRef(false)
+  /** The playhead has been off screen since the reader took the scroll. */
+  const leftView = useRef(false)
 
   // A reopened book opens at its saved position, not at the top — jump there
   // instantly on render, before narration starts, so playback never begins with
@@ -105,7 +107,17 @@ export function Reader() {
     const io = new IntersectionObserver(
       ([entry]) => {
         setOffscreen(!entry.isIntersecting)
-        if (entry.isIntersecting) userScrolled.current = false
+        if (!entry.isIntersecting) {
+          leftView.current = true
+          return
+        }
+        // The observer calls back once as soon as it is attached, and it is
+        // attached again on every paragraph — so "it is on screen" was clearing
+        // the suspension a paragraph after every scroll. Only a playhead that
+        // actually left and came back is the reader catching up with it.
+        if (!leftView.current) return
+        leftView.current = false
+        userScrolled.current = false
       },
       { root: containerRef.current, threshold: 0.1 },
     )
@@ -161,6 +173,7 @@ export function Reader() {
 
   const backToVoice = () => {
     userScrolled.current = false
+    leftView.current = false
     containerRef.current
       ?.querySelector(`[data-flat="${current}"]`)
       ?.scrollIntoView({ behavior: 'smooth', block: 'center' })

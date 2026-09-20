@@ -96,9 +96,14 @@ export const useStore = create<State>((set) => ({
   // patches, so the line has to follow the patches too or it keeps the first chunk.
   updateChat: (id, patch) =>
     set((s) => {
+      const before = s.chat.find((m) => m.id === id)
       const chat = s.chat.map((m) => (m.id === id ? { ...m, ...patch } : m))
-      const patched = chat.find((m) => m.id === id)
-      if (patch.text === undefined || patched?.role !== 'assistant') return { chat }
+      if (patch.text === undefined || before?.role !== 'assistant') return { chat }
+      // The timestamp is when the line landed, not when it last grew: a stream is
+      // dozens of patches to the message the Composer is already holding, and
+      // bumping on each of them would hold the line open forever. It only moves
+      // when the patch makes some other message the agent line.
+      if (s.lastAgentLine === before.text) return { chat, lastAgentLine: patch.text }
       return { chat, lastAgentLine: patch.text, lastAgentLineAt: Date.now() }
     }),
   addJob: (job) => set((s) => ({ jobs: [job, ...s.jobs] })),

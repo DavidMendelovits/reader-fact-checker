@@ -26,9 +26,11 @@ const SECURE =
   'data:text/javascript,' +
   encodeURIComponent(`
 const m = new Map(); globalThis.__secure = m;
-export const getItemAsync = async (k) => m.get(k) ?? null;
-export const setItemAsync = async (k, v) => { m.set(k, v) };
-export const deleteItemAsync = async (k) => { m.delete(k) };
+// globalThis.__secureFails stands in for a keychain that is not available.
+const check = () => { if (globalThis.__secureFails) throw new Error('keychain unavailable') };
+export const getItemAsync = async (k) => { check(); return m.get(k) ?? null };
+export const setItemAsync = async (k, v) => { check(); m.set(k, v) };
+export const deleteItemAsync = async (k) => { check(); m.delete(k) };
 `)
 registerHooks({
   resolve(spec, ctx, next) {
@@ -94,6 +96,20 @@ const flush = () => new Promise((r) => setTimeout(r, 0))
   async.set('last-hello-day', 'Mon Jan 01 2001')
   await loadSettings()
   assert.equal(shouldSayHello(), true, 'a new day speaks again')
+}
+
+// a keychain that throws signs nobody out: the old token still loads, and stays
+// where it is so the next launch can try the move again
+{
+  async.set('readwise-token', 'tok-kept')
+  secure.clear()
+  ;(globalThis as any).__secureFails = true
+  const loaded = await loadSettings()
+  ;(globalThis as any).__secureFails = false
+  assert.equal(loaded.token, 'tok-kept', 'the reader is signed in from the store that still works')
+  assert.equal(async.get('readwise-token'), 'tok-kept', 'and nothing was removed')
+  assert.equal(secure.has('readwise-token'), false)
+  async.delete('readwise-token')
 }
 
 console.log('settings.check.ts: ok')

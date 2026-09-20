@@ -170,4 +170,36 @@ async function listener() {
   l.stop()
 }
 
+// --- a hold taken by the word path is released when the recognizer ends -------
+{
+  const l = await listener()
+  let starts = 0
+  let falseStarts = 0
+  l.onSpeechStart = () => starts++
+  l.onFalseStart = () => falseStarts++
+
+  // no level reports: the gate never holds, so only the three-word fallback does
+  FakeRec.last?.onresult?.(result('stop reading this', false))
+  assert.equal(starts, 1, 'the word path took the hold')
+
+  FakeRec.last?.onend?.()
+  assert.equal(falseStarts, 1, 'a hold the gate never took is still released when the ear dies')
+  l.stop()
+}
+
+// --- an end from a session that has been replaced does not spawn --------------
+{
+  const l = await listener()
+  const dead = FakeRec.last // this session's recognizer
+
+  dead?.onend?.() // it dies on arrival: a backed-off respawn
+  await delay(800)
+  assert.equal(FakeRec.starts, 2, 'the death respawned')
+
+  dead?.onend?.() // the dead recognizer's end, arriving late
+  await delay(800)
+  assert.equal(FakeRec.starts, 2, 'a stale end does not respawn over the live session')
+  l.stop()
+}
+
 console.log('voice.check: ok')

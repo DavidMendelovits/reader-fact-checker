@@ -208,6 +208,18 @@ assert.notEqual(bookmark, 1, 'reopened past the start rather than reading from �
 const currentRow = page.getByLabel(new RegExp(`^(Paragraph|Chapter heading) ${bookmark}\\.`))
 assert.ok(await inTheViewport(currentRow), `the voice's paragraph (¶${bookmark}) is on screen at the first paint`)
 step(`reopen resumes at the saved position (¶${bookmark}/22), row already on screen`)
+// ---- follow-the-voice: a drag takes the list, the pill hands it back (S5) ----
+await page.mouse.move(VIEWPORT.width / 2, VIEWPORT.height / 2)
+await page.mouse.wheel(0, 2500) // the reader scrolls away; the voice reads on without them
+const pill = page.getByTestId('back-to-voice')
+await pill.waitFor({ timeout: 5000 })
+await pill.click()
+await page.waitForTimeout(600)
+const rejoined = await waitForPosition()
+const rejoinedRow = page.getByLabel(new RegExp(`^(Paragraph|Chapter heading) ${rejoined}\\.`))
+assert.ok(await inTheViewport(rejoinedRow), `the pill brought the voice (¶${rejoined}) back on screen`)
+step('a scroll away raises the pill; the pill hands the list back to the voice')
+
 // the failed open is in the history the model saw on that reopen
 assert.ok(modelHeard('already did this: Could not open that') && modelHeard('no readable text'), 'the model was told why the PDF did not open')
 

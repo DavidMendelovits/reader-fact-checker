@@ -1,7 +1,7 @@
 // What Reader has. One text box now, and it searches — the box that talked to
 // the agent moved into the Composer, where the mic is (S3). The "syncing…" line
 // that used to shove the list down became a 2px rule under the tabs (L6).
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator, Animated, FlatList, Pressable, RefreshControl, StyleSheet, Text,
   TextInput, View,
@@ -56,8 +56,12 @@ export function LibraryScreen() {
     return docs.filter((d) => d.location === location).sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
   }, [docs, location, q])
 
+  // The guard reads the ref, not the state, so the callback identity never changes
+  // and the memo'd rows survive a re-render of the screen.
+  const openingRef = useRef<string | null>(null)
   const open = useCallback(async (id: string) => {
-    if (opening) return
+    if (openingRef.current) return
+    openingRef.current = id
     setOpening(id)
     try {
       await openDocument(id)
@@ -65,9 +69,17 @@ export function LibraryScreen() {
     } catch (e) {
       useStore.getState().setNotice(errorText(e))
     } finally {
+      openingRef.current = null
       setOpening(null)
     }
-  }, [opening])
+  }, [])
+
+  const renderItem = useCallback(
+    ({ item }: { item: LibraryDoc }) => (
+      <LibraryRow item={item} opening={opening} q={q} location={location} onOpen={open} />
+    ),
+    [opening, q, location, open],
+  )
 
   const refresh = useCallback(async () => {
     setPulling(true)
@@ -132,30 +144,7 @@ export function LibraryScreen() {
           style={{ marginBottom: bottomInset - BACK_TO_VOICE_RESERVE, overflow: 'hidden' }} // ends above the bar, clipped: see ReaderList
           contentContainerStyle={s.list}
           refreshControl={<RefreshControl refreshing={pulling} onRefresh={() => void refresh()} tintColor={theme.accent} />}
-          renderItem={({ item }) => (
-            <Pressable
-              role="button"
-              accessibilityLabel={item.title || 'Untitled'}
-              accessibilityState={{ disabled: !!opening && opening !== item.id }}
-              style={s.row}
-              disabled={!!opening && opening !== item.id}
-              onPress={() => void open(item.id)}
-            >
-              <View style={s.rowText}>
-                <Text style={s.rowTitle} numberOfLines={2}>{item.title || 'Untitled'}</Text>
-                {q && item.location !== location ? (
-                  <Text style={s.rowMeta} numberOfLines={1}>
-                    {[LOCATION_LABEL[item.location], docMeta(item)].filter(Boolean).join(' · ')}
-                  </Text>
-                ) : (
-                  !!docMeta(item) && <Text style={s.rowMeta} numberOfLines={1}>{docMeta(item)}</Text>
-                )}
-              </View>
-              <View style={s.chevron}>
-                {opening === item.id ? <ActivityIndicator color={theme.accent} /> : <Text style={s.chevronGlyph}>›</Text>}
-              </View>
-            </Pressable>
-          )}
+          renderItem={renderItem}
           ListEmptyComponent={
             q ? (
               <Text style={s.empty}>No matches for “{q}”</Text>
@@ -174,6 +163,48 @@ export function LibraryScreen() {
     </View>
   )
 }
+
+/**
+ * One library row. Hoisted and memo'd: the list re-renders on every keystroke in
+ * the search box and on every sync tick, and the rows themselves change far less
+ * often than that. `docMeta` runs once here instead of twice per render.
+ */
+const LibraryRow = memo(function LibraryRow({ item, opening, q, location, onOpen }: {
+  item: LibraryDoc
+  opening: string | null
+  q: string
+  location: Location
+  onOpen: (id: string) => void
+}) {
+  const theme = useTheme()
+  const s = styles(theme)
+  const meta = docMeta(item)
+  const blocked = !!opening && opening !== item.id
+  return (
+    <Pressable
+      role="button"
+      accessibilityLabel={item.title || 'Untitled'}
+      accessibilityState={{ disabled: blocked }}
+      style={s.row}
+      disabled={blocked}
+      onPress={() => onOpen(item.id)}
+    >
+      <View style={s.rowText}>
+        <Text style={s.rowTitle} numberOfLines={2}>{item.title || 'Untitled'}</Text>
+        {q && item.location !== location ? (
+          <Text style={s.rowMeta} numberOfLines={1}>
+            {[LOCATION_LABEL[item.location], meta].filter(Boolean).join(' · ')}
+          </Text>
+        ) : (
+          !!meta && <Text style={s.rowMeta} numberOfLines={1}>{meta}</Text>
+        )}
+      </View>
+      <View style={s.chevron}>
+        {opening === item.id ? <ActivityIndicator color={theme.accent} /> : <Text style={s.chevronGlyph}>›</Text>}
+      </View>
+    </Pressable>
+  )
+})
 
 /**
  * The sync, as a rule rather than a sentence: brass while it runs, red for two

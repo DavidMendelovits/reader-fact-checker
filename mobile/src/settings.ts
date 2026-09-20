@@ -76,12 +76,24 @@ export async function saveTheme(theme: ThemePreference) {
  */
 async function loadToken(): Promise<string | null> {
   if (!secureTokens) return AsyncStorage.getItem(TOKEN_KEY)
-  const kept = await SecureStore.getItemAsync(TOKEN_KEY)
-  if (kept) return kept
+  try {
+    const kept = await SecureStore.getItemAsync(TOKEN_KEY)
+    if (kept) return kept
+  } catch {
+    // The keychain can be unavailable (a locked device, a dev client without the
+    // entitlement). Signing the reader out over it would be the worst answer:
+    // fall back to whatever AsyncStorage still has, for this session.
+    return AsyncStorage.getItem(TOKEN_KEY)
+  }
   const old = await AsyncStorage.getItem(TOKEN_KEY)
   if (!old) return null
-  await SecureStore.setItemAsync(TOKEN_KEY, old)
-  await AsyncStorage.removeItem(TOKEN_KEY)
+  try {
+    await SecureStore.setItemAsync(TOKEN_KEY, old)
+    await AsyncStorage.removeItem(TOKEN_KEY)
+  } catch {
+    // The move failed; the old copy stays exactly where it is, so the next launch
+    // signs in and tries the migration again.
+  }
   return old
 }
 
@@ -110,7 +122,11 @@ export async function apiJson<T>(path: string, body: unknown): Promise<T> {
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
-    throw new Error(`${path} failed (${res.status}): ${detail.slice(0, 300)}`)
+    // The status rides on the error as a field: the shared loop's isOffline() reads
+    // it there rather than off the message text (shared/voice/agent.ts).
+    throw Object.assign(new Error(`${path} failed (${res.status}): ${detail.slice(0, 300)}`), {
+      status: res.status,
+    })
   }
   return res.json() as Promise<T>
 }

@@ -25,7 +25,17 @@ export type LineState = {
 }
 
 /** How long the agent's reply stays up after it stops speaking. */
-const REPLY_HOLD_MS = 3000
+export const REPLY_HOLD_MS = 3000
+
+/** What the screen reader calls the mic button, in either app. */
+export const MIC_LABEL: Record<LineState['micState'], string> = {
+  notAsked: 'Microphone, off',
+  live: 'Microphone, on',
+  muted: 'Microphone, muted',
+  denied: 'Microphone, blocked',
+  off: 'Microphone, off',
+  restarting: 'Microphone restarted, tap to retry',
+}
 
 export function lineFor(s: LineState): { text: string; italic: boolean } {
   const interim = s.interim.trim()

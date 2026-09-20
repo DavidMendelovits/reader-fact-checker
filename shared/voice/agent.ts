@@ -27,7 +27,7 @@ export type Msg = { role: 'user' | 'assistant'; content: string | Block[] }
 
 export type AgentState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'reading'
 
-/** What the player reports back from a range: the phone never produces 'failed'. */
+/** What the player reports back from a range. */
 export type PlayOutcome = 'completed' | 'stopped' | 'failed'
 
 /** What to show, and what to tell the model happened. */
@@ -186,7 +186,7 @@ const NAMED_RATES: Record<string, number> = {
   'half speed': 0.5, 'double speed': 2,
 }
 
-export const normalize = (text: string) => text.toLowerCase().replace(/[.!,?]+$/, '').trim()
+const normalize = (text: string) => text.toLowerCase().replace(/[.!,?]+$/, '').trim()
 
 /** The nav kinds both apps share; anything else goes to deps.runNav. */
 type SharedNav =
@@ -211,6 +211,9 @@ const INTERRUPTED_RESULT = '[Interrupted — the app was closed or reloaded befo
 export function repair(msgs: Msg[]): Msg[] {
   const out: Msg[] = []
   for (const m of msgs) {
+    // Persisted JSON is whatever was on disk: anything that isn't a message is dropped
+    // rather than sent to the API as one.
+    if (!m || typeof m !== 'object' || !('role' in m)) continue
     const prev = out[out.length - 1]
     if (prev?.role === 'assistant' && Array.isArray(prev.content)) {
       const unanswered = prev.content
@@ -282,6 +285,11 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
 
   /** Set while a turn is in flight and the app has already done what the interruption asked. */
   let interruptionHandled: string | null = null
+  /** The exact pending text that note answers; anything appended to it still needs the model. */
+  let handledText: string | null = null
+
+  /** Which range owns the state: an older one that resolves late must not write it. */
+  let rangeToken = 0
 
   // A partial transcript is asked about as it grows, debounced; only the newest
   // answer counts, and only if the final hasn't already arrived.
@@ -306,11 +314,15 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
    * read_aloud tool and the "keep going" fast path.
    */
   async function playRange(from: number, to: number): Promise<PlayOutcome> {
+    const token = ++rangeToken
     const paragraphs = state.paragraphs()
     player.setParagraphs(paragraphs.map((p) => p.text))
     player.setRate(state.rate())
     state.setAgentState('reading') // `playing` is driven by the player's onPlayingChange
     const outcome = await player.playFrom(from, to)
+    // A range that has already been replaced says nothing: the newer one owns the
+    // state and the notice now, and this one's 'stopped' is how it was replaced.
+    if (token !== rangeToken) return outcome
     // Playback is over the moment playFrom returns. Leaving the state on 'reading'
     // through the settle window and the next model turn made the UI claim it was
     // still reading for seconds after the audio stopped.
@@ -350,7 +362,9 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
       if (block.name === 'read_aloud') content = await readAloud(block.input)
       else if (block.name === 'set_speed') content = setSpeed(block.input)
       else {
-        const tool = deps.tools[block.name]
+        // hasOwn, not lookup: a model asking for "constructor" or "toString" must
+        // not reach Object.prototype through the tool table.
+        const tool = Object.hasOwn(deps.tools, block.name) ? deps.tools[block.name] : undefined
         content = tool ? await tool(block.input) : `Unknown tool: ${block.name}`
       }
     } catch (e) {
@@ -503,6 +517,7 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
     const done = `${text} [the app already did this: ${result.note}]`
     pending = pending ? `${pending} ${done}` : done
     interruptionHandled = result.note
+    handledText = pending
   }
 
   /**
@@ -513,11 +528,23 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
   async function decideThenLoop(text: string) {
     running = true
     state.setAgentState('thinking')
-    const action = await deps.decide(text, false)
+    let action: A | null = null
+    try {
+      action = await deps.decide(text, false)
+    } catch {
+      action = null // a decider that fell over is a decision to ask the conversation
+    }
     if (action) {
-      await recordNav(text, await runNav(action))
-      running = false
-      if (state.agentState() === 'thinking') state.setAgentState('idle')
+      // Whatever the navigation does, the turn has to end: `running` left true
+      // wedges every later utterance behind a turn that is not happening.
+      try {
+        await recordNav(text, await runNav(action))
+      } catch (e) {
+        state.setNotice(e instanceof Error ? e.message : String(e))
+      } finally {
+        running = false
+        if (state.agentState() === 'thinking') state.setAgentState('idle')
+      }
       flushPending()
       return
     }
@@ -552,12 +579,16 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
     const next = pending
     pending = null
     messages.push({ role: 'user', content: next })
-    if (interruptionHandled) {
+    if (interruptionHandled && next === handledText) {
       // the turn ended before it could carry the note; nothing to ask the model
       messages.push({ role: 'assistant', content: interruptionHandled })
       interruptionHandled = null
+      handledText = null
       return
     }
+    // Something was said on top of the handled command: that still wants an answer.
+    interruptionHandled = null
+    handledText = null
     void loop()
   }
 
@@ -574,10 +605,13 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
       if (running) {
         // over a turn: the reading has stopped already; act, and tell the loop.
         // settle() keeps holding (awaitingWords) until the note is in place.
-        const result = await runNav(action)
-        if (running) await recordOverTurn(text, result)
-        else await recordNav(text, result)
-        awaitingWords = false
+        try {
+          const result = await runNav(action)
+          if (running) await recordOverTurn(text, result)
+          else await recordNav(text, result)
+        } finally {
+          awaitingWords = false
+        }
         flushPending()
         return
       }
@@ -591,6 +625,9 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
         if (state.agentState() === 'thinking') state.setAgentState('idle')
       }
       flushPending()
+    }).catch(() => {
+      // settle() waits on awaitingWords; a decision that threw must still let go of it
+      awaitingWords = false
     })
   }
 
@@ -711,6 +748,7 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
         const done = `${trimmed} [the app already did this: ${fast.note}]`
         pending = pending ? `${pending} ${done}` : done
         interruptionHandled = fast.note
+        handledText = pending
       } else {
         messages.push({ role: 'user', content: trimmed })
         messages.push({ role: 'assistant', content: fast.note })
@@ -809,18 +847,23 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
         }
         if (awaitingWords) await settle()
         // an interruption belongs in the same user turn as the tool result it cut short
+        const flushed = pending
         if (pending) {
           results.push({ type: 'text', text: pending })
           pending = null
         }
         messages.push({ role: 'user', content: results })
-        if (interruptionHandled) {
+        const handled = interruptionHandled
+        interruptionHandled = null
+        if (handled && flushed === handledText) {
           // the app did what the interruption asked; nothing to ask the model.
           // Its side of the exchange is the note, so the history still alternates.
-          messages.push({ role: 'assistant', content: interruptionHandled })
-          interruptionHandled = null
+          messages.push({ role: 'assistant', content: handled })
+          handledText = null
           break
         }
+        // more was said than the command the app handled: ask about the rest
+        handledText = null
       }
     } catch (e) {
       // a failed turn must not leave the panel mid-sentence about what it's doing
@@ -853,7 +896,9 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
     announceAndRead,
     exportMessages: () => messages,
     restoreMessages(saved: unknown[]) {
-      messages = repair((saved as Msg[]) ?? [])
+      // Whatever came back from storage: a corrupt or half-written file is an empty
+      // conversation, not a crash on the first turn.
+      messages = repair(Array.isArray(saved) ? (saved as Msg[]) : [])
     },
     playRange,
   }

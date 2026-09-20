@@ -27,12 +27,19 @@ globalThis.__rec = {
     calls.length = 0
     globalThis.__rec.granted = true
   },
+  handler(name, i) {
+    return (handlers[name] || [])[i]
+  },
 }
 export const ExpoSpeechRecognitionModule = {
   addListener(name, fn) {
     handlers[name] = handlers[name] || []
     handlers[name].push(fn)
-    return { remove() {} }
+    return {
+      remove() {
+        handlers[name] = (handlers[name] || []).filter((h) => h !== fn)
+      },
+    }
   },
   start() {
     calls.push('start')
@@ -59,6 +66,7 @@ type Rec = {
   granted: boolean
   emit(name: string, ev?: unknown): void
   reset(): void
+  handler(name: string, i: number): ((ev?: unknown) => void) | undefined
 }
 const rec = (globalThis as any).__rec as Rec
 
@@ -180,6 +188,39 @@ const QUIET = 0
   await tick()
   assert.deepEqual(errors, ['Microphone access denied'])
   assert.equal(rec.calls.includes('start'), false)
+  l.stop()
+}
+
+// --- a hold taken by the word path is released when the recognizer ends -------
+{
+  const l = await listener()
+  let starts = 0
+  let falseStarts = 0
+  l.onSpeechStart = () => starts++
+  l.onFalseStart = () => falseStarts++
+
+  // no level reports: the gate never holds, so only the three-word fallback does
+  rec.emit('result', { results: [{ transcript: 'stop reading this' }], isFinal: false })
+  assert.equal(starts, 1, 'the word path took the hold')
+
+  rec.emit('end')
+  assert.equal(falseStarts, 1, 'a hold the gate never took is still released when the ear dies')
+  l.stop()
+}
+
+// --- an end from a session that has been replaced does not spawn --------------
+{
+  const l = await listener()
+  const starts = () => rec.calls.filter((c) => c === 'start').length
+  const stale = rec.handler('end', 0) // this session's end handler
+
+  rec.emit('end') // the session dies; the policy respawns
+  await delay(400)
+  assert.equal(starts(), 2, 'the routine end respawned')
+
+  stale?.() // the dead session's end, arriving late
+  await delay(400)
+  assert.equal(starts(), 2, 'a stale end does not start a second recognizer under the live one')
   l.stop()
 }
 

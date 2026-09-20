@@ -136,6 +136,7 @@
 
   --indicator-agent: #7fc0f5;
   --indicator-user: var(--neutral-100);
+  --mic-live: #318835;
   --highlight-wash: hsl(50deg 96% 67% / 0.28);
   --highlight-text: var(--neutral-10);
 }
@@ -175,6 +176,7 @@
     --shadow-400: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 8px 32px rgba(0, 0, 0, 0.55);
 
     --indicator-agent: #6fa8f5;
+    --mic-live: #79c97d;
     --highlight-wash: hsl(50deg 96% 67% / 0.22);
     --highlight-text: var(--neutral-95);
   }
@@ -230,6 +232,9 @@ input, select, textarea {
   border: 1px solid var(--border-secondary);
   border-radius: var(--radius);
 }
+/* 16px exactly: anything smaller and iOS Safari zooms the page on focus. The file
+   input is chrome, not a field you type into, so it keeps the smaller label. */
+input:not([type='file']), select, textarea { font-size: var(--font-size-lg); }
 input::placeholder { color: var(--text-tertiary); }
 
 .error { color: var(--text-error); }
@@ -276,7 +281,6 @@ input::placeholder { color: var(--text-tertiary); }
   flex: 1;
   min-width: 0;
   padding: var(--spacer-3) var(--spacer-4);
-  font-size: var(--font-size-lg);
 }
 .import-screen input:disabled { opacity: 0.5; }
 .import-screen form button {
@@ -749,7 +753,8 @@ input::placeholder { color: var(--text-tertiary); }
    the gutters and gaps give it back as much of the row as they can */
 @media (max-width: 430px) {
   .composer-row { gap: var(--spacer-2); padding-inline: var(--spacer-3); }
-  .composer-btn.transcript { padding: 0 var(--spacer-3); font-size: var(--font-size-sm); }
+  /* the label stays readable at 14px; the width it needs comes out of the padding */
+  .composer-btn.transcript { padding: 0 var(--spacer-2); }
 }
 /* the sidebar is still there at this width, and the Composer belongs under the
    reader column, not under the panel — the bar stays one surface, its row moves */
@@ -776,9 +781,9 @@ input::placeholder { color: var(--text-tertiary); }
 .composer-btn.mic:hover { background: var(--background-button); }
 .composer-btn.mic[data-mic='live'] {
   border-color: transparent;
-  background: var(--green-50);
+  background: var(--mic-live);
   /* the ring breathes with what the mic hears; --mic-level is written by a rAF */
-  box-shadow: 0 0 0 calc(2px + 6px * var(--mic-level, 0)) color-mix(in srgb, var(--green-50) 30%, transparent);
+  box-shadow: 0 0 0 calc(2px + 6px * var(--mic-level, 0)) color-mix(in srgb, var(--mic-live) 30%, transparent);
 }
 .composer-btn.mic[data-mic='muted'] {
   border-color: transparent;
@@ -814,13 +819,11 @@ input::placeholder { color: var(--text-tertiary); }
 .composer-line.interim { font-style: italic; color: var(--text-primary); }
 
 .composer-type { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--spacer-2); }
-/* 16px exactly: anything smaller and iOS Safari zooms the page on focus */
 .composer-type input {
   flex: 1;
   min-width: 0;
   height: 44px;
   padding: 0 var(--spacer-4);
-  font-size: 16px;
 }
 
 /* ---- transcript sheet (under 900px) ---- */
@@ -842,7 +845,8 @@ input::placeholder { color: var(--text-tertiary); }
   box-shadow: var(--shadow-400);
   transition: transform 150ms ease-out;
 }
-.sheet:focus { outline: none; }
+/* the sheet is focused programmatically on open; a keyboard focus still shows */
+.sheet:focus:not(:focus-visible) { outline: none; }
 .sheet-grab {
   display: flex;
   justify-content: center;

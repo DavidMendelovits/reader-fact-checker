@@ -45,6 +45,9 @@ registerHooks({
 })
 
 const { Player, SystemVoice, START_TIMEOUT_MS } = await import('./tts.ts')
+
+/** hold()'s stop timeout, as tts.ts sets it. */
+const STOP_TIMEOUT_MS = 300
 type VoiceEngine = import('./ports.ts').VoiceEngine
 
 const speech = (globalThis as any).__speech as { calls: string[]; finishStop: () => void }
@@ -187,16 +190,17 @@ function player(engine: VoiceEngine, paragraphs: string[]) {
   assert.deepEqual(speech.calls, ['speak:one', 'stop', 'speak:two'])
 }
 
-// --- an utterance that never starts is retried once, then reported -----------
+// --- an utterance that never starts is retried once, then the range fails -----
 {
   const engine = new FakeVoice({ starts: false, answersStop: false })
-  const p = player(engine, ['a'])
+  const p = player(engine, ['a', 'b'])
   const started = Date.now()
   const outcome = await p.playFrom(0)
   const elapsed = Date.now() - started
 
-  assert.equal(outcome, 'completed', 'a silent engine must not wedge the range')
+  assert.equal(outcome, 'failed', 'a silent engine fails the range rather than racing through it')
   assert.deepEqual(engine.spoken, ['a', 'a'], 'one retry, not a loop')
+  assert.equal(p.currentIndex, 0, 'a paragraph that was never read is not left behind')
   assert.equal(p.lastFailure, 'no-audio')
   assert.ok(elapsed >= 2 * START_TIMEOUT_MS - 50, `watchdog fired too early (${elapsed}ms)`)
 
@@ -207,7 +211,33 @@ function player(engine: VoiceEngine, paragraphs: string[]) {
   await tick()
   assert.equal(p.lastFailure, null)
   good.finish()
+  await tick()
+  good.finish()
   assert.equal(await range, 'completed')
+}
+
+// --- an attempt that settles late leaves the next utterance its stop guard ----
+{
+  const engine = new FakeVoice({ answersStop: false })
+  const p = player(engine, ['a', 'b'])
+  const first = p.playFrom(0)
+  await tick()
+
+  p.pause() // ¶a's attempt will only settle when its stop timeout fires
+  const range = p.playFrom(0) // the next utterance, started before that happens
+  await tick()
+  await delay(2 * STOP_TIMEOUT_MS) // the first attempt settles in here, late
+  assert.equal(await first, 'stopped')
+
+  const start = Date.now()
+  p.hold()
+  while (p.speaking !== '' && Date.now() - start < 2000) await delay(10)
+  const elapsed = Date.now() - start
+  assert.ok(elapsed < 400, `hold settled in ${elapsed}ms, expected under 400`)
+  assert.equal(p.held, true, 'the late settle did not strip the live utterance of its guard')
+
+  p.pause()
+  assert.equal(await range, 'stopped')
 }
 
 console.log('tts.check: ok')

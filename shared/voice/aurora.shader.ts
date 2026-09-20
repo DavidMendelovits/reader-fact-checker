@@ -23,6 +23,11 @@
 // returns premultiplied colour, and the web layer is drawn with
 // blendFunc(ONE, ONE_MINUS_SRC_ALPHA).
 
+// `time` is a mediump float in the GLSL preamble — fp16 on a phone GPU, where a
+// value in the thousands quantises to steps a drift of 0.06/s disappears into.
+// Both layers wrap their clock to this many seconds before binding it.
+export const TIME_WRAP = 3600
+
 export const auroraBody = `
 float aHash(VEC2 p) {
   return fract(sin(dot(p, VEC2(127.1, 311.7))) * 43758.5453123);

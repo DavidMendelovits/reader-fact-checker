@@ -134,7 +134,7 @@ function build(theme: Theme) {
     closeGlyph: { fontSize: 18, color: theme.accent },
     log: { marginTop: space.sm },
     logContent: { gap: space.md, paddingVertical: space.md },
-    you: { ...type_.ui, color: theme.textTertiary },
+    you: { ...type_.ui, color: theme.textSecondary },
     them: { ...type_.ui, color: theme.textPrimary },
     empty: { ...type_.ui, color: theme.textTertiary },
   })

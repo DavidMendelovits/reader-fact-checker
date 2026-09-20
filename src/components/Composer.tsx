@@ -4,20 +4,11 @@ import { play, pause, setMicEnabled, setMicMuted } from '../lib/controller'
 import { say } from '../lib/agent'
 import { voice } from '../lib/providers'
 import { readLevels } from '../lib/audio-levels'
-import { lineFor, type LineState } from '../../shared/voice/line.ts'
+import { lineFor, MIC_LABEL, REPLY_HOLD_MS, type LineState } from '../../shared/voice/line.ts'
 
 // The one bar at the bottom of the app: mic · line · play/pause · transcript · keyboard.
 // It replaces the floating speaking pill, the chat panel's italic status line and the
 // chat input — status is told once, here, by `lineFor`.
-
-const MIC_LABEL: Record<LineState['micState'], string> = {
-  notAsked: 'Microphone, off',
-  live: 'Microphone, on',
-  muted: 'Microphone, muted',
-  denied: 'Microphone, blocked',
-  off: 'Microphone, off',
-  restarting: 'Microphone restarted, tap to retry',
-}
 
 const MIC_TITLE: Record<LineState['micState'], string> = {
   notAsked: 'Turn the microphone on',
@@ -85,7 +76,7 @@ export function Composer({ onOpenTranscript }: { onOpenTranscript: () => void })
   // re-renders in that window, so the line needs its own nudge to let go of it.
   useEffect(() => {
     if (lastAgentLineAt === null) return
-    const t = setTimeout(() => tick((n) => n + 1), 3100)
+    const t = setTimeout(() => tick((n) => n + 1), REPLY_HOLD_MS + 100)
     return () => clearTimeout(t)
   }, [lastAgentLineAt])
 
@@ -111,9 +102,15 @@ export function Composer({ onOpenTranscript }: { onOpenTranscript: () => void })
     const el = micRef.current
     if (!el || micState !== 'live') return
     const bars = new Float32Array(8)
+    // Quantized to 1/32: the ring cannot show more than that, and an unchanged
+    // level is a style write — and a style recalc — for nothing.
+    let last = -1
     let frame = requestAnimationFrame(function loop() {
       frame = requestAnimationFrame(loop)
-      el.style.setProperty('--mic-level', String(Math.min(1, readLevels('mic', bars) * 1.6)))
+      const level = Math.round(Math.min(1, readLevels('mic', bars) * 1.6) * 32) / 32
+      if (level === last) return
+      last = level
+      el.style.setProperty('--mic-level', String(level))
     })
     return () => {
       cancelAnimationFrame(frame)

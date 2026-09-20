@@ -318,6 +318,8 @@ async function moveDoc(input: Record<string, unknown>): Promise<string> {
   if (!location) return 'No such shelf. Use "new" (the inbox), "later", or "archive".'
   const id = typeof input.id === 'string' && input.id.trim() ? input.id.trim() : useStore.getState().libraryDoc?.id
   if (!id) return 'No document id given and nothing is open.'
+  // Check the id before it can reach a Readwise URL: the model supplies it.
+  if (!library().byId(id)) return 'That document is not in the library.'
   try {
     const doc = await moveDocument(id, location)
     const dest = location === 'new' ? 'the inbox' : location === 'later' ? 'later' : 'the archive'

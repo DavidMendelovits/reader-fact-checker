@@ -147,7 +147,9 @@ export class Player {
         if (settled) return
         settled = true
         if (timer !== null) clearTimeout(timer)
-        this.settleUtterance = null
+        // Only clear the settler if it is still ours: an attempt that settles late
+        // must not strip the next utterance of its stop-timeout guard.
+        if (this.settleUtterance === finish) this.settleUtterance = null
         resolve(outcome)
       }
       // Only an engine that reports starts can be watched; the rest are trusted.
@@ -164,7 +166,7 @@ export class Player {
     })
   }
 
-  private async speakOnce(text: string): Promise<'done' | 'stopped'> {
+  private async speakOnce(text: string): Promise<'done' | 'stopped' | 'failed'> {
     const first = await this.attempt(text)
     if (first !== 'no-start') return first
     // Nothing came out of the speaker. One retry — the usual cause is an engine
@@ -173,8 +175,11 @@ export class Player {
     await this.engine.stop()
     const second = await this.attempt(text)
     if (second !== 'no-start') return second
+    // Two attempts, no sound. Saying 'done' here raced the whole document past in
+    // silence and reported 'completed'; the range fails instead, and read_aloud
+    // tells the model not to retry.
     this.failure = 'no-audio'
-    return 'done'
+    return 'failed'
   }
 
   //   playFrom loop, one paragraph:
@@ -197,7 +202,7 @@ export class Player {
   //
   // hold() stops the engine and leaves the loop parked; release() resumes the same
   // paragraph; pause() is a hold arriving as a real interruption.
-  async playFrom(index: number, until = Infinity): Promise<'completed' | 'stopped'> {
+  async playFrom(index: number, until = Infinity): Promise<'completed' | 'stopped' | 'failed'> {
     this.pause() // one player; a new range replaces whatever was going
     const gen = ++this.generation
     const last = Math.min(this.paragraphs.length - 1, until)
@@ -217,6 +222,12 @@ export class Player {
       this.remember(this.speaking)
       this.speaking = ''
       if (gen !== this.generation) return 'stopped'
+      if (outcome === 'failed') {
+        // the engine took the text twice and made no sound: stop here, at this
+        // paragraph, rather than advancing through the book without audio
+        this.onPlayingChange(false)
+        return 'failed'
+      }
       if (outcome === 'stopped') {
         if (!this.gate.held) {
           this.onPlayingChange(false)

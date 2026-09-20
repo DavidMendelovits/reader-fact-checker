@@ -144,9 +144,10 @@ export function positionChanged(): void {
 }
 
 export async function moveDocument(id: string, location: Location): Promise<LibraryDoc> {
+  const known = library().byId(id)
+  if (!known) throw new Error('That document is not in the library.')
   await library().move(id, location)
-  const doc = library().byId(id)
-  if (!doc) throw new Error('That document is not in the library.')
+  const doc = library().byId(id) ?? known
   if (useStore.getState().libraryDoc?.id === id) useStore.setState({ libraryDoc: doc })
   return doc
 }

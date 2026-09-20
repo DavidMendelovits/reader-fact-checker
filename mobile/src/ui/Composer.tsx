@@ -9,9 +9,9 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import {
   Animated, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native'
-import { KeyboardStickyView } from 'react-native-keyboard-controller'
+import { KeyboardStickyView, useKeyboardState } from 'react-native-keyboard-controller'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { lineFor } from '../../../shared/voice/line'
+import { lineFor, MIC_LABEL, REPLY_HOLD_MS } from '../../../shared/voice/line'
 import { pause, play, say, setMicEnabled } from '../agent'
 import { voice } from '../providers'
 import { radius, space, type as type_, useTheme, type Theme } from '../theme'
@@ -35,15 +35,6 @@ const AGENT_ANNOUNCEMENT: Record<string, string> = {
   speaking: 'Speaking',
 }
 
-const MIC_LABEL: Record<MicState, string> = {
-  notAsked: 'Microphone, off',
-  live: 'Microphone, on',
-  muted: 'Microphone, muted',
-  denied: 'Microphone, blocked',
-  off: 'Microphone, off',
-  restarting: 'Microphone restarted, tap to retry',
-}
-
 /** The chat lines a fast command leaves behind; landing one is worth a tick. */
 const FAST_COMMAND_LINE = /^(Paused|Reading)\.$/
 
@@ -63,6 +54,10 @@ export function Composer({ reader = false }: { reader?: boolean }) {
   const micState = useStore((st) => st.micState)
   const voiceLoading = useStore((st) => st.voiceLoading)
 
+  // With the keyboard up the bar rides above it, so the home-indicator inset
+  // under it is an empty strip — and useBottomInset counts it twice.
+  const keyboardUp = useKeyboardState((st) => st.isVisible)
+
   const [expanded, setExpanded] = useState(false)
   const [draft, setDraft] = useState('')
   const [transcript, setTranscript] = useState(false)
@@ -72,7 +67,7 @@ export function Composer({ reader = false }: { reader?: boolean }) {
   const [, redraw] = useState(0)
   useEffect(() => {
     if (lastAgentLineAt === null) return
-    const left = lastAgentLineAt + 3000 - Date.now()
+    const left = lastAgentLineAt + REPLY_HOLD_MS - Date.now()
     if (left <= 0) return
     const t = setTimeout(() => redraw((n) => n + 1), left + 50)
     return () => clearTimeout(t)
@@ -139,7 +134,7 @@ export function Composer({ reader = false }: { reader?: boolean }) {
   return (
     <>
       <KeyboardStickyView style={s.sticky} onLayout={onLayout}>
-        <View style={[s.bar, { paddingBottom: insets.bottom }]}>
+        <View style={[s.bar, { paddingBottom: keyboardUp ? 0 : insets.bottom }]}>
           <View style={[StyleSheet.absoluteFill, s.fill]} />
           <View style={s.row}>
             <MicButton state={micState} theme={theme} reduced={reduced} onPress={onMic} />

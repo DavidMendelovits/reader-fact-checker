@@ -11,8 +11,8 @@ import { COLUMN_MAX_WIDTH } from './layout'
 
 const DISMISS_AFTER = 6000
 
-/** Roughly a header's height: the toast lands under it, never over it. */
-const UNDER_THE_HEADER = 48
+/** The header's height (12 + 44 + 12): the toast lands under it, never over it. */
+const UNDER_THE_HEADER = 68
 
 /**
  * Trouble, or news?
@@ -46,7 +46,7 @@ export function Toast() {
     transform: [{ translateY: slide.interpolate({ inputRange: [0, 1], outputRange: [-12, 0] }) }],
   }
   return (
-    <Animated.View style={[s.wrap, { top: insets.top + UNDER_THE_HEADER }, style]} pointerEvents="box-none">
+    <Animated.View style={[s.wrap, { top: insets.top + UNDER_THE_HEADER + space.sm }, style]} pointerEvents="box-none">
       <Pressable role="button" accessibilityLabel={`${notice}. Tap to dismiss.`} style={s.toast} onPress={() => useStore.getState().setNotice(null)}>
         <Text style={s.text}>{notice}</Text>
       </Pressable>

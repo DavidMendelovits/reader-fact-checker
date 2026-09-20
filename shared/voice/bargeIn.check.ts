@@ -142,7 +142,7 @@ function gate(over: { floor?: number; reportsToFire?: number; silenceMs?: number
   assert.equal(holds.length, 2, 'barge-in died after a recognizer restart')
 }
 
-// the floor and the run length are tunable (the __DEV__ overlay tunes them)
+// the floor and the run length are tunable
 {
   const { g, holds } = gate({ floor: 0.5, reportsToFire: 3 })
   g.level(0.4, true)
@@ -154,6 +154,25 @@ function gate(over: { floor?: number; reportsToFire?: number; silenceMs?: number
   assert.deepEqual(holds, [])
   g.level(0.6, true)
   assert.equal(holds.length, 1)
+}
+
+// two utterances in one recognizer session each get their own hold: the gate used
+// to stay `sawWords` until the recognizer ended, so it fired once and then never
+// again for the rest of the session
+{
+  const { c, g, holds, releases } = gate()
+  g.level(0.4, true)
+  g.level(0.4, true)
+  assert.equal(holds.length, 1)
+  g.words()
+  g.utteranceDone() // the final was handed to the caller
+  assert.equal(g.held, false, 'the gate lets go of an utterance it has handed on')
+  assert.deepEqual(releases, [], 'without resuming anything: that hold became the interruption')
+
+  c.advance(10000) // a while later, in the same session
+  g.level(0.4, true)
+  g.level(0.4, true)
+  assert.equal(holds.length, 2, 'the second utterance holds too')
 }
 
 console.log('bargeIn: ok')

@@ -101,6 +101,11 @@ function Root() {
           useStore.getState().setVoiceLoading(false)
         })
       }, 0)
+    }).catch(() => {
+      // Storage itself is unreadable. The app still boots — signed out, with the
+      // defaults — rather than sitting on the spinner for ever.
+      useStore.getState().setNotice("Couldn't read saved settings")
+      setBooted(true)
     })
   }, [])
 

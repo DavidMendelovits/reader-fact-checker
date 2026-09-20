@@ -351,4 +351,29 @@ function toolResults(messages: Msg[]): string[] {
   assert.equal(h.apiCalls(), 0)
 }
 
+// a fast command over a turn in flight ends it — but anything said on top of the
+// command still wants an answer, rather than being swallowed with it
+{
+  const alone = harness({ script: (n) => (n === 0 ? READ_ALOUD : DONE) })
+  alone.agent.openingTurn(() => 'read to me')
+  await settle(20)
+  alone.agent.say('pause')
+  await settle(50)
+  assert.equal(alone.apiCalls(), 1, 'the handled command is the whole of it: nothing to ask')
+
+  const andMore = harness({ script: (n) => (n === 0 ? READ_ALOUD : DONE) })
+  andMore.agent.openingTurn(() => 'read to me')
+  await settle(20)
+  andMore.agent.say('pause')
+  andMore.agent.say('what was that')
+  await settle(200)
+  assert.equal(andMore.apiCalls(), 2, 'the utterance queued on top of it is not swallowed')
+  const asked = andMore.sent[1].at(-1)?.content
+  assert.match(
+    typeof asked === 'string' ? asked : JSON.stringify(asked),
+    /what was that/,
+    'and the model is asked about the words, with the note about the pause beside them',
+  )
+}
+
 console.log('agent.errors.check.ts: ok')

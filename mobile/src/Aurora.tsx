@@ -13,7 +13,8 @@
 //   palette   the theme's warm ramp while the user talks, the cool one otherwise,
 //             cross-faded over 400ms. 21 floats, the flat buffer Skia binds a
 //             float3[7] from.
-//   time      seconds since the layer mounted, advanced per frame on the UI thread.
+//   time      seconds since the layer mounted, advanced per frame on the UI thread
+//             and wrapped at TIME_WRAP so a mediump uniform never quantises it.
 //
 // Rest opacity is the shader's own business: its amplitude is `0.10 + 0.75 * level`,
 // so at level 0 nothing it draws can exceed 10% alpha. No outer opacity here.
@@ -36,8 +37,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AccessibilityInfo, StyleSheet, useWindowDimensions, View } from 'react-native'
 import { Canvas, Fill, Shader, Skia } from '@shopify/react-native-skia'
-import { Easing, useDerivedValue, useFrameCallback, useSharedValue, withTiming } from 'react-native-reanimated'
-import { sksl } from '../../shared/voice/aurora.shader'
+import { Easing, useAnimatedReaction, useDerivedValue, useFrameCallback, useSharedValue, withTiming } from 'react-native-reanimated'
+import { sksl, TIME_WRAP } from '../../shared/voice/aurora.shader'
 import { getMicLevel } from './levels'
 import { useStore } from './store'
 import { useTheme } from './theme'
@@ -50,6 +51,9 @@ const REST = 0.02 // level under which the aurora is indistinguishable from froz
 const THINKING_LEVEL = 0.35
 const PULSE_W = 2 * Math.PI / 1.1 // the reading pulse, 0.28 ± 0.12, one turn every 1.1s
 const REDUCED_LEVEL = 0.15
+// The agent's pulse and the thinking band are slow washes — half the frames are
+// indistinguishable, and the half we skip is half the shader's pixels.
+const SLOW_DT = 1 / 30
 
 // What the level is following this moment. A number so the worklet can switch on it.
 const SILENT = 0
@@ -70,6 +74,14 @@ function ramp(stops: string[]): number[] {
   return out
 }
 
+/** The two ramps cross-faded, as the flat buffer the uniform takes. */
+function mix(cool: number[], warm: number[], w: number): number[] {
+  'worklet'
+  const out: number[] = []
+  for (let i = 0; i < 21; i++) out.push(cool[i] + (warm[i] - cool[i]) * w)
+  return out
+}
+
 export default function Aurora() {
   const { width, height } = useWindowDimensions()
   const theme = useTheme()
@@ -86,6 +98,8 @@ export default function Aurora() {
   const warmth = useSharedValue(0) // 0 the agent's cool ramp, 1 the user's warm one
   const mode = useSharedValue(SILENT)
   const mic = useSharedValue(0)
+  const pending = useSharedValue(0) // dt held back while the frame callback runs at 30fps
+  const palette = useSharedValue<number[]>(cool)
 
   useEffect(() => {
     let live = true
@@ -101,8 +115,13 @@ export default function Aurora() {
   // ease the level toward whatever the sampler last said it was following.
   const frame = useFrameCallback((info) => {
     'worklet'
-    const dt = Math.min(0.05, (info.timeSincePreviousFrame ?? 16) / 1000)
-    time.value += dt
+    pending.value += Math.min(0.05, (info.timeSincePreviousFrame ?? 16) / 1000)
+    // The user's own voice stays at the display's rate — barge-in is the one thing
+    // the aurora must not lag. Everything else settles for 30.
+    if ((mode.value === AGENT || mode.value === THINKING) && pending.value < SLOW_DT) return
+    const dt = pending.value
+    pending.value = 0
+    time.value = (time.value + dt) % TIME_WRAP
     const target =
       mode.value === USER ? Math.min(1, mic.value * 1.15)
       : mode.value === AGENT ? 0.28 + 0.12 * Math.sin(time.value * PULSE_W)
@@ -125,6 +144,9 @@ export default function Aurora() {
   const sent = useRef({ warmth: 0, thinking: 0, active: false })
   useEffect(() => {
     if (reduced) return
+    // Reduced motion switched the frame callback off behind the sampler's back.
+    // Forget what we last sent, or coming back out of it never re-enables it.
+    sent.current.active = false
     const id = setInterval(() => {
       const { agentState, micEnabled, playing } = useStore.getState()
       const heard = micEnabled ? getMicLevel() : 0
@@ -156,17 +178,29 @@ export default function Aurora() {
     return () => clearInterval(id)
   }, [reduced, frame, mic, mode, thinking, warmth, level])
 
-  const uniforms = useDerivedValue(() => {
-    const palette: number[] = []
-    for (let i = 0; i < 21; i++) palette.push(cool[i] + (warm[i] - cool[i]) * warmth.value)
-    return {
-      time: time.value,
-      level: level.value,
-      thinking: thinking.value,
-      resolution: [halfW, halfH],
-      palette,
-    }
-  }, [warm, cool, halfW, halfH])
+  // The mix is 21 multiplies, and it used to run inside the derived value — which
+  // `time` re-evaluates every frame, for a palette that only moves during a 400ms
+  // cross-fade. It lives in its own shared value now, rebuilt only when warmth does.
+  useAnimatedReaction(
+    () => warmth.value,
+    (w) => {
+      palette.value = mix(cool, warm, w)
+    },
+    [warm, cool],
+  )
+  // A theme change is a new pair of ramps at the same warmth, and the reaction
+  // above will not fire for it.
+  useEffect(() => {
+    palette.value = mix(cool, warm, warmth.value)
+  }, [warm, cool, palette, warmth])
+
+  const uniforms = useDerivedValue(() => ({
+    time: time.value,
+    level: level.value,
+    thinking: thinking.value,
+    resolution: [halfW, halfH],
+    palette: palette.value,
+  }), [halfW, halfH])
 
   if (!effect || halfW < 1 || halfH < 1) return null
   return (

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from '../store'
-import { readLevels } from '../lib/audio-levels'
-import { glsl } from '../../shared/voice/aurora.shader.ts'
+import { readLevels, SPEECH_FLOOR } from '../lib/audio-levels'
+import { glsl, TIME_WRAP } from '../../shared/voice/aurora.shader.ts'
 
 // The aurora: one full-window canvas behind the app, running the shared fragment
 // shader on raw WebGL. No library — a full-screen triangle, five uniforms and a
@@ -10,7 +10,6 @@ import { glsl } from '../../shared/voice/aurora.shader.ts'
 // The app's own surfaces (header, reader column, Composer) are opaque, so the
 // wash only ever shows at the frame's edges — the shader's vignette does the rest.
 
-const SPEECH_FLOOR = 0.08 // below this the mic is just room noise (same floor as the old glow)
 const SPEECH_CEIL = 0.6 // a raised voice on a laptop mic reads about here
 const SLEEP = 0.02 // level under this, with nothing else happening, stops the loop
 
@@ -153,7 +152,7 @@ export function Aurora() {
 
       for (let i = 0; i < 21; i++) mixed[i] = palettes.agent[i] + (palettes.user[i] - palettes.agent[i]) * who
 
-      gl.uniform1f(uTime, (now - start) / 1000)
+      gl.uniform1f(uTime, ((now - start) / 1000) % TIME_WRAP)
       gl.uniform1f(uLevel, level)
       gl.uniform1f(uThinking, thinking)
       gl.uniform3fv(uPalette, mixed)
@@ -186,6 +185,12 @@ export function Aurora() {
 
     // Reduced motion: one static frame, redrawn only when the window changes.
     const still = () => {
+      // whatever the loop was doing, it stops here — otherwise it keeps drawing
+      // over the still frame we are about to paint
+      if (frame) {
+        cancelAnimationFrame(frame)
+        frame = 0
+      }
       gl.uniform1f(uTime, 0)
       gl.uniform1f(uLevel, 0)
       gl.uniform1f(uThinking, 0)

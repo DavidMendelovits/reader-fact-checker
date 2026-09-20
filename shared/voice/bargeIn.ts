@@ -57,11 +57,6 @@ export class BargeInGate {
     return this._held
   }
 
-  /** How long the current hold has been parked, for the __DEV__ overlay. */
-  get heldFor(): number {
-    return this._held ? this.now() - this.heldAt : 0
-  }
-
   /** One normalized 0..1 mic level report, with whether narration is playing. */
   level(v: number, playing: boolean): void {
     const loud = v >= this.floor
@@ -91,6 +86,19 @@ export class BargeInGate {
   /** An interim or a final arrived. The turn is real; the caller owns it from here. */
   words(): void {
     this.sawWords = true
+    this.disarm()
+  }
+
+  /**
+   * The final was handed to the caller: the utterance is over. Forget it — without
+   * this the gate stayed `sawWords` until the recognizer ended, so it fired once
+   * per session and every later utterance went unheld. The hold is not released,
+   * because words() already made it the caller's interruption.
+   */
+  utteranceDone(): void {
+    this.loud = 0
+    this._held = false
+    this.sawWords = false
     this.disarm()
   }
 

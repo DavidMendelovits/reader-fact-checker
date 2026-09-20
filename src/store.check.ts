@@ -24,16 +24,28 @@ const doc = { id: 'd', title: 'T', source: 's', chapters: [{ title: 'One', parag
   s.updateChat('a1', { text: 'All right.' })
   assert.equal(useStore.getState().lastAgentLine, 'All right.', 'the line keeps up with the stream')
   assert.equal(useStore.getState().chat.find((m) => m.id === 'a1')?.text, 'All right.')
+  assert.equal(useStore.getState().lastAgentLineAt, firstAt, 'a delta of the held line does not restart the hold')
+
+  while (Date.now() === firstAt) { /* the clock has to tick for the next assertion to mean anything */ }
+  s.updateChat('a1', { text: 'All right, reading.' })
+  assert.equal(useStore.getState().lastAgentLineAt, firstAt, 'and neither does the one after it')
 
   s.updateChat('u1', { text: 'hello there' })
-  assert.equal(useStore.getState().lastAgentLine, 'All right.', 'correcting a user bubble leaves the line alone')
+  assert.equal(useStore.getState().lastAgentLine, 'All right, reading.', 'correcting a user bubble leaves the line alone')
 
   s.updateChat('a1', {})
-  assert.equal(useStore.getState().lastAgentLine, 'All right.', 'a patch with no text leaves the line alone')
+  assert.equal(useStore.getState().lastAgentLine, 'All right, reading.', 'a patch with no text leaves the line alone')
 
   s.updateChat('missing', { text: 'ghost' })
-  assert.equal(useStore.getState().lastAgentLine, 'All right.', 'a patch to nothing changes nothing')
+  assert.equal(useStore.getState().lastAgentLine, 'All right, reading.', 'a patch to nothing changes nothing')
   assert.equal(useStore.getState().chat.length, 2)
+
+  // but a second reply is a new line, and the hold starts over for it
+  s.pushChat({ id: 'a2', role: 'assistant', text: 'Anything else?' })
+  const secondAt = useStore.getState().lastAgentLineAt
+  assert.ok(secondAt !== null && secondAt > firstAt, 'a new agent line moves the timestamp')
+  s.updateChat('a1', { text: 'All right, reading. (corrected)' })
+  assert.ok(useStore.getState().lastAgentLineAt! > firstAt, 'so does a patch that takes the line back')
 }
 
 // a new document is a new conversation, and closing one clears the line

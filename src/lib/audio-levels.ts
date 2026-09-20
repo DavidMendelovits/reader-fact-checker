@@ -87,6 +87,15 @@ export function stopMicMeter(): void {
 }
 
 /**
+ * Above this, readLevels('mic') is a voice rather than the room. The barge-in gate
+ * and the aurora both decide "the user has the floor" on it, so it lives with the
+ * meter that produces the number rather than in each of them. Tuning it takes a
+ * real speaker at full volume; a hold that turns out to be nothing costs a 1.5s
+ * silence and resumes on its own.
+ */
+export const SPEECH_FLOOR = 0.08
+
+/**
  * Fill `bars` with 0..1 magnitudes for the given source, averaging the FFT bins
  * down to however many bars the caller wants. Returns the peak.
  */

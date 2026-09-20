@@ -41,6 +41,12 @@ export class VoiceListener implements Transcriber {
   /** Timestamps of sessions that died on arrival, inside the window. */
   private rapidDeaths: number[] = []
   private subs: { remove(): void }[] = []
+  /** Which native session is the live one; an end from an older one is stale. */
+  private session = 0
+  /** The `end` listener of the session that is running, bound to it. */
+  private endSub: { remove(): void } | null = null
+  /** A native session is live: a stale event must not start a second one. */
+  private live = false
 
   private barge = new BargeInGate({
     now: () => Date.now(),
@@ -82,6 +88,7 @@ export class VoiceListener implements Transcriber {
   stop() {
     this.gen = this.restart.stop()
     this.talking = false
+    this.live = false
     this.barge.reset() // a hold outliving the mic releases rather than stranding the book
     ExpoSpeechRecognitionModule.stop()
   }
@@ -112,19 +119,23 @@ export class VoiceListener implements Transcriber {
           // dropping the whole line loses the command (echo.ts).
           const heard = isEcho(text, recent) ? stripEcho(text, recent) : text
           if (!heard) return
-          this.barge.words() // only what survived the echo filter counts as words
+          // The utterance is over; the gate forgets it so the next one can hold
+          // again. It stays held here — words() made it the caller's interruption.
+          this.barge.utteranceDone()
           this.onUtterance(heard)
           return
         }
 
         if (isEcho(text, recent)) return
         this.barge.words()
-        this.onInterim(text)
         // The level gate fires ~160ms in; this is the fallback for a start it missed.
+        // It runs *before* onInterim: the interim is what converts a hold into the
+        // real interruption, and there is nothing to convert until the hold is taken.
         if (!this.talking && countWords(text) >= MIN_INTERIM_WORDS) {
           this.talking = true
           this.onSpeechStart()
         }
+        this.onInterim(text)
       }),
       ExpoSpeechRecognitionModule.addListener('error', (event: ExpoSpeechRecognitionErrorEvent) => {
         if (event.error === 'not-allowed') {
@@ -138,26 +149,40 @@ export class VoiceListener implements Transcriber {
         // for the rest of the session.
         if (event.error === 'no-speech' || event.error === 'aborted') {
           this.talking = false
+          // reset() releases the gate's own hold through onRelease; a hold the word
+          // path took is one the gate knows nothing about, and has no other releaser.
+          const wasHeld = this.barge.held
           this.barge.reset()
+          if (!wasHeld) this.onFalseStart()
         }
       }),
       ExpoSpeechRecognitionModule.addListener('volumechange', (event: { value: number }) => {
         setMicLevel(event.value)
         this.level(getMicLevel())
       }),
-      ExpoSpeechRecognitionModule.addListener('end', () => {
-        const gen = this.gen
-        if (!this.restart.shouldSpawn(gen)) return // an end from a session that is over
-        this.talking = false
-        this.barge.reset()
-        if (this.tooManyDeaths()) {
-          this.stop()
-          this.onError('Voice recognition keeps failing — tap the mic to try again')
-          return
-        }
-        this.restart.ended(gen)
-      }),
     )
+  }
+
+  /**
+   * `end` for one session. Both tokens are bound when the listener is registered
+   * rather than read when the event arrives: a routine restart keeps the same
+   * restart generation, so an end that turns up late — after the session it belongs
+   * to was replaced — used to respawn the live one out from under itself.
+   */
+  private ended(gen: number, session: number) {
+    if (session !== this.session) return // an end from a session that has been replaced
+    if (!this.restart.shouldSpawn(gen)) return // an end from a session that is over
+    this.live = false
+    this.talking = false
+    const wasHeld = this.barge.held
+    this.barge.reset()
+    if (!wasHeld) this.onFalseStart() // a hold taken by the word path has no other releaser
+    if (this.tooManyDeaths()) {
+      this.stop()
+      this.onError('Voice recognition keeps failing — tap the mic to try again')
+      return
+    }
+    this.restart.ended(gen)
   }
 
   /**
@@ -194,6 +219,11 @@ export class VoiceListener implements Transcriber {
       }
       if (!this.restart.shouldSpawn(gen)) return
       if (this.subs.length === 0) this.listen()
+      const session = ++this.session
+      this.endSub?.remove()
+      this.endSub = ExpoSpeechRecognitionModule.addListener('end', () => this.ended(gen, session))
+      if (this.live) return // a stale event must not start a second session
+      this.live = true
       this.spawnedAt = Date.now()
       ExpoSpeechRecognitionModule.start({
         lang: 'en-US',

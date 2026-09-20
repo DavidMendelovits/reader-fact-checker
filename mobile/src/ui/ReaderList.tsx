@@ -118,10 +118,13 @@ export const ReaderList = forwardRef<ReaderListHandle, Props>(function ReaderLis
 
   // One non-animated correction from the measured row, then the fade. If nothing
   // has measured by the cap the list is shown anyway: a slightly wrong position
-  // beats a blank screen.
+  // beats a blank screen — and the correction still runs when the row finally
+  // measures, so a list revealed at the wrong offset does not stay there.
+  const corrected = useRef(false)
   const place = useCallback(() => {
-    if (placedRef.current) return
+    if (corrected.current) return
     if (viewport.current === 0 || !measured.current.has(start)) return
+    corrected.current = true
     const offset = Math.max(0, offsets.current[start] - VIEW_POSITION * viewport.current)
     list.current?.scrollToOffset({ offset, animated: false })
     scrollY.current = offset
@@ -158,16 +161,32 @@ export const ReaderList = forwardRef<ReaderListHandle, Props>(function ReaderLis
     onLostChange(next)
   }, [onLostChange])
 
-  // Following is simply "the voice is on screen". A drag says otherwise first
-  // (below), so the list is never yanked out from under a finger; here, the
-  // voice walking off the screen on its own is what raises the pill.
+  /**
+   * The reader has taken the list. Until they give it back — the pill, or the
+   * voice leaving the screen and coming back to it — following stays off.
+   * Deciding it from "is the voice on screen" alone handed the list straight back
+   * on the next scroll event, and the next paragraph yanked it away again.
+   */
+  const dragged = useRef(false)
+  const leftSinceDrag = useRef(false)
+
+  // Following is simply "the voice is on screen", once the reader is not holding
+  // the list. The pill is raised on the same question either way.
   const report = useCallback(() => {
     if (Date.now() < settleUntil.current) return
     const index = currentRef.current
     const top = offsets.current[index] ?? 0
     const inView = top + heightAt(offsets.current, index) > scrollY.current
       && top < scrollY.current + viewport.current
-    following.current = inView
+    if (dragged.current) {
+      if (!inView) leftSinceDrag.current = true
+      else if (leftSinceDrag.current) {
+        // it read its way off the screen and back onto it: the voice has the list again
+        dragged.current = false
+        leftSinceDrag.current = false
+      }
+    }
+    following.current = !dragged.current && inView
     publish(!inView)
   }, [publish])
 
@@ -221,6 +240,8 @@ export const ReaderList = forwardRef<ReaderListHandle, Props>(function ReaderLis
 
   useImperativeHandle(ref, () => ({
     followTheVoice() {
+      dragged.current = false
+      leftSinceDrag.current = false
       following.current = true
       goToCurrent()
       publish(false)
@@ -230,6 +251,8 @@ export const ReaderList = forwardRef<ReaderListHandle, Props>(function ReaderLis
       if (at.length === 0) return
       const next = at.find((i) => i > currentRef.current) ?? at[0]
       const offset = Math.max(0, (offsets.current[next] ?? 0) - VIEW_POSITION * (viewport.current || 1))
+      dragged.current = true // a jump away is the reader taking the list, same as a drag
+      leftSinceDrag.current = false
       following.current = false
       settleUntil.current = Date.now() + SETTLE_MS
       list.current?.scrollToOffset({ offset, animated: !reducedRef.current })
@@ -261,6 +284,8 @@ export const ReaderList = forwardRef<ReaderListHandle, Props>(function ReaderLis
     // A drag stops the following at once, before the voice has left the screen:
     // the list must not be yanked back under a moving finger (S5).
     settleUntil.current = 0
+    dragged.current = true
+    leftSinceDrag.current = false
     following.current = false
     report()
   }, [report])
@@ -411,8 +436,16 @@ function build(theme: Theme) {
       ...type_.heading, color: theme.textPrimary,
       paddingTop: space.xxl, paddingBottom: space.xxl,
     },
-    mark: { backgroundColor: theme.highlight, color: theme.textPrimary },
-    markPending: { backgroundColor: theme.highlightWash },
+    // The wash is the background and `highlight` is the rule under the run, the
+    // way theme.ts describes them: full-strength highlight behind Ink's body text
+    // was under 4.5:1. A mark that is not saved yet has the wash without the rule.
+    mark: {
+      backgroundColor: theme.highlightWash,
+      color: theme.textPrimary,
+      textDecorationLine: 'underline',
+      textDecorationColor: theme.highlight,
+    },
+    markPending: { textDecorationLine: 'none' },
     markNote: { color: theme.accent, ...type_.meta },
   })
 }
