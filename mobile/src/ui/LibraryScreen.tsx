@@ -15,7 +15,7 @@ import type { LibraryDoc, Location } from '../types'
 import { Composer } from './Composer'
 import { errorText, motion, useReducedMotion } from './kit'
 import { COLUMN_MAX_WIDTH } from './layout'
-import { useBottomInset } from './useBottomInset'
+import { BACK_TO_VOICE_RESERVE, useBottomInset } from './useBottomInset'
 
 const LOCATION_LABEL: Record<Location, string> = { new: 'Inbox', later: 'Later', archive: 'Archive', feed: 'Feed' }
 const TABS: Location[] = ['new', 'later', 'archive']
@@ -129,7 +129,8 @@ export function LibraryScreen() {
           data={shown}
           keyExtractor={(d) => d.id}
           keyboardShouldPersistTaps="always"
-          contentContainerStyle={[s.list, { paddingBottom: bottomInset }]}
+          style={{ marginBottom: bottomInset - BACK_TO_VOICE_RESERVE, overflow: 'hidden' }} // ends above the bar, clipped: see ReaderList
+          contentContainerStyle={s.list}
           refreshControl={<RefreshControl refreshing={pulling} onRefresh={() => void refresh()} tintColor={theme.accent} />}
           renderItem={({ item }) => (
             <Pressable

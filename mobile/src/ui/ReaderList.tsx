@@ -22,7 +22,7 @@ import { space, type as type_, useTheme, type Theme } from '../theme'
 import type { FlatParagraph, Highlight } from '../types'
 import { motion, useReducedMotion } from './kit'
 import { COLUMN_MAX_WIDTH, estimateHeight, heightAt, offsetsFrom } from './layout'
-import { useBottomInset } from './useBottomInset'
+import { BACK_TO_VOICE_RESERVE, useBottomInset } from './useBottomInset'
 
 /** A highlight's span in one paragraph, in the shape splitRuns wants. */
 interface Mark {
@@ -282,13 +282,17 @@ export const ReaderList = forwardRef<ReaderListHandle, Props>(function ReaderLis
     [marksByParagraph, theme, reduced, onLongPressParagraph, onPressMark, onMeasure],
   )
 
+  // The list ends at the bar's top edge rather than running under it: iOS 26
+  // paints a faded copy of any content that scrolls under an overlapping view
+  // (the scroll-edge effect), which showed through the bar as ghost text. Only
+  // the pill's reserve stays inside the content.
   const content = useMemo(
-    () => [contentStyle, { paddingBottom: bottomInset }],
-    [bottomInset],
+    () => [contentStyle, { paddingBottom: BACK_TO_VOICE_RESERVE }],
+    [],
   )
 
   return (
-    <Animated.View style={[fill, { opacity: placed ? opacity : 0 }]} onLayout={onLayout}>
+    <Animated.View style={[fill, { opacity: placed ? opacity : 0, marginBottom: bottomInset - BACK_TO_VOICE_RESERVE }]} onLayout={onLayout}>
       <FlatList
         ref={list}
         data={paragraphs}
@@ -309,7 +313,9 @@ export const ReaderList = forwardRef<ReaderListHandle, Props>(function ReaderLis
 })
 
 const keyOf = (_: FlatParagraph, i: number) => String(i)
-const fill = { flex: 1 } as const
+// overflow hidden: iOS 26 extends scrolled content past the list's edge (the
+// scroll-edge effect); clipping keeps that ghost off the Composer.
+const fill = { flex: 1, overflow: 'hidden' } as const
 const contentStyle = {
   width: '100%', maxWidth: COLUMN_MAX_WIDTH, alignSelf: 'center',
 } as const
