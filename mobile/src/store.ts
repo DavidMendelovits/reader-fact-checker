@@ -9,9 +9,11 @@ export type AgentState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'readi
 /**
  * What the Composer's mic button shows. `notAsked` is a fresh install — the OS
  * prompts fire on the first tap, not at sign-in (3.1A); `denied` comes from the
- * recognizer's error, and only Settings can undo it.
+ * recognizer's error, and only Settings can undo it; `restarting` is the
+ * recognizer having died three times in thirty seconds (Pass 2), where the mic
+ * turns amber and a tap tries again.
  */
-export type MicState = 'notAsked' | 'live' | 'muted' | 'denied' | 'off'
+export type MicState = 'notAsked' | 'live' | 'muted' | 'denied' | 'off' | 'restarting'
 
 interface State {
   screen: Screen
@@ -42,6 +44,12 @@ interface State {
   lastAgentLineAt: number | null
   /** The transcript as it is being spoken. Only the Composer reads it. */
   interim: string
+  /**
+   * True while the on-device voice is being loaded at boot. It is the line's
+   * business, not the chat's: Play works on the system voice meanwhile, so this
+   * never becomes a message (Pass 2, Voice model).
+   */
+  voiceLoading: boolean
   highlights: Highlight[]
   notice: string | null
 
@@ -61,6 +69,7 @@ interface State {
   setAgentState: (s: AgentState) => void
   pushChat: (m: ChatMessage) => void
   setInterim: (t: string) => void
+  setVoiceLoading: (loading: boolean) => void
   updateChat: (id: string, patch: Partial<ChatMessage>) => void
   setHighlights: (highlights: Highlight[]) => void
   setNotice: (n: string | null) => void
@@ -99,6 +108,7 @@ export const useStore = create<State>((set) => ({
   lastAgentLine: null,
   lastAgentLineAt: null,
   interim: '',
+  voiceLoading: false,
   highlights: [],
   notice: null,
 
@@ -122,7 +132,7 @@ export const useStore = create<State>((set) => ({
     })
   },
   clearDoc: () =>
-    set({ doc: null, libraryDoc: null, paragraphs: [], currentParagraph: 0, playing: false, highlights: [], screen: 'library' }),
+    set({ doc: null, libraryDoc: null, paragraphs: [], currentParagraph: 0, playing: false, highlights: [], screen: 'library', lastAgentLine: null, lastAgentLineAt: null }),
   setCurrentParagraph: (currentParagraph) => set({ currentParagraph }),
   setRate: (rate) => set({ rate }),
   setMicEnabled: (micEnabled) => set({ micEnabled }),
@@ -138,6 +148,7 @@ export const useStore = create<State>((set) => ({
         : null),
     })),
   setInterim: (interim) => set({ interim }),
+  setVoiceLoading: (voiceLoading) => set({ voiceLoading }),
   updateChat: (id, patch) =>
     set((s) => ({ chat: s.chat.map((m) => (m.id === id ? { ...m, ...patch } : m)) })),
   setHighlights: (highlights) => set({ highlights }),

@@ -16,7 +16,12 @@ export type LineState = {
   /** Zero-based paragraph index; the line shows it one-based. */
   current: number
   total: number
-  micState: 'notAsked' | 'live' | 'muted' | 'denied' | 'off'
+  micState: 'notAsked' | 'live' | 'muted' | 'denied' | 'off' | 'restarting'
+  /**
+   * The on-device voice is still loading at boot (mobile only; ≤2s, and Play
+   * works on the system voice meanwhile). Absent is the same as false.
+   */
+  voiceLoading?: boolean
 }
 
 /** How long the agent's reply stays up after it stops speaking. */
@@ -42,5 +47,10 @@ export function lineFor(s: LineState): { text: string; italic: boolean } {
   if (s.lastAgentLine) return { text: s.lastAgentLine, italic: false }
   if (s.micState === 'notAsked') return { text: 'Tap the mic to talk to it', italic: false }
   if (s.micState === 'denied') return { text: 'Mic is off in Settings', italic: false }
+  // The recognizer died three times in thirty seconds and the ear is off; the mic
+  // button is amber next to this, and the tap that fixes it is on that button.
+  if (s.micState === 'restarting') return { text: 'Mic restarted. Tap to retry.', italic: false }
+  // Lowest of all, and still above the hint: it is news about the app, not advice.
+  if (s.voiceLoading) return { text: 'Loading voice…', italic: false }
   return { text: 'Say something, or tap ⌨', italic: false }
 }

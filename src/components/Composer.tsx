@@ -16,6 +16,7 @@ const MIC_LABEL: Record<LineState['micState'], string> = {
   muted: 'Microphone, muted',
   denied: 'Microphone, blocked',
   off: 'Microphone, off',
+  restarting: 'Microphone restarted, tap to retry',
 }
 
 const MIC_TITLE: Record<LineState['micState'], string> = {
@@ -24,6 +25,7 @@ const MIC_TITLE: Record<LineState['micState'], string> = {
   muted: 'Unmute the microphone',
   denied: 'Mic is blocked. Allow it in the address bar',
   off: 'Turn the microphone on',
+  restarting: 'The recognizer kept failing. Tap to try again',
 }
 
 /** What the screen reader is told when the state changes. Never the interim words. */

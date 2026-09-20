@@ -246,6 +246,34 @@ function toolResults(messages: Msg[]): string[] {
   assert.equal(tail.content, 'Paused playback.', 'the note is the assistant side of the exchange')
 }
 
+// the network dying mid-turn is the line's news, not a toast: the book is on the
+// device and reading carries on (Pass 2, Agent turn)
+{
+  const h = harness({ script: () => { throw new TypeError('Network request failed') } })
+  h.agent.openingTurn(() => '[opening]')
+  await settle()
+  assert.deepEqual(h.chat.map((c) => [c.role, c.text]), [['assistant', 'Offline. Reading still works.']])
+  assert.deepEqual(h.notices, [], 'a network failure is never toasted')
+}
+
+// a gateway that never reached the model reads the same way to the reader
+{
+  const h = harness({ script: () => { throw new Error('/api/agent failed (503): upstream') } })
+  h.agent.openingTurn(() => '[opening]')
+  await settle()
+  assert.deepEqual(h.chat.map((c) => c.text), ['Offline. Reading still works.'])
+  assert.deepEqual(h.notices, [])
+}
+
+// everything else is still a real fault, and still says what it was
+{
+  const h = harness({ script: () => { throw new Error('/api/agent failed (400): bad request') } })
+  h.agent.openingTurn(() => '[opening]')
+  await settle()
+  assert.deepEqual(h.notices, ['/api/agent failed (400): bad request'])
+  assert.deepEqual(h.chat, [], 'and it is not dressed up as a reply')
+}
+
 // trim() keeps the head a user message — the API rejects a transcript that starts
 // anywhere else, and a slice lands mid-exchange more often than not
 {

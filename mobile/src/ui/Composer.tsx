@@ -21,6 +21,9 @@ import { COLUMN_MAX_WIDTH } from './layout'
 import { TranscriptSheet } from './TranscriptSheet'
 import { setComposerHeight } from './useBottomInset'
 
+/** Where ">say this" works: development, and the smoke's silent-voice web build. */
+const DRIVES_THE_EAR = __DEV__ || !!process.env.EXPO_PUBLIC_SILENT_VOICE
+
 /** The bar's own height, before the safe-area inset under it (1.1A). */
 const BAR = 60
 const TARGET = 44
@@ -38,6 +41,7 @@ const MIC_LABEL: Record<MicState, string> = {
   muted: 'Microphone, muted',
   denied: 'Microphone, blocked',
   off: 'Microphone, off',
+  restarting: 'Microphone restarted, tap to retry',
 }
 
 /** The chat lines a fast command leaves behind; landing one is worth a tick. */
@@ -57,6 +61,7 @@ export function Composer({ reader = false }: { reader?: boolean }) {
   const current = useStore((st) => st.currentParagraph)
   const total = useStore((st) => st.paragraphs.length)
   const micState = useStore((st) => st.micState)
+  const voiceLoading = useStore((st) => st.voiceLoading)
 
   const [expanded, setExpanded] = useState(false)
   const [draft, setDraft] = useState('')
@@ -86,7 +91,7 @@ export function Composer({ reader = false }: { reader?: boolean }) {
 
   const line = lineFor({
     interim, agentState, playing, lastAgentLine, lastAgentLineAt,
-    now: Date.now(), current, total, micState,
+    now: Date.now(), current, total, micState, voiceLoading,
   })
 
   const openSettingsApp = () => {
@@ -113,9 +118,11 @@ export function Composer({ reader = false }: { reader?: boolean }) {
     if (!text) return
     setDraft('')
     setExpanded(false)
-    // dev only: ">words" plays the line through the ear's own handlers (speech
-    // start, interim, final), so the voice path can be driven without a mic
-    if (__DEV__ && text.startsWith('>')) {
+    // ">words" plays the line through the ear's own handlers (speech start,
+    // interim, final), so the voice path can be driven without a mic. Development
+    // and the browser smoke only; a shipped build has neither flag, and the branch
+    // is dead code the bundler drops.
+    if (DRIVES_THE_EAR && text.startsWith('>')) {
       const spoken = text.slice(1).trim()
       voice.onSpeechStart()
       voice.onInterim(spoken)
@@ -221,6 +228,9 @@ const MicButton = memo(function MicButton({
   const s = styles(theme)
   const live = state === 'live'
   const denied = state === 'denied'
+  // The recognizer gave up three times in thirty seconds. Amber, not red: the ear
+  // is not blocked, it is waiting for a tap (Pass 2).
+  const restarting = state === 'restarting'
   const fade = useRef(new Animated.Value(live ? 1 : 0)).current
   useEffect(() => {
     Animated.timing(fade, {
@@ -232,9 +242,9 @@ const MicButton = memo(function MicButton({
 
   const background = fade.interpolate({
     inputRange: [0, 1],
-    outputRange: [denied ? theme.canvas : theme.surfaceSecondary, theme.micLive],
+    outputRange: [denied ? theme.canvas : restarting ? theme.accent : theme.surfaceSecondary, theme.micLive],
   })
-  const ink = live ? theme.canvas : denied ? theme.danger : theme.textSecondary
+  const ink = live || restarting ? theme.canvas : denied ? theme.danger : theme.textSecondary
 
   return (
     <Pressable
@@ -274,7 +284,7 @@ function build(theme: Theme) {
     },
     // Its own layer so the 96% is the paper's, not the text's: the aurora shows
     // through a little, the words never sit on it (4.1A guardrail).
-    fill: { backgroundColor: theme.surface, opacity: 0.96 },
+    fill: { backgroundColor: theme.surface }, // opaque: the list bled through at 0.96
     row: {
       minHeight: BAR,
       width: '100%',

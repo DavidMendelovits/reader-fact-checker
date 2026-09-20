@@ -68,9 +68,18 @@ assert.deepEqual(at({ micState: 'muted' }), { text: 'Say something, or tap ⌨',
 assert.deepEqual(at({ micState: 'off' }), { text: 'Say something, or tap ⌨', italic: false })
 assert.deepEqual(at({ micState: 'notAsked' }), { text: 'Tap the mic to talk to it', italic: false })
 assert.deepEqual(at({ micState: 'denied' }), { text: 'Mic is off in Settings', italic: false })
+assert.deepEqual(at({ micState: 'restarting' }), { text: 'Mic restarted. Tap to retry.', italic: false })
+
+// 7. the on-device voice loading at boot: below every mic hint, above the idle one
+assert.deepEqual(at({ voiceLoading: true }), { text: 'Loading voice…', italic: false })
+assert.deepEqual(at({ voiceLoading: true, micState: 'notAsked' }), { text: 'Tap the mic to talk to it', italic: false })
+assert.deepEqual(at({ voiceLoading: true, lastAgentLine: 'Archived.', lastAgentLineAt: 0 }), { text: 'Archived.', italic: false })
+assert.deepEqual(at({ voiceLoading: true, playing: true }), { text: 'Reading ¶12/340', italic: false })
 
 // the mic hint never displaces something the app is actually doing
 assert.deepEqual(at({ micState: 'denied', playing: true }), { text: 'Reading ¶12/340', italic: false })
+assert.deepEqual(at({ micState: 'restarting', playing: true }), { text: 'Reading ¶12/340', italic: false })
+assert.deepEqual(at({ micState: 'restarting', agentState: 'listening' }), { text: 'Listening', italic: false })
 assert.deepEqual(at({ micState: 'notAsked', agentState: 'thinking' }), { text: 'Thinking…', italic: false })
 
 console.log('line: ok')

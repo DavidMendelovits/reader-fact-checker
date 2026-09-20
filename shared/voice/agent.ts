@@ -149,6 +149,26 @@ const MAX_TURNS = 12 // backstop against a tool-call loop
 /** A transport command heard on a partial, waiting for its final so we can drop it. */
 const EARLY_DEDUP_WINDOW = 6000
 
+/** What the line says when the turn died on the network (Pass 2, Agent turn). */
+const OFFLINE_LINE = 'Offline. Reading still works.'
+
+/** fetch rejects with a TypeError when the request never left the device. */
+const OFFLINE_MESSAGE = /network request failed|failed to fetch|load failed|networkerror/i
+/** How both adapters render a status: "/api/agent failed (503): …". 0 is no response at all. */
+const OFFLINE_STATUS = /\((?:0|50[234])\)/
+
+/**
+ * Was this the network, rather than us? Gateways and timeouts (502/503/504) count:
+ * the reader is just as offline from a proxy that never reached the model.
+ */
+function isOffline(e: unknown): boolean {
+  if (e instanceof TypeError) return true
+  const status = (e as { status?: unknown } | null | undefined)?.status
+  if (typeof status === 'number' && (status === 0 || (status >= 502 && status <= 504))) return true
+  const message = e instanceof Error ? e.message : String(e)
+  return OFFLINE_MESSAGE.test(message) || OFFLINE_STATUS.test(message)
+}
+
 // ---- fast-path commands ----
 //
 // "Pause" has to stop the audio now, not a model round-trip from now. A small regex
@@ -805,7 +825,11 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
     } catch (e) {
       // a failed turn must not leave the panel mid-sentence about what it's doing
       player.pause()
-      state.setNotice(e instanceof Error ? e.message : String(e))
+      // Losing the network mid-turn is not an error the reader did anything about,
+      // and the book itself is on the device: say so in the line and let them carry
+      // on reading. Everything else is a real fault and still gets the toast.
+      if (isOffline(e)) state.pushChat({ id: deps.newId(), role: 'assistant', text: OFFLINE_LINE })
+      else state.setNotice(e instanceof Error ? e.message : String(e))
     } finally {
       running = false
       // a turn that ended with the app already reading (an interruption it handled) is still reading

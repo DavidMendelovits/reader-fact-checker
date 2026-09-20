@@ -35,6 +35,9 @@ function devAurora(): () => ReactNode {
   }
 }
 
+/** The line says "Loading voice…" for at most this long, however slow the model is. */
+const VOICE_LOADING_CAP_MS = 2000
+
 export default function App() {
   return (
     <SafeAreaProvider>
@@ -60,6 +63,13 @@ function Root() {
         useStore.setState({ micEnabled: false, micState: 'denied' })
         return
       }
+      // Same reasoning for a recognizer that has died three times in thirty
+      // seconds (voice.ts): the mic goes amber and the line says "tap to retry",
+      // which is the only thing that helps. A toast on top would just be noise.
+      if (/keeps failing/i.test(message)) {
+        useStore.setState({ micEnabled: false, micState: 'restarting' })
+        return
+      }
       reportError(message)
     }
 
@@ -74,8 +84,23 @@ function Root() {
       }
       setToken(token)
       setBooted(true)
-      // After the first paint: the voice model, which is heavy.
-      setTimeout(() => void useVoice(preference), 0)
+      // After the first paint: the voice model, which is heavy. Loading the
+      // on-device one is the line's business for up to two seconds (Pass 2) and
+      // nothing is pushed to the chat about it; Play works on the system voice
+      // meanwhile, which providers.ts guarantees.
+      setTimeout(() => {
+        if (preference !== 'kokoro') {
+          void useVoice(preference)
+          return
+        }
+        const store = useStore.getState()
+        store.setVoiceLoading(true)
+        const giveUp = setTimeout(() => useStore.getState().setVoiceLoading(false), VOICE_LOADING_CAP_MS)
+        void useVoice(preference).finally(() => {
+          clearTimeout(giveUp)
+          useStore.getState().setVoiceLoading(false)
+        })
+      }, 0)
     })
   }, [])
 

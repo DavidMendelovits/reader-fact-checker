@@ -205,7 +205,9 @@ function SyncHairline({ theme }: { theme: Theme }) {
     backgroundColor: failing ? theme.danger : theme.accent,
     opacity: width,
   }
-  return <Animated.View style={[s.hairline, style]} accessibilityElementsHidden importantForAccessibility="no" />
+  // testID, not a label: it is decorative to a screen reader and load-bearing to
+  // the smoke test, which reads its colour to see a failed sync.
+  return <Animated.View style={[s.hairline, style]} testID="sync-hairline" accessibilityElementsHidden importantForAccessibility="no" />
 }
 
 const cache = new WeakMap<Theme, ReturnType<typeof build>>()

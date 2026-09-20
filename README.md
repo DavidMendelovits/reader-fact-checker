@@ -56,6 +56,32 @@ Then paste your token from [readwise.io/access_token](https://readwise.io/access
 
 Known gaps, in the order they'll matter: no lock-screen controls yet (background audio is enabled, remote commands need a native module); PDFs and videos have no text in Reader's API, so they're listed but say so when opened; no share-sheet capture (save to Reader from other apps as you do today); highlight *notes* live on the phone only, since Readwise's v2 API has no highlight-update call; and nothing here has run on a phone yet — it typechecks, the data layer is tested, and the whole flow runs in a browser against a fake Reader, but the native modules (the ear, the on-device voice, background audio) and the real Readwise responses meet the app for the first time on your device.
 
+## Verifying the phone app
+
+```bash
+npm run check                    # root: shared/voice, web, api checks + tsc
+cd mobile && npm run check       # data layer, layout, tts, voice + tsc
+cd mobile && npm run smoke:web   # the whole app in a headless browser
+```
+
+`smoke:web` needs a Chromium: Playwright's (`npx playwright install chromium`) or any Chrome via `SMOKE_CHROME=/path/to/chrome`. `SMOKE_PORT=8092` moves it off 8082 when a dev server already has that port.
+
+The ear, the aurora and the keyboard are native modules, so none of the above is the definition of done. That is:
+
+1. `npm run ios` (or `eas build --profile development`) → install the dev client → cold start it.
+2. Exercise the aurora, the keyboard and speech on the iOS simulator **and** on an Android emulator, API 35.
+
+**iOS, loud speaker, no headphones**
+
+- [ ] narration playing, say "wait" → the audio stops within 200ms
+- [ ] cough once → it pauses, then resumes by itself within 1.5s of silence
+- [ ] let it read for 70s (past a recognizer restart), then interrupt again → it still stops
+
+**Android, API 35 emulator, keyboard up**
+
+- [ ] sign-in token, library search, Composer field, note sheet, settings API URL: each one visible with its submit control while the keyboard is open
+- [ ] the Composer rides the keyboard rather than hiding under it
+
 ## Setup (local)
 
 ```bash
