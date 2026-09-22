@@ -138,6 +138,18 @@
 **Priority:** P2
 **Depends on:** None
 
+### Tablet and Android layout verification
+
+**What:** Run the app on an iPad simulator and an Android API 35 emulator; check the centred 640pt reader column and Composer, the Composer with the keyboard up, and the sync hairline.
+
+**Why:** Plan 6.1A (tablet column) and 6.2A (Android edge-to-edge keyboard) were decided on paper and never seen on a screen; only the iPhone simulator and the web have been driven.
+
+**Context:** `mobile/src/ui/layout.ts` `COLUMN_MAX_WIDTH`; the Composer rides `KeyboardStickyView` from react-native-keyboard-controller because RN's `KeyboardAvoidingView` avoids nothing on Android 15 edge-to-edge. The dev client is not installed on the iPad simulator; the Android emulator is not set up on this Mac.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** a booted Android emulator
+
 ## Completed
 
 ### Shared voice layer: agent loop extraction
