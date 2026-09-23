@@ -24,10 +24,12 @@ import {
   moveDocument,
   openDocument,
   positionChanged,
+  recordCheck,
   removeHighlight,
 } from './session'
 import { decide, type NavAction } from './navigate'
-import type { Highlight, LibraryDoc, Location } from './types'
+import { parseFactCheck } from './factcheck'
+import type { Check, Highlight, LibraryDoc, Location } from './types'
 import { createAgent, type AgentPlayer, type Block, type NavResult } from '../../shared/voice/agent'
 
 // The conversation outlives any one document now, so it needs a ceiling.
@@ -115,41 +117,68 @@ function buildContext() {
 
 // ---- tools declared on the server (read_aloud and set_speed live in the loop) ----
 
-interface FactCheckResult {
-  verdict: string
-  summary: string
-  spokenSummary: string
-  sources: { title: string; url: string }[]
-}
+/**
+ * Which book the turn in flight belongs to, captured the moment the reader
+ * speaks. A fact check is a round-trip long enough for "is that true?" and "back
+ * to the library" to overlap, and the check must not follow them into the next
+ * book — nor be spoken over it.
+ */
+let turnDocId: string | null = null
+const beginTurn = () => { turnDocId = useStore.getState().doc?.id ?? null }
+
+/** How much of the paragraph is kept to find it again after the text has moved. */
+const ANCHOR_CHARS = 120
 
 /**
  * /api/factcheck speaks NDJSON. React Native's fetch has no streaming body, so the
  * per-field early speak the web does is off the table — await the whole thing and
  * speak the verdict once. Still one round-trip.
+ *
+ * The verdict is also kept: it lands in the Checks tab of the document it was
+ * asked about, and is saved with that document's state.
  */
 async function factCheck(input: Record<string, unknown>): Promise<string> {
   const claim = String(input.claim ?? '')
+  // Read once, at the start: `turnDocId` belongs to whichever turn is running,
+  // and a later one would otherwise move it under this check while it waits.
+  const ownerDocId = turnDocId
+  // where the reader was when they asked, taken now rather than on the way back
+  const asked = useStore.getState()
+  const at = Math.min(asked.currentParagraph, Math.max(0, asked.paragraphs.length - 1))
+  const anchorText = asked.paragraphs[at]?.text.slice(0, ANCHOR_CHARS) ?? ''
+  const anchor = asked.paragraphs.length > 0 ? at : null
+
   const res = await fetch(`${apiBase}/api/factcheck`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ passage: claim }),
   })
   if (!res.ok) return `The fact check failed (${res.status}).`
-  const lines = (await res.text()).split('\n').filter(Boolean)
-  for (const line of lines) {
-    try {
-      const parsed = JSON.parse(line) as { type: string; result?: FactCheckResult; error?: string }
-      if (parsed.type === 'done' && parsed.result) {
-        const r = parsed.result
-        useStore.getState().pushChat({ id: newId(), role: 'assistant', text: `${r.verdict}: ${r.summary}` })
-        useStore.setState({ agentState: 'speaking' })
-        await tts.speak(r.spokenSummary)
-        return `[Already read aloud to the user, verbatim: "${r.spokenSummary}". Add nothing unless the user asked something this does not answer.]`
-      }
-      if (parsed.type === 'error') return `The fact check failed: ${parsed.error}`
-    } catch { /* delta lines and partial JSON — skip */ }
+  const parsed = parseFactCheck(await res.text())
+  if ('error' in parsed) return parsed.error
+  const r = parsed.result
+
+  useStore.getState().pushChat({ id: newId(), role: 'assistant', text: `${r.verdict}: ${r.summary}` })
+  // The reader put the book away while this was in flight: the line is still
+  // worth having, but speaking a verdict over the library — and filing it under
+  // whatever is open now — is not.
+  if (!ownerDocId || useStore.getState().doc?.id !== ownerDocId) {
+    return `[Shown in the transcript, not spoken: the reader had moved to another document before the check returned. Verdict: "${r.spokenSummary}". Do not repeat it unless asked.]`
   }
-  return 'The fact check returned nothing usable.'
+  const check: Check = {
+    id: newId(),
+    claim,
+    verdict: r.verdict,
+    summary: r.summary,
+    sources: r.sources ?? [],
+    anchorText,
+    anchor,
+    createdAt: Date.now(),
+  }
+  recordCheck(ownerDocId, check)
+  useStore.getState().setAgentState('speaking')
+  await tts.speak(r.spokenSummary)
+  return `[Already read aloud to the user, verbatim: "${r.spokenSummary}". Add nothing unless the user asked something this does not answer.]`
 }
 
 function findInDocument(input: Record<string, unknown>): string {
@@ -420,7 +449,7 @@ const agent = createAgent<NavAction>({
   } satisfies AgentPlayer,
   state: {
     agentState: () => useStore.getState().agentState,
-    setAgentState: (agentState) => useStore.setState({ agentState }),
+    setAgentState: (agentState) => useStore.getState().setAgentState(agentState),
     playing: () => useStore.getState().playing,
     paragraphs: () => useStore.getState().paragraphs,
     currentParagraph: () => useStore.getState().currentParagraph,
@@ -461,7 +490,12 @@ const agent = createAgent<NavAction>({
   trimTo: TRIM_TO,
 })
 
-export const say = (text: string): string | null => agent.say(text)
+// Every utterance — spoken or typed — enters the loop here, so this is where a
+// turn learns which book it belongs to (see turnDocId).
+export const say = (text: string): string | null => {
+  beginTurn()
+  return agent.say(text)
+}
 export const sayInterim = (text: string) => agent.sayInterim(text)
 export const beginUtterance = () => agent.beginUtterance()
 export const falseStart = () => agent.falseStart()
@@ -470,6 +504,7 @@ export const falseStart = () => agent.falseStart()
 export function resetConversation() {
   agent.resetConversation()
   greeted = false
+  turnDocId = null
 }
 
 /**
@@ -478,6 +513,7 @@ export function resetConversation() {
  * one carries its own tool result), so the agent picks up reading unprompted.
  */
 export function openingTurn(kind: 'library' | 'document') {
+  beginTurn()
   if (kind === 'library') {
     if (greeted) return
     // greeted only once the cue is actually taken: a hello refused because a turn

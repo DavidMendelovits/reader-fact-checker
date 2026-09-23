@@ -8,9 +8,10 @@ import {
 } from 'react-native'
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { COPY } from '../../../shared/voice/line'
 import { startLibrary } from '../session'
 import { saveToken } from '../settings'
-import { radius, space, type as type_, useTheme, type Theme } from '../theme'
+import { radius, size, space, useTheme, weight, type as type_, type Theme } from '../theme'
 import { errorText } from './kit'
 import { COLUMN_MAX_WIDTH } from './layout'
 
@@ -55,7 +56,7 @@ export function SignInScreen({ onSaved }: { onSaved: (t: string) => void }) {
         contentContainerStyle={[s.body, { paddingTop: insets.top + space.xxl, paddingBottom: insets.bottom + space.xxl }]}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={s.h1}>readwithme</Text>
+        <Text style={s.h1}>{COPY.productName}</Text>
         <Text style={s.prose}>Paste your Readwise access token. It stays on this device.</Text>
         <Pressable role="button" accessibilityLabel="Open readwise.io/access_token" style={s.linkRow} onPress={() => void Linking.openURL(TOKEN_PAGE)}>
           <Text style={s.link}>readwise.io/access_token</Text>
@@ -113,23 +114,23 @@ function build(theme: Theme) {
       paddingHorizontal: space.xxl,
       width: '100%', maxWidth: COLUMN_MAX_WIDTH, alignSelf: 'center',
     },
-    h1: { fontSize: 24, lineHeight: 30, fontWeight: '700', color: theme.textPrimary },
-    prose: { ...type_.ui, color: theme.textSecondary, lineHeight: 22 },
-    link: { ...type_.ui, color: theme.accent, fontWeight: '600' },
-    linkRow: { minHeight: 44, justifyContent: 'center' },
+    h1: { ...type_.title, color: theme.textPrimary },
+    prose: { ...type_.prose, color: theme.textSecondary },
+    link: { ...type_.ui, color: theme.accent, fontWeight: weight.semibold },
+    linkRow: { minHeight: size.target, justifyContent: 'center' },
     field: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
     input: {
-      flex: 1, minHeight: 44, paddingHorizontal: space.md,
+      flex: 1, minHeight: size.target, paddingHorizontal: space.md,
       borderWidth: 1, borderColor: theme.hairline, borderRadius: radius.input,
-      fontSize: 16, backgroundColor: theme.surface, color: theme.textPrimary,
+      ...type_.input, backgroundColor: theme.surface, color: theme.textPrimary,
     },
-    paste: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm },
+    paste: { minHeight: size.target, minWidth: size.target, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.sm },
     error: { ...type_.meta, color: theme.danger },
     button: {
-      minHeight: 44, alignItems: 'center', justifyContent: 'center',
+      minHeight: size.target, alignItems: 'center', justifyContent: 'center',
       backgroundColor: theme.textPrimary, borderRadius: radius.input,
     },
-    buttonText: { ...type_.ui, color: theme.canvas, fontWeight: '600' },
+    buttonText: { ...type_.ui, color: theme.canvas, fontWeight: weight.semibold },
     dim: { opacity: 0.4 },
   })
 }

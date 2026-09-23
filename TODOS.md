@@ -78,18 +78,6 @@
 **Priority:** P2
 **Depends on:** None
 
-### React-native-free `tokens.ts` shared by the theme and the bookmark estimate
-
-**What:** Move type sizes and spacing into a platform-free module imported by both `mobile/src/theme.ts` and `mobile/src/ui/layout.ts`.
-
-**Why:** `layout.ts` re-declares 17/27, 22/30, gutters and paddings as literals; a type change drifts the estimate from the render silently.
-
-**Context:** `mobile/src/ui/layout.ts` (`BODY`, `HEADING`, `GUTTER`, `ROW_PADDING`, `HEADING_PADDING`) vs `theme.ts` (`type`, `space`). Also fold the component-level type literals (24/700 screen titles, 16/22 rows, 18–20pt glyphs) into named roles.
-
-**Effort:** S
-**Priority:** P2
-**Depends on:** None
-
 ### Typed mic errors and a typed notice
 
 **What:** `Transcriber.onError(kind, message)` (`denied` | `unstable` | `other`) and `notice: { text, kind }` so the Composer's mic state and the Toast's severity stop regex-matching strings.
@@ -138,7 +126,25 @@
 **Priority:** P2
 **Depends on:** None
 
+### Tablet and Android layout verification
+
+**What:** Run the app on an iPad simulator and an Android API 35 emulator; check the centred 640pt reader column and Composer, the Composer with the keyboard up, and the sync hairline.
+
+**Why:** Plan 6.1A (tablet column) and 6.2A (Android edge-to-edge keyboard) were decided on paper and never seen on a screen; only the iPhone simulator and the web have been driven.
+
+**Context:** `mobile/src/ui/layout.ts` `COLUMN_MAX_WIDTH`; the Composer rides `KeyboardStickyView` from react-native-keyboard-controller because RN's `KeyboardAvoidingView` avoids nothing on Android 15 edge-to-edge. The dev client is not installed on the iPad simulator; the Android emulator is not set up on this Mac.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** a booted Android emulator
+
 ## Completed
+
+### React-native-free `tokens.ts` shared by the theme and the bookmark estimate
+
+**What:** Type sizes, weights, spacing, radii and the reader's paddings moved into `mobile/src/tokens.ts`, which imports nothing. `theme.ts` adds the serif and re-exports; `ui/layout.ts` reads it instead of re-declaring 17/27 and 22/30; the component-level literals (24/700 titles, 16/22 rows, 16 inputs, glyphs, every 44) became named roles. `src/tokens.check.ts` holds the table to what DESIGN.md publishes.
+
+**Completed:** v0.3 (2026-09-22)
 
 ### Shared voice layer: agent loop extraction
 

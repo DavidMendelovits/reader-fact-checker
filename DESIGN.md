@@ -35,10 +35,20 @@ Reading is a built-in serif, chrome is the system face; nothing is below 13.
 |---|---|---|---|
 | Reading body | Georgia (iOS) / serif (Android) / Source Serif 4 (web) | 17 / 27 | 400 |
 | Heading | same serif | 22 / 30 | 600 |
+| Title | system | 24 / 30 | 700 |
 | UI | system | 15 / 20 | 400–600 |
+| Prose | system | 15 / 22 | 400 |
+| Row | system | 16 / 22 | 500 |
 | Meta | system | 13 / 18 | 400 |
+| Chevron | system | 20 | 400 |
+| Input | system | 16 | 400 |
 
 Web body is ≥ 16px so iOS does not zoom on focus; reader text respects Dynamic Type to 1.5×.
+
+`mobile/src/tokens.ts` is where these numbers live. It imports nothing — not even
+react-native — so both `theme.ts` (which adds the serif and the colours) and the
+bookmark's height estimate in `ui/layout.ts` (which runs in plain node) read the
+same table. `src/tokens.check.ts` asserts the table against this document.
 
 ## Spacing
 
@@ -69,8 +79,8 @@ Aurora rests at ≤ 10% opacity. Reduced motion (`AccessibilityInfo.isReduceMoti
 
 | Component | What it is |
 |---|---|
-| `Composer` | The bottom bar on every signed-in screen: mic · line · play/pause · transcript · keyboard; 60pt + safe-area inset, opaque canvas, hairline on top. |
-| `TranscriptSheet` | Bottom sheet over the Composer, tabs Conversation \| Checks, last 30 lines, drag to dismiss. |
+| `Composer` | The bottom bar on every signed-in screen: mic · line · play/pause · transcript · keyboard; 60pt + safe-area inset, opaque canvas, hairline on top. Its glyphs are drawn from `shared/voice/glyphs.ts` through react-native-svg, never set as text. |
+| `TranscriptSheet` | Bottom sheet over the Composer, tabs Conversation \| Checks, last 30 lines, drag to dismiss by a 44pt grab area. Its close glyph comes from the same set. |
 | `BackToVoicePill` | Pill above the Composer when the current paragraph is off-screen; tap resumes follow. |
 | `SyncHairline` | 2px accent progress rule under the library tabs; red for 2s on a sync failure. |
 | `Aurora` | The shader layer behind everything, vignetted to the frame edges. |

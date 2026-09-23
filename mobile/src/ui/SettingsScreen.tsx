@@ -11,7 +11,7 @@ import { activeVoice, enableKokoro, useVoice } from '../providers'
 import { refreshLibrary, stopLibrary } from '../session'
 import { apiBase, clearToken, saveApiBase, type ThemePreference } from '../settings'
 import { useStore } from '../store'
-import { radius, space, type as type_, setThemePreference, themePreference, useTheme, type Theme } from '../theme'
+import { radius, setThemePreference, size, space, themePreference, useTheme, weight, type as type_, type Theme } from '../theme'
 import { Composer } from './Composer'
 import { errorText } from './kit'
 import { COLUMN_MAX_WIDTH } from './layout'
@@ -237,9 +237,9 @@ function build(theme: Theme) {
       paddingHorizontal: space.lg, paddingBottom: space.md,
       borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.hairline,
     },
-    headerButton: { minHeight: 44, minWidth: 64, justifyContent: 'center' },
-    title: { ...type_.ui, fontWeight: '600', color: theme.textPrimary, flex: 1, textAlign: 'center' },
-    link: { ...type_.ui, color: theme.accent, fontWeight: '600' },
+    headerButton: { minHeight: size.target, minWidth: 64, justifyContent: 'center' },
+    title: { ...type_.ui, fontWeight: weight.semibold, color: theme.textPrimary, flex: 1, textAlign: 'center' },
+    link: { ...type_.ui, color: theme.accent, fontWeight: weight.semibold },
     dim: { opacity: 0.4 },
     body: {
       padding: space.xl, gap: space.xxl,
@@ -247,30 +247,30 @@ function build(theme: Theme) {
     },
     block: { gap: space.sm },
     row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.md },
-    label: { ...type_.ui, fontWeight: '600', color: theme.textPrimary },
+    label: { ...type_.ui, fontWeight: weight.semibold, color: theme.textPrimary },
     hint: { ...type_.meta, color: theme.textTertiary },
     version: { ...type_.meta, color: theme.textTertiary, textAlign: 'center', marginTop: space.xl },
     error: { ...type_.meta, color: theme.danger },
     input: {
       borderWidth: 1, borderColor: theme.hairline, borderRadius: radius.input,
-      paddingHorizontal: space.md, minHeight: 44,
-      fontSize: 16, backgroundColor: theme.surface, color: theme.textPrimary,
+      paddingHorizontal: space.md, minHeight: size.target,
+      ...type_.input, backgroundColor: theme.surface, color: theme.textPrimary,
     },
     inputBad: { borderColor: theme.danger },
     segmented: {
       flexDirection: 'row', backgroundColor: theme.surfaceSecondary,
       borderRadius: radius.input, padding: space.xs / 2,
     },
-    segment: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.input },
+    segment: { flex: 1, minHeight: size.target, alignItems: 'center', justifyContent: 'center', borderRadius: radius.input },
     segmentOn: { backgroundColor: theme.surface },
-    segmentText: { ...type_.meta, color: theme.textTertiary, fontWeight: '600' },
+    segmentText: { ...type_.meta, color: theme.textTertiary, fontWeight: weight.semibold },
     segmentTextOn: { color: theme.textPrimary },
     bar: { height: 4, borderRadius: radius.pill, backgroundColor: theme.surfaceSecondary, overflow: 'hidden' },
     barFill: { height: 4, borderRadius: radius.pill, backgroundColor: theme.accent },
     signOut: {
-      minHeight: 44, alignItems: 'center', justifyContent: 'center',
+      minHeight: size.target, alignItems: 'center', justifyContent: 'center',
       backgroundColor: theme.danger, borderRadius: radius.input,
     },
-    signOutText: { ...type_.ui, color: theme.canvas, fontWeight: '600' },
+    signOutText: { ...type_.ui, color: theme.canvas, fontWeight: weight.semibold },
   })
 }

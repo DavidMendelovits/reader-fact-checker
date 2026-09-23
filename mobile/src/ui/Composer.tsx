@@ -9,13 +9,16 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import {
   Animated, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native'
+import Svg, { Path } from 'react-native-svg'
 import { KeyboardStickyView, useKeyboardState } from 'react-native-keyboard-controller'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { GLYPHS } from '../../../shared/voice/glyphs'
 import { lineFor, MIC_LABEL, REPLY_HOLD_MS } from '../../../shared/voice/line'
 import { pause, play, say, setMicEnabled } from '../agent'
 import { voice } from '../providers'
-import { radius, space, type as type_, useTheme, type Theme } from '../theme'
+import { radius, size, space, useTheme, type as type_, type Theme } from '../theme'
 import { useStore, type MicState } from '../store'
+import { Glyph, MIC_SLASH, type GlyphName } from './Glyph'
 import { announce, motion, tick, useReducedMotion } from './kit'
 import { COLUMN_MAX_WIDTH } from './layout'
 import { TranscriptSheet } from './TranscriptSheet'
@@ -26,7 +29,7 @@ const DRIVES_THE_EAR = __DEV__ || !!process.env.EXPO_PUBLIC_SILENT_VOICE
 
 /** The bar's own height, before the safe-area inset under it (1.1A). */
 const BAR = 60
-const TARGET = 44
+const TARGET = size.target
 
 const AGENT_ANNOUNCEMENT: Record<string, string> = {
   listening: 'Listening',
@@ -153,8 +156,8 @@ export function Composer({ reader = false }: { reader?: boolean }) {
                   accessibilityLabel="Type a message"
                   testID="composer-input"
                 />
-                <Control label="Send" glyph="↑" onPress={send} theme={theme} disabled={!draft.trim()} testID="composer-send" />
-                <Control label="Close the keyboard" glyph="✕" onPress={() => setExpanded(false)} theme={theme} />
+                <Control label="Send" glyph="send" onPress={send} theme={theme} disabled={!draft.trim()} testID="composer-send" />
+                <Control label="Close the keyboard" glyph="close" onPress={() => setExpanded(false)} theme={theme} />
               </>
             ) : (
               <>
@@ -173,14 +176,14 @@ export function Composer({ reader = false }: { reader?: boolean }) {
                 {reader && (
                   <Control
                     label={playing ? 'Pause' : 'Play'}
-                    glyph={playing ? '❚❚' : '▶'}
+                    glyph={playing ? 'pause' : 'play'}
                     onPress={() => (playing ? pause() : play())}
                     theme={theme}
                     testID="composer-play"
                   />
                 )}
-                <Control label="Transcript" glyph="☰" onPress={() => setTranscript(true)} theme={theme} testID="composer-transcript" />
-                <Control label="Type a message" glyph="⌨" onPress={() => setExpanded(true)} theme={theme} testID="composer-keyboard" />
+                <Control label="Transcript" glyph="bubble" onPress={() => setTranscript(true)} theme={theme} testID="composer-transcript" />
+                <Control label="Type a message" glyph="keyboard" onPress={() => setExpanded(true)} theme={theme} testID="composer-keyboard" />
               </>
             )}
           </View>
@@ -194,7 +197,7 @@ export function Composer({ reader = false }: { reader?: boolean }) {
 function Control({
   label, glyph, onPress, theme, disabled, testID,
 }: {
-  label: string; glyph: string; onPress: () => void; theme: Theme; disabled?: boolean; testID?: string
+  label: string; glyph: GlyphName; onPress: () => void; theme: Theme; disabled?: boolean; testID?: string
 }) {
   const s = styles(theme)
   return (
@@ -207,15 +210,17 @@ function Control({
       style={s.control}
       testID={testID}
     >
-      <Text style={[s.glyph, disabled && s.dim]} maxFontSizeMultiplier={1.5}>{glyph}</Text>
+      <View style={disabled ? s.dim : undefined}>
+        <Glyph name={glyph} color={theme.accent} />
+      </View>
     </Pressable>
   )
 }
 
 /**
- * The mic, drawn rather than set in a font: a capsule on a stand, filled when
- * the ear is open, outlined when it is not, struck through in red when the OS
- * has taken it away. It is the only mic control in the app (1.1A).
+ * The mic, drawn rather than set in a font: the shared `mic` glyph, inked with
+ * the state's colour inside a circle that fades to green while the ear is open,
+ * struck through in red when the OS has taken it away. The only mic in the app (1.1A).
  */
 const MicButton = memo(function MicButton({
   state, theme, reduced, onPress,
@@ -250,9 +255,10 @@ const MicButton = memo(function MicButton({
       testID="composer-mic"
     >
       <Animated.View style={[s.micCircle, { backgroundColor: background }, denied && s.micDenied]}>
-        <View style={[s.micCapsule, { backgroundColor: ink }]} />
-        <View style={[s.micStand, { borderColor: ink }]} />
-        {denied && <View style={[s.micSlash, { backgroundColor: theme.danger }]} />}
+        <Svg width={20} height={20} viewBox="0 0 24 24">
+          <Path d={GLYPHS.mic} fill={ink} fillRule="evenodd" />
+          {denied && <Path d={MIC_SLASH} fill={theme.danger} />}
+        </Svg>
       </Animated.View>
     </Pressable>
   )
@@ -295,7 +301,6 @@ function build(theme: Theme) {
     line: { ...type_.ui, color: theme.textSecondary },
     lineItalic: { fontStyle: 'italic', color: theme.textPrimary },
     control: { width: TARGET, height: TARGET, alignItems: 'center', justifyContent: 'center' },
-    glyph: { fontSize: 18, lineHeight: 22, color: theme.accent },
     dim: { opacity: 0.4 },
     input: {
       flex: 1,
@@ -305,24 +310,13 @@ function build(theme: Theme) {
       borderRadius: radius.input,
       backgroundColor: theme.surfaceSecondary,
       color: theme.textPrimary,
-      // 16, not the UI 15: anything smaller and mobile Safari zooms on focus.
-      fontSize: 16,
+      ...type_.input,
     },
     micCircle: {
-      width: 36, height: 36, borderRadius: radius.pill,
+      width: size.micCircle, height: size.micCircle, borderRadius: radius.pill,
       alignItems: 'center', justifyContent: 'center',
       borderWidth: 1, borderColor: theme.hairline,
     },
     micDenied: { borderColor: theme.danger },
-    micCapsule: { width: 8, height: 13, borderRadius: radius.input, marginBottom: 1 },
-    micStand: {
-      width: 14, height: 7, borderWidth: 1.5, borderTopWidth: 0,
-      borderBottomLeftRadius: radius.input, borderBottomRightRadius: radius.input,
-      marginTop: -5,
-    },
-    micSlash: {
-      position: 'absolute', width: 30, height: 2, borderRadius: radius.input,
-      transform: [{ rotate: '-45deg' }],
-    },
   })
 }

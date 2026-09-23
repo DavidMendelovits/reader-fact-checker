@@ -7,7 +7,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { setHighlightNote } from '../session'
 import { useStore } from '../store'
-import { radius, space, type as type_, useTheme, type Theme } from '../theme'
+import { radius, size, space, useTheme, weight, type as type_, type Theme } from '../theme'
 import type { Highlight } from '../types'
 import { errorText } from './kit'
 import { COLUMN_MAX_WIDTH } from './layout'
@@ -79,21 +79,21 @@ function build(theme: Theme) {
       maxWidth: COLUMN_MAX_WIDTH,
       alignSelf: 'center',
     },
-    title: { ...type_.ui, fontWeight: '600', color: theme.textPrimary },
+    title: { ...type_.ui, fontWeight: weight.semibold, color: theme.textPrimary },
     quote: { ...type_.meta, color: theme.textSecondary, fontStyle: 'italic' },
     input: {
       minHeight: 80, textAlignVertical: 'top',
       borderWidth: 1, borderColor: theme.hairline, borderRadius: radius.input,
-      padding: space.md, fontSize: 16, color: theme.textPrimary,
+      padding: space.md, ...type_.input, color: theme.textPrimary,
       backgroundColor: theme.surfaceSecondary,
     },
     actions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: space.lg },
-    cancel: { minHeight: 44, justifyContent: 'center', paddingHorizontal: space.sm },
-    link: { ...type_.ui, color: theme.accent, fontWeight: '600' },
+    cancel: { minHeight: size.target, justifyContent: 'center', paddingHorizontal: space.sm },
+    link: { ...type_.ui, color: theme.accent, fontWeight: weight.semibold },
     button: {
-      minHeight: 44, justifyContent: 'center', paddingHorizontal: space.xl,
+      minHeight: size.target, justifyContent: 'center', paddingHorizontal: space.xl,
       backgroundColor: theme.textPrimary, borderRadius: radius.input,
     },
-    buttonText: { ...type_.ui, color: theme.canvas, fontWeight: '600' },
+    buttonText: { ...type_.ui, color: theme.canvas, fontWeight: weight.semibold },
   })
 }

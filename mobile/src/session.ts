@@ -2,6 +2,7 @@
 // the library, open and close a document, file it, highlight it. Neither the
 // UI nor the agent talks to the Library or the store's persistence directly;
 // they call these, so a voice command and a tap do exactly the same thing.
+import { AppState } from 'react-native'
 import { LibraryService } from './library'
 import { anchorText } from './highlights'
 import { htmlToChapters } from './html'
@@ -9,7 +10,7 @@ import { readwiseLibrary } from './readwise'
 import { asyncStore } from './storage'
 import { useStore } from './store'
 import { tts } from './providers'
-import type { Doc, DocState, Highlight, LibraryDoc, Location } from './types'
+import type { Check, Doc, DocState, Highlight, LibraryDoc, Location } from './types'
 
 let service: LibraryService | null = null
 
@@ -63,6 +64,8 @@ export async function refreshLibrary(opts: { full?: boolean } = {}): Promise<voi
 let openId: string | null = null
 let state: DocState | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
+/** Said once per document open: a disk that keeps failing is not news twice. */
+let saveFailureTold = false
 
 function scheduleSave() {
   if (saveTimer) clearTimeout(saveTimer)
@@ -74,8 +77,34 @@ async function persist(): Promise<void> {
   const st = useStore.getState()
   state.position = st.currentParagraph
   state.highlights = st.highlights
-  await library().saveDocState(openId, state)
+  state.checks = st.checks
+  try {
+    await library().saveDocState(openId, state)
+  } catch {
+    // The reader keeps everything they can see — the write is what failed, not
+    // the highlight or the check — and is told once that this session may not
+    // survive being closed.
+    if (!saveFailureTold) {
+      saveFailureTold = true
+      useStore.getState().setNotice("Couldn't save your place.")
+    }
+  }
 }
+
+/**
+ * Leaving the app is the last chance to write: a pending debounce would be lost
+ * if iOS or Android took the process while it was still counting down. Once, at
+ * module level, because a listener per open document would save once per open.
+ */
+AppState.addEventListener('change', (next) => {
+  if (next !== 'background' && next !== 'inactive') return
+  if (!openId) return
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  void persist()
+})
 
 /**
  * Open a document from the library: fetch its text, split it into chapters,
@@ -108,13 +137,21 @@ export async function openDocument(id: string): Promise<{ doc: Doc; libraryDoc: 
   }))
   // and re-anchor the phone's own, in case the text changed under them
   const own = saved.highlights.map((h) => ({ ...h, anchor: h.anchor ?? anchorText(paragraphs, h.text) }))
+  // The saved checks are re-anchored the same way, by the text they were asked
+  // about; a paragraph that is no longer there leaves the row un-tappable.
+  const checks: Check[] = (saved.checks ?? []).map((c) => ({
+    ...c,
+    anchor: anchorText(paragraphs, c.anchorText)?.paragraph ?? null,
+  }))
   state = {
     ...saved,
     highlights: [...own, ...adopted],
+    checks,
     mergedRemote: [...saved.mergedRemote, ...fresh.map((r) => r.id)],
   }
   openId = id
-  useStore.getState().setDoc(doc, libraryDoc, saved.position, state.highlights)
+  saveFailureTold = false
+  useStore.getState().setDoc(doc, libraryDoc, saved.position, state.highlights, checks)
   tts.setParagraphs(paragraphs)
   await lib.saveDocState(id, state)
   // anything that didn't reach Readwise last time
@@ -150,6 +187,18 @@ export async function moveDocument(id: string, location: Location): Promise<Libr
   const doc = library().byId(id) ?? known
   if (useStore.getState().libraryDoc?.id === id) useStore.setState({ libraryDoc: doc })
   return doc
+}
+
+// ---- fact checks ----
+
+/**
+ * Keep a fact check with the document it was asked about. The store drops it if
+ * that document is no longer the open one, so a check that lands after the
+ * reader has moved on is never filed under the wrong book.
+ */
+export function recordCheck(docId: string, check: Check): void {
+  useStore.getState().addCheck(docId, check)
+  scheduleSave()
 }
 
 // ---- highlights ----

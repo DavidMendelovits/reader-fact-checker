@@ -7,32 +7,16 @@
 // list on the bookmark straight away. As real rows report their heights they
 // replace the guesses, and one non-animated correction fixes the drift.
 //
-// No React, no react-native: layout.check.ts runs this file in plain node.
-
-/**
- * Mean glyph width as a fraction of the font size, for a serif reading face.
- * Measured against Georgia at 17pt on English prose; it only has to be close
- * enough that the corrective scroll is small.
- */
-const CHAR_WIDTH_RATIO = 0.48
+// No React, no react-native: layout.check.ts runs this file in plain node. The
+// sizes come from tokens.ts, which is free of both for the same reason, so this
+// guess and the type the reader actually draws cannot drift apart.
+import { reader, type } from '../tokens.ts'
 
 /**
  * The widest the reader column and the Composer ever get. Past a tablet's width
  * a full-bleed line of prose is unreadable, so both centre inside this (6.1A).
  */
 export const COLUMN_MAX_WIDTH = 640
-
-/** The reader column's horizontal padding, both sides (space.xl × 2). */
-const GUTTER = 40
-
-/** A row's vertical padding, both sides (space.sm × 2). */
-const ROW_PADDING = 16
-
-/** A chapter heading's extra space above and below it. */
-const HEADING_PADDING = 48
-
-const BODY = { size: 17, line: 27 }
-const HEADING = { size: 22, line: 30 }
 
 /**
  * A paragraph's height in points: how many lines its characters need at this
@@ -43,11 +27,11 @@ const HEADING = { size: 22, line: 30 }
  * place too.
  */
 export function estimateHeight(text: string, width: number, isHeading: boolean, fontScale = 1): number {
-  const { size, line } = isHeading ? HEADING : BODY
-  const charWidth = size * CHAR_WIDTH_RATIO * fontScale
-  const perLine = Math.max(1, Math.floor((width - GUTTER) / charWidth))
+  const { fontSize, lineHeight } = isHeading ? type.heading : type.reading
+  const charWidth = fontSize * reader.charWidthRatio * fontScale
+  const perLine = Math.max(1, Math.floor((width - reader.gutter) / charWidth))
   const lines = Math.max(1, Math.ceil(text.length / perLine))
-  return lines * line * fontScale + ROW_PADDING + (isHeading ? HEADING_PADDING : 0)
+  return lines * lineHeight * fontScale + reader.rowPadding + (isHeading ? reader.headingPadding : 0)
 }
 
 /**

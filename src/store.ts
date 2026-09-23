@@ -38,6 +38,7 @@ interface State {
   setMicEnabled: (m: boolean) => void
   setMicDenied: (d: boolean) => void
   setInterim: (t: string) => void
+  setAgentState: (s: State['agentState']) => void
   pushChat: (m: ChatMessage) => void
   updateChat: (id: string, patch: Partial<ChatMessage>) => void
   addJob: (job: FactCheckJob) => void
@@ -85,6 +86,17 @@ export const useStore = create<State>((set) => ({
   setMicEnabled: (micEnabled) => set({ micEnabled }),
   setMicDenied: (micDenied) => set({ micDenied }),
   setInterim: (interim) => set({ interim }),
+  // The hold on the agent's line runs from when it stopped speaking, not from when
+  // the text was pushed: a reply that takes eight seconds to say would otherwise
+  // already be five seconds stale the moment the voice stopped, and vanish before
+  // you looked down. The push-time stamp stays as the fallback for replies that
+  // are never spoken.
+  setAgentState: (agentState) =>
+    set((s) =>
+      s.agentState === 'speaking' && agentState !== 'speaking' && s.lastAgentLine
+        ? { agentState, lastAgentLineAt: Date.now() }
+        : { agentState },
+    ),
   // The line shows the agent's last reply, so the Composer never has to walk the
   // chat log backwards to find it.
   pushChat: (m) =>

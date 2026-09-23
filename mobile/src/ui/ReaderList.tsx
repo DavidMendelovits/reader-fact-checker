@@ -18,7 +18,7 @@ import {
 } from 'react-native'
 import { splitRuns } from '../highlights'
 import { useStore } from '../store'
-import { space, type as type_, useTheme, type Theme } from '../theme'
+import { space, useTheme, type as type_, type Theme } from '../theme'
 import type { FlatParagraph, Highlight } from '../types'
 import { motion, useReducedMotion } from './kit'
 import { COLUMN_MAX_WIDTH, estimateHeight, heightAt, offsetsFrom } from './layout'
@@ -238,6 +238,29 @@ export const ReaderList = forwardRef<ReaderListHandle, Props>(function ReaderLis
     return m
   }, [painted])
 
+  // Going somewhere the reader asked for: a check's row, a highlight. Instant,
+  // and it takes the list the way a drag does — the voice reads on wherever it
+  // was, and the pill is there to go back to it.
+  const jumpTo = useCallback((index: number) => {
+    const offset = Math.max(0, (offsets.current[index] ?? 0) - VIEW_POSITION * (viewport.current || 1))
+    dragged.current = true
+    leftSinceDrag.current = false
+    following.current = false
+    settleUntil.current = 0
+    list.current?.scrollToOffset({ offset, animated: false })
+    scrollY.current = offset
+    report() // nothing is travelling, so the verdict can be taken now
+  }, [report])
+
+  // A tap in the Checks tab asks for a paragraph; the sheet is gone by the time
+  // this runs, so the list answers and puts the request back.
+  const pendingJump = useStore((s) => s.pendingJump)
+  useEffect(() => {
+    if (pendingJump === null) return
+    jumpTo(pendingJump)
+    useStore.getState().requestJump(null)
+  }, [pendingJump, jumpTo])
+
   useImperativeHandle(ref, () => ({
     followTheVoice() {
       dragged.current = false
@@ -431,7 +454,7 @@ function styles(theme: Theme) {
 function build(theme: Theme) {
   return StyleSheet.create({
     row: { paddingHorizontal: space.xl, paddingVertical: space.sm },
-    paragraph: { fontFamily: type_.readingFamily, ...type_.body, color: theme.textSecondary },
+    paragraph: { ...type_.reading, color: theme.textSecondary },
     heading: {
       ...type_.heading, color: theme.textPrimary,
       paddingTop: space.xxl, paddingBottom: space.xxl,

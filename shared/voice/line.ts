@@ -24,6 +24,17 @@ export type LineState = {
   voiceLoading?: boolean
 }
 
+/**
+ * The words both apps say about themselves. The name was 'Reader' on the phone's
+ * library and 'readwithme' on the web's import screen, and the two empty states
+ * were written twice and agreed by luck. One place, one wording.
+ */
+export const COPY = {
+  productName: 'readwithme',
+  emptyTranscript: 'Nothing said yet. Tap the mic and ask about what you’re reading.',
+  emptyChecks: 'Nothing checked yet. Ask “is that true?” while it reads.',
+} as const
+
 /** How long the agent's reply stays up after it stops speaking. */
 export const REPLY_HOLD_MS = 3000
 
@@ -53,8 +64,8 @@ export function lineFor(s: LineState): { text: string; italic: boolean } {
 
   if (s.playing) return { text: `Reading ¶${s.current + 1}/${s.total}`, italic: false }
 
-  // Idle. The last thing the agent said is better company than a hint.
-  if (s.lastAgentLine) return { text: s.lastAgentLine, italic: false }
+  // Idle. The reply has had its beat (the hold above); leaving it up forever made
+  // the bar a gravestone for the last thing said. The hint takes over instead.
   if (s.micState === 'notAsked') return { text: 'Tap the mic to talk to it', italic: false }
   if (s.micState === 'denied') return { text: 'Mic is off in Settings', italic: false }
   // The recognizer died three times in thirty seconds and the ear is off; the mic

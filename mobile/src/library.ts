@@ -141,11 +141,14 @@ export class LibraryService {
 
   // ---- per-document state ----
 
+  // `checks` is spread over the parsed state, not under it: a state written
+  // before fact checks were kept has no such field, and the caller should not
+  // have to know which version of the app wrote it.
   async docState(id: string): Promise<DocState> {
     const raw = await this.store.get(docKey(id))
     return raw
-      ? (JSON.parse(raw) as DocState)
-      : { position: 0, highlights: [], mergedRemote: [], updatedAt: 0 }
+      ? { checks: [], ...(JSON.parse(raw) as DocState) }
+      : { position: 0, highlights: [], mergedRemote: [], checks: [], updatedAt: 0 }
   }
 
   async saveDocState(id: string, state: DocState): Promise<void> {

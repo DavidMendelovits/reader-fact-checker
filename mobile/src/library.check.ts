@@ -216,12 +216,16 @@ assert.deepEqual(ids('sea', 1), ['seastories'], 'limit')
 
 // ---- per-document state ----
 {
-  assert.deepEqual(await service.docState('x'), { position: 0, highlights: [], mergedRemote: [], updatedAt: 0 })
-  const state: DocState = { position: 12, highlights: [highlight('p1', { anchor: { paragraph: 3, start: 0, end: 5 } })], mergedRemote: ['h1'], updatedAt: 0 }
+  assert.deepEqual(await service.docState('x'), { position: 0, highlights: [], mergedRemote: [], checks: [], updatedAt: 0 })
+  const state: DocState = { position: 12, highlights: [highlight('p1', { anchor: { paragraph: 3, start: 0, end: 5 } })], mergedRemote: ['h1'], checks: [], updatedAt: 0 }
   await service.saveDocState('x', state)
   assert.ok(state.updatedAt > 0, 'saving stamps the state')
   assert.deepEqual(await service.docState('x'), state)
-  assert.deepEqual(await service.docState('y'), { position: 0, highlights: [], mergedRemote: [], updatedAt: 0 })
+  assert.deepEqual(await service.docState('y'), { position: 0, highlights: [], mergedRemote: [], checks: [], updatedAt: 0 })
+
+  // a state written before checks were kept reads back with an empty list
+  await store.set('doc:z', JSON.stringify({ position: 3, highlights: [], mergedRemote: [], updatedAt: 7 }))
+  assert.deepEqual(await service.docState('z'), { position: 3, highlights: [], mergedRemote: [], checks: [], updatedAt: 7 })
 }
 
 // ---- newRemoteHighlights: Reader's highlights the phone hasn't seen ----

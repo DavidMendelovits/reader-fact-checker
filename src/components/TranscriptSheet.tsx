@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChatPanel } from './ChatPanel'
 import { FactCheckPanel } from './FactCheckPanel'
+import { Glyph } from './Glyph'
 
 // Under 900px the sidebar has nowhere to go, so it becomes this: a bottom sheet
 // the Composer's Transcript button opens, with the conversation and the checks as
@@ -89,7 +90,7 @@ export function TranscriptSheet({ onClose }: { onClose: () => void }) {
             Checks
           </button>
           <button className="sheet-close" aria-label="Close the transcript" onClick={onClose}>
-            ✕
+            <Glyph name="close" size={16} />
           </button>
         </div>
         <div className="sheet-body">{tab === 'chat' ? <ChatPanel /> : <FactCheckPanel />}</div>
