@@ -5,7 +5,7 @@
 // The priority is the whole design of the bar: one line, never two sources of
 // truth, and the user's own words ahead of anything the app wants to say.
 import assert from 'node:assert/strict'
-import { lineFor, type LineState } from './line.ts'
+import { COPY, lineFor, type LineState } from './line.ts'
 
 const base: LineState = {
   interim: '',
@@ -98,5 +98,14 @@ assert.deepEqual(at({ micState: 'denied', playing: true }), { text: 'Reading ¶1
 assert.deepEqual(at({ micState: 'restarting', playing: true }), { text: 'Reading ¶12/340', italic: false })
 assert.deepEqual(at({ micState: 'restarting', agentState: 'listening' }), { text: 'Listening', italic: false })
 assert.deepEqual(at({ micState: 'notAsked', agentState: 'thinking' }), { text: 'Thinking…', italic: false })
+
+// 8. the shared copy: nothing blank, and every empty state is a finished sentence
+// — these land in an empty panel, where a trailing fragment reads like a bug.
+// productName is a name, not a sentence, so it is held to the first rule only.
+for (const [key, text] of Object.entries(COPY)) assert.ok(text.length > 0, `COPY.${key}: empty`)
+for (const key of ['emptyTranscript', 'emptyChecks'] as const) {
+  assert.ok(/(\.|\?|\.\u2019)$/.test(COPY[key]), `COPY.${key}: does not end in '.', '?' or '.\u2019'`)
+}
+assert.equal(COPY.productName, 'readwithme')
 
 console.log('line: ok')

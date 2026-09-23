@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from '../store'
+import { COPY } from '../../shared/voice/line.ts'
 
 // History only. What the app is doing right now is the Composer's line — this used
 // to say it too, in its own words, and the two could disagree.
@@ -19,10 +20,7 @@ export function ChatPanel() {
       <h3>Conversation</h3>
       <div className="chat-log">
         {chat.length === 0 && (
-          <p className="hint">
-            Ask it to start reading, then just talk over it — “wait, is that true?”, “what does that
-            mean?”, “skip to chapter three”.
-          </p>
+          <p className="hint">{COPY.emptyTranscript}</p>
         )}
         {chat.map((m) => (
           <div key={m.id} className={`chat-msg ${m.role}`}>

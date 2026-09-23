@@ -24,6 +24,17 @@ export type LineState = {
   voiceLoading?: boolean
 }
 
+/**
+ * The words both apps say about themselves. The name was 'Reader' on the phone's
+ * library and 'readwithme' on the web's import screen, and the two empty states
+ * were written twice and agreed by luck. One place, one wording.
+ */
+export const COPY = {
+  productName: 'readwithme',
+  emptyTranscript: 'Nothing said yet. Tap the mic and ask about what you’re reading.',
+  emptyChecks: 'Nothing checked yet. Ask “is that true?” while it reads.',
+} as const
+
 /** How long the agent's reply stays up after it stops speaking. */
 export const REPLY_HOLD_MS = 3000
 

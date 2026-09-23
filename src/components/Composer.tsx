@@ -5,6 +5,7 @@ import { say } from '../lib/agent'
 import { voice } from '../lib/providers'
 import { readLevels } from '../lib/audio-levels'
 import { lineFor, MIC_LABEL, REPLY_HOLD_MS, type LineState } from '../../shared/voice/line.ts'
+import { Glyph } from './Glyph'
 
 // The one bar at the bottom of the app: mic · line · play/pause · transcript · keyboard.
 // It replaces the floating speaking pill, the chat panel's italic status line and the
@@ -97,7 +98,7 @@ export function Composer({ onOpenTranscript }: { onOpenTranscript: () => void })
   // 3s hold has run out (the line itself still shows the reply inside the hold).
   const held = lastAgentLineAt !== null && Date.now() - lastAgentLineAt <= REPLY_HOLD_MS
   const idleHint = !interim && agentState === 'idle' && !playing && !held
-  const text = !supported && idleHint ? 'Mic needs Chrome — tap ⌨ to type' : line.text
+  const text = !supported && idleHint ? 'Mic needs Chrome — type instead' : line.text
 
   // The ring around the mic breathes with what the mic hears. One rAF, one DOM
   // node, no React: this is 60 writes a second to a single custom property.
@@ -149,7 +150,7 @@ export function Composer({ onOpenTranscript }: { onOpenTranscript: () => void })
           onClick={onMic}
         >
           {/* the slash for denied/unsupported is drawn in CSS, over the glyph */}
-          <span aria-hidden="true">🎙</span>
+          <Glyph name="mic" />
         </button>
 
         {typing ? (
@@ -168,10 +169,10 @@ export function Composer({ onOpenTranscript }: { onOpenTranscript: () => void })
               placeholder="Type instead of talking…"
               onChange={(e) => setDraft(e.target.value)}
             />
-            {/* Collapses on send or on this ✕, never on blur — tapping the page
+            {/* Collapses on send or on this close, never on blur — tapping the page
                 mid-sentence should not throw the sentence away. */}
             <button type="button" className="composer-btn" aria-label="Close the text field" onClick={() => setTyping(false)}>
-              <span aria-hidden="true">✕</span>
+              <Glyph name="close" />
             </button>
           </form>
         ) : (
@@ -184,7 +185,7 @@ export function Composer({ onOpenTranscript }: { onOpenTranscript: () => void })
           title={playing ? 'Pause' : 'Play'}
           onClick={() => (playing ? pause() : play())}
         >
-          <span aria-hidden="true">{playing ? '⏸' : '▶'}</span>
+          <Glyph name={playing ? 'pause' : 'play'} />
         </button>
 
         <button className="composer-btn transcript" aria-label="Transcript" onClick={onOpenTranscript}>
@@ -198,7 +199,7 @@ export function Composer({ onOpenTranscript }: { onOpenTranscript: () => void })
             title="Type a message"
             onClick={() => setTyping(true)}
           >
-            <span aria-hidden="true">⌨</span>
+            <Glyph name="keyboard" />
           </button>
         )}
       </div>

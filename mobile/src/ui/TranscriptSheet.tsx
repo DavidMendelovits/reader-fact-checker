@@ -12,6 +12,7 @@ import {
   StyleSheet, Text, View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { COPY } from '../../../shared/voice/line'
 import { moveDocument } from '../session'
 import { useStore } from '../store'
 import { radius, space, type as type_, useTheme, type Theme } from '../theme'
@@ -26,8 +27,6 @@ const SHELVES: Location[] = ['new', 'later', 'archive']
 const DISMISS_DISTANCE = 80
 const LINES = 30
 
-// TODO(merge): COPY.emptyChecks
-const EMPTY_CHECKS = 'Nothing checked yet. Ask “is that true?” while it reads.'
 
 type Tab = 'chat' | 'checks'
 const TABS: { id: Tab; label: string }[] = [
@@ -140,7 +139,7 @@ export function TranscriptSheet({ onClose }: { onClose: () => void }) {
         {tab === 'chat' ? (
           <ScrollView style={s.log} contentContainerStyle={s.logContent} keyboardShouldPersistTaps="always">
             {lines.length === 0 ? (
-              <Text style={s.empty}>Nothing said yet.</Text>
+              <Text style={s.empty}>{COPY.emptyTranscript}</Text>
             ) : (
               lines.map((m) => (
                 <Text key={m.id} style={m.role === 'user' ? s.you : s.them}>
@@ -152,7 +151,7 @@ export function TranscriptSheet({ onClose }: { onClose: () => void }) {
         ) : (
           <ScrollView style={s.log} contentContainerStyle={s.logContent} keyboardShouldPersistTaps="always">
             {rows.length === 0 ? (
-              <Text style={s.empty}>{EMPTY_CHECKS}</Text>
+              <Text style={s.empty}>{COPY.emptyChecks}</Text>
             ) : (
               rows.map((c) => (
                 <Pressable
