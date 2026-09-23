@@ -2,7 +2,7 @@
 // yanked the list back (S5). Now a drag stops the following and this appears —
 // the one way back, and the only thing on screen that moves while you read.
 import { Pressable, StyleSheet, Text } from 'react-native'
-import { space, radius, type as type_, useTheme, type Theme } from '../theme'
+import { radius, size, space, useTheme, weight, type as type_, type Theme } from '../theme'
 import { BACK_TO_VOICE_RESERVE, useBottomInset } from './useBottomInset'
 
 export function BackToVoicePill({ onPress }: { onPress: () => void }) {
@@ -37,11 +37,11 @@ function build(theme: Theme) {
   return StyleSheet.create({
     pill: {
       position: 'absolute', alignSelf: 'center',
-      minHeight: 44, justifyContent: 'center',
+      minHeight: size.target, justifyContent: 'center',
       paddingHorizontal: space.lg,
       borderRadius: radius.pill,
       backgroundColor: theme.textPrimary,
     },
-    text: { ...type_.meta, color: theme.canvas, fontWeight: '600' },
+    text: { ...type_.meta, color: theme.canvas, fontWeight: weight.semibold },
   })
 }

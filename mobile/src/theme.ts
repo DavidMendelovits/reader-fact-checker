@@ -5,6 +5,12 @@ import { Platform, useColorScheme } from 'react-native'
 import { useSyncExternalStore } from 'react'
 // .ts extension: theme.check.ts loads this file in plain node, which needs it.
 import { saveTheme, type ThemePreference } from './settings.ts'
+import { radius, size, space, type as tokens, weight } from './tokens.ts'
+
+// The numbers live in tokens.ts, which imports nothing — the bookmark estimate
+// reads them too, and it runs outside react-native. Re-exported here so a
+// component still has one place to import from.
+export { radius, size, space, weight }
 
 export interface Theme {
   name: 'paper' | 'ink'
@@ -80,16 +86,13 @@ export const Ink: Theme = {
 }
 
 /** Reading is a built-in serif; chrome is the system face. */
-export const type = {
-  readingFamily: Platform.select({ ios: 'Georgia', default: 'serif' }),
-  body: { fontSize: 17, lineHeight: 27 },
-  heading: { fontSize: 22, lineHeight: 30, fontWeight: '600' },
-  ui: { fontSize: 15, lineHeight: 20 },
-  meta: { fontSize: 13, lineHeight: 18 },
-} as const
+const readingFamily = Platform.select({ ios: 'Georgia', default: 'serif' })
 
-export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24 } as const
-export const radius = { input: 8, card: 12, pill: 999 } as const
+/** The token roles, with the one platform-dependent field the serif needs. */
+export const type = {
+  ...tokens,
+  reading: { ...tokens.reading, fontFamily: readingFamily },
+} as const
 
 // The override lives here rather than in the zustand store: the store is the open
 // document, and the theme has to be readable before a document exists.

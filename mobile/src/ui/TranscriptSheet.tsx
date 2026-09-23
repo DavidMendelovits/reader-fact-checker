@@ -15,8 +15,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { COPY } from '../../../shared/voice/line'
 import { moveDocument } from '../session'
 import { useStore } from '../store'
-import { radius, space, type as type_, useTheme, type Theme } from '../theme'
+import { radius, size, space, useTheme, weight, type as type_, type Theme } from '../theme'
 import type { Check, Location } from '../types'
+import { Glyph } from './Glyph'
 import { choose, errorText } from './kit'
 import { COLUMN_MAX_WIDTH } from './layout'
 
@@ -107,7 +108,7 @@ export function TranscriptSheet({ onClose }: { onClose: () => void }) {
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
       <Pressable style={s.backdrop} accessibilityLabel="Close the transcript" onPress={onClose} />
       <View style={[s.sheet, { paddingBottom: insets.bottom + space.lg }]}>
-        <View style={s.grabArea} {...drag.panHandlers}>
+        <View testID="transcript-grab" style={s.grabArea} {...drag.panHandlers}>
           <View style={s.grab} />
         </View>
         <View style={s.headerRow}>
@@ -118,7 +119,7 @@ export function TranscriptSheet({ onClose }: { onClose: () => void }) {
             </Pressable>
           )}
           <Pressable role="button" accessibilityLabel="Close the transcript" style={s.close} onPress={onClose}>
-            <Text style={s.closeGlyph}>✕</Text>
+            <Glyph name="close" color={theme.accent} />
           </Pressable>
         </View>
         <View style={s.tabs}>
@@ -201,27 +202,26 @@ function build(theme: Theme) {
       maxWidth: COLUMN_MAX_WIDTH,
       alignSelf: 'center',
     },
-    grabArea: { height: 28, alignItems: 'center', justifyContent: 'center' },
-    grab: { width: 36, height: 4, borderRadius: radius.pill, backgroundColor: theme.hairline },
+    grabArea: { height: size.target, alignItems: 'center', justifyContent: 'center' },
+    grab: { width: size.grabBarWidth, height: size.grabBarHeight, borderRadius: radius.pill, backgroundColor: theme.hairline },
     headerRow: { flexDirection: 'row', alignItems: 'center', gap: space.md },
-    title: { ...type_.ui, fontWeight: '600', color: theme.textPrimary, flex: 1 },
+    title: { ...type_.ui, fontWeight: weight.semibold, color: theme.textPrimary, flex: 1 },
     pill: {
-      minHeight: 44, justifyContent: 'center', paddingHorizontal: space.md,
+      minHeight: size.target, justifyContent: 'center', paddingHorizontal: space.md,
       borderRadius: radius.pill, backgroundColor: theme.surfaceSecondary,
     },
-    pillText: { ...type_.meta, color: theme.accent, fontWeight: '600' },
-    close: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-    closeGlyph: { fontSize: 18, color: theme.accent },
+    pillText: { ...type_.meta, color: theme.accent, fontWeight: weight.semibold },
+    close: { width: size.target, height: size.target, alignItems: 'center', justifyContent: 'center' },
     tabs: {
       flexDirection: 'row', gap: space.xl, marginTop: space.sm,
       borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.hairline,
     },
-    tab: { minHeight: 44, justifyContent: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent', marginBottom: -1 },
+    tab: { minHeight: size.target, justifyContent: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent', marginBottom: -1 },
     tabOn: { borderBottomColor: theme.accent },
-    tabText: { ...type_.ui, color: theme.textTertiary, fontWeight: '600' },
+    tabText: { ...type_.ui, color: theme.textTertiary, fontWeight: weight.semibold },
     tabTextOn: { color: theme.textPrimary },
     checkRow: { gap: space.xs, paddingVertical: space.xs },
-    verdict: { ...type_.ui, fontWeight: '600', color: theme.textPrimary },
+    verdict: { ...type_.ui, fontWeight: weight.semibold, color: theme.textPrimary },
     claim: { ...type_.meta, color: theme.textSecondary },
     when: { ...type_.meta, color: theme.textTertiary },
     log: { marginTop: space.sm },

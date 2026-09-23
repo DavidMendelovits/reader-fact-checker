@@ -7,7 +7,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { closeDocument, highlightParagraph, removeHighlight } from '../session'
 import { useStore } from '../store'
-import { radius, space, type as type_, useTheme, type Theme } from '../theme'
+import { radius, size, space, useTheme, weight, type as type_, type Theme } from '../theme'
 import type { Highlight } from '../types'
 import { BackToVoicePill } from './BackToVoicePill'
 import { Composer } from './Composer'
@@ -133,14 +133,14 @@ function build(theme: Theme) {
       paddingHorizontal: space.lg, paddingBottom: space.md,
       borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.hairline,
     },
-    back: { minHeight: 44, justifyContent: 'center' },
-    link: { ...type_.ui, color: theme.accent, fontWeight: '600' },
-    title: { ...type_.ui, fontWeight: '600', color: theme.textPrimary, flex: 1, textAlign: 'center' },
+    back: { minHeight: size.target, justifyContent: 'center' },
+    link: { ...type_.ui, color: theme.accent, fontWeight: weight.semibold },
+    title: { ...type_.ui, fontWeight: weight.semibold, color: theme.textPrimary, flex: 1, textAlign: 'center' },
     pill: {
-      minHeight: 44, justifyContent: 'center', paddingHorizontal: space.md,
+      minHeight: size.target, justifyContent: 'center', paddingHorizontal: space.md,
       borderRadius: radius.pill, backgroundColor: theme.surfaceSecondary,
     },
-    pillText: { ...type_.meta, color: theme.accent, fontWeight: '600' },
+    pillText: { ...type_.meta, color: theme.accent, fontWeight: weight.semibold },
     empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.xl },
     emptyText: { ...type_.ui, color: theme.textTertiary },
   })

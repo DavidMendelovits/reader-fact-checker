@@ -5,7 +5,7 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { tts } from '../providers'
 import { useStore } from '../store'
-import { radius, space, type as type_, useTheme, type Theme } from '../theme'
+import { radius, size, space, useTheme, weight, type as type_, type Theme } from '../theme'
 import { COLUMN_MAX_WIDTH } from './layout'
 
 const SPEEDS = [0.8, 1, 1.2, 1.5, 2]
@@ -76,13 +76,13 @@ function build(theme: Theme) {
       maxWidth: COLUMN_MAX_WIDTH,
       alignSelf: 'center',
     },
-    title: { ...type_.ui, fontWeight: '600', color: theme.textPrimary, marginBottom: space.sm },
+    title: { ...type_.ui, fontWeight: weight.semibold, color: theme.textPrimary, marginBottom: space.sm },
     row: {
-      minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      minHeight: size.target, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
       borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.hairline,
     },
     rowText: { ...type_.ui, color: theme.textSecondary },
-    rowTextOn: { color: theme.textPrimary, fontWeight: '600' },
+    rowTextOn: { color: theme.textPrimary, fontWeight: weight.semibold },
     check: { ...type_.ui, color: theme.accent },
   })
 }

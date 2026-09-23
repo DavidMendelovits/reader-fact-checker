@@ -5,7 +5,7 @@ import { useEffect, useRef } from 'react'
 import { Animated, Pressable, StyleSheet, Text } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useStore } from '../store'
-import { radius, space, type as type_, useTheme, type Theme } from '../theme'
+import { radius, size, space, useTheme, type as type_, type Theme } from '../theme'
 import { motion, useReducedMotion } from './kit'
 import { COLUMN_MAX_WIDTH } from './layout'
 
@@ -72,7 +72,7 @@ function build(theme: Theme) {
     },
     toast: {
       backgroundColor: theme.textPrimary, borderRadius: radius.card,
-      padding: space.md, minHeight: 44, justifyContent: 'center',
+      padding: space.md, minHeight: size.target, justifyContent: 'center',
     },
     text: { ...type_.ui, color: theme.canvas },
   })

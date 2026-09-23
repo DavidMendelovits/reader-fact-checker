@@ -16,7 +16,7 @@ import { GLYPHS } from '../../../shared/voice/glyphs'
 import { lineFor, MIC_LABEL, REPLY_HOLD_MS } from '../../../shared/voice/line'
 import { pause, play, say, setMicEnabled } from '../agent'
 import { voice } from '../providers'
-import { radius, space, type as type_, useTheme, type Theme } from '../theme'
+import { radius, size, space, useTheme, type as type_, type Theme } from '../theme'
 import { useStore, type MicState } from '../store'
 import { Glyph, MIC_SLASH, type GlyphName } from './Glyph'
 import { announce, motion, tick, useReducedMotion } from './kit'
@@ -29,7 +29,7 @@ const DRIVES_THE_EAR = __DEV__ || !!process.env.EXPO_PUBLIC_SILENT_VOICE
 
 /** The bar's own height, before the safe-area inset under it (1.1A). */
 const BAR = 60
-const TARGET = 44
+const TARGET = size.target
 
 const AGENT_ANNOUNCEMENT: Record<string, string> = {
   listening: 'Listening',
@@ -310,11 +310,10 @@ function build(theme: Theme) {
       borderRadius: radius.input,
       backgroundColor: theme.surfaceSecondary,
       color: theme.textPrimary,
-      // 16, not the UI 15: anything smaller and mobile Safari zooms on focus.
-      fontSize: 16,
+      ...type_.input,
     },
     micCircle: {
-      width: 36, height: 36, borderRadius: radius.pill,
+      width: size.micCircle, height: size.micCircle, borderRadius: radius.pill,
       alignItems: 'center', justifyContent: 'center',
       borderWidth: 1, borderColor: theme.hairline,
     },

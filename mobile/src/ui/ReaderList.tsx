@@ -18,7 +18,7 @@ import {
 } from 'react-native'
 import { splitRuns } from '../highlights'
 import { useStore } from '../store'
-import { space, type as type_, useTheme, type Theme } from '../theme'
+import { space, useTheme, type as type_, type Theme } from '../theme'
 import type { FlatParagraph, Highlight } from '../types'
 import { motion, useReducedMotion } from './kit'
 import { COLUMN_MAX_WIDTH, estimateHeight, heightAt, offsetsFrom } from './layout'
@@ -454,7 +454,7 @@ function styles(theme: Theme) {
 function build(theme: Theme) {
   return StyleSheet.create({
     row: { paddingHorizontal: space.xl, paddingVertical: space.sm },
-    paragraph: { fontFamily: type_.readingFamily, ...type_.body, color: theme.textSecondary },
+    paragraph: { ...type_.reading, color: theme.textSecondary },
     heading: {
       ...type_.heading, color: theme.textPrimary,
       paddingTop: space.xxl, paddingBottom: space.xxl,

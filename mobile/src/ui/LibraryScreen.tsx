@@ -11,7 +11,7 @@ import { COPY } from '../../../shared/voice/line'
 import { library, openDocument, refreshLibrary } from '../session'
 import { openingTurn } from '../agent'
 import { useStore } from '../store'
-import { radius, space, type as type_, useTheme, type Theme } from '../theme'
+import { radius, size, space, useTheme, weight, type as type_, type Theme } from '../theme'
 import type { LibraryDoc, Location } from '../types'
 import { Composer } from './Composer'
 import { errorText, motion, useReducedMotion } from './kit'
@@ -260,44 +260,44 @@ function build(theme: Theme) {
       flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
       paddingHorizontal: space.lg, paddingBottom: space.md, gap: space.md,
     },
-    h1: { fontSize: 24, lineHeight: 30, fontWeight: '700', color: theme.textPrimary },
-    headerButton: { minHeight: 44, justifyContent: 'center' },
-    link: { ...type_.ui, color: theme.accent, fontWeight: '600' },
+    h1: { ...type_.title, color: theme.textPrimary },
+    headerButton: { minHeight: size.target, justifyContent: 'center' },
+    link: { ...type_.ui, color: theme.accent, fontWeight: weight.semibold },
     tabs: {
       flexDirection: 'row', paddingHorizontal: space.lg, gap: space.xl,
       borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.hairline,
     },
-    tab: { minHeight: 44, justifyContent: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent', marginBottom: -1 },
+    tab: { minHeight: size.target, justifyContent: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent', marginBottom: -1 },
     tabOn: { borderBottomColor: theme.accent },
-    tabText: { ...type_.ui, color: theme.textTertiary, fontWeight: '600' },
+    tabText: { ...type_.ui, color: theme.textTertiary, fontWeight: weight.semibold },
     tabTextOn: { color: theme.textPrimary },
     hairline: { height: 2 },
     search: {
       marginHorizontal: space.lg, marginVertical: space.md,
       width: '100%', maxWidth: COLUMN_MAX_WIDTH - space.lg * 2, alignSelf: 'center',
-      paddingHorizontal: space.md, height: 44,
+      paddingHorizontal: space.md, height: size.target,
       borderRadius: radius.input, backgroundColor: theme.surfaceSecondary,
-      fontSize: 16, color: theme.textPrimary,
+      ...type_.input, color: theme.textPrimary,
     },
     list: { width: '100%', maxWidth: COLUMN_MAX_WIDTH, alignSelf: 'center' },
     row: {
       flexDirection: 'row', alignItems: 'center', gap: space.md,
-      paddingHorizontal: space.lg, paddingVertical: space.md, minHeight: 56,
+      paddingHorizontal: space.lg, paddingVertical: space.md, minHeight: size.row,
       borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.hairline,
     },
     rowText: { flex: 1 },
-    rowTitle: { fontSize: 16, lineHeight: 22, fontWeight: '500', color: theme.textPrimary },
+    rowTitle: { ...type_.row, color: theme.textPrimary },
     rowMeta: { ...type_.meta, color: theme.textTertiary, marginTop: space.xs / 2 },
-    chevron: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-    chevronGlyph: { fontSize: 20, color: theme.textTertiary },
+    chevron: { width: size.target, height: size.target, alignItems: 'center', justifyContent: 'center' },
+    chevronGlyph: { ...type_.chevron, color: theme.textTertiary },
     empty: { ...type_.ui, color: theme.textTertiary, padding: space.xl },
     emptyBlock: { alignItems: 'flex-start', paddingHorizontal: space.lg },
     skeletons: { paddingHorizontal: space.lg, gap: space.md, paddingTop: space.sm },
     skeletonRow: {
-      minHeight: 56, justifyContent: 'center', gap: space.sm,
+      minHeight: size.row, justifyContent: 'center', gap: space.sm,
       borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.hairline,
     },
-    skeletonTitle: { height: 14, width: '70%', borderRadius: radius.input, backgroundColor: theme.surfaceSecondary },
-    skeletonMeta: { height: 10, width: '40%', borderRadius: radius.input, backgroundColor: theme.surfaceSecondary, marginBottom: space.md },
+    skeletonTitle: { height: size.skeletonTitle, width: '70%', borderRadius: radius.input, backgroundColor: theme.surfaceSecondary },
+    skeletonMeta: { height: size.skeletonMeta, width: '40%', borderRadius: radius.input, backgroundColor: theme.surfaceSecondary, marginBottom: space.md },
   })
 }

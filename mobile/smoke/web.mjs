@@ -188,6 +188,7 @@ assert.ok(wire.some((w) => w === 'PATCH /api/v3/update/doc-sea/'), 'moved in Rea
 // filing moved into the transcript sheet (1.2A)
 await page.getByTestId('composer-transcript').click()
 await page.getByRole('button', { name: /Filed in Archive/ }).waitFor()
+assert.ok((await page.getByTestId('transcript-grab').boundingBox())?.height >= 44, 'grab area is a 44pt target')
 await page.getByRole('button', { name: 'Close the transcript' }).last().click()
 await sayIt('back to the library', 2000)
 await page.getByRole('button', { name: 'Inbox' }).waitFor()
