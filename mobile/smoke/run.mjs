@@ -26,7 +26,7 @@ const env = {
 }
 
 console.log('exporting the web build…')
-const exp = spawnSync('npx', ['expo', 'export', '--platform', 'web', '--output-dir', dist], { cwd: root, env, stdio: 'inherit' })
+const exp = spawnSync('npx', ['expo', 'export', '--platform', 'web', '--clear', '--output-dir', dist], { cwd: root, env, stdio: 'inherit' })
 if (exp.status !== 0) process.exit(exp.status ?? 1)
 
 const backend = spawn(process.execPath, [join(root, 'smoke', 'fake-backend.mjs')], { env: { ...process.env, PORT: String(BACKEND) }, stdio: ['ignore', 'ignore', 'inherit'] })

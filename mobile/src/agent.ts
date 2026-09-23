@@ -163,7 +163,7 @@ async function factCheck(input: Record<string, unknown>): Promise<string> {
   // worth having, but speaking a verdict over the library — and filing it under
   // whatever is open now — is not.
   if (!ownerDocId || useStore.getState().doc?.id !== ownerDocId) {
-    return `[Already read aloud to the user, verbatim: "${r.spokenSummary}". Add nothing unless the user asked something this does not answer.]`
+    return `[Shown in the transcript, not spoken: the reader had moved to another document before the check returned. Verdict: "${r.spokenSummary}". Do not repeat it unless asked.]`
   }
   const check: Check = {
     id: newId(),
@@ -176,7 +176,7 @@ async function factCheck(input: Record<string, unknown>): Promise<string> {
     createdAt: Date.now(),
   }
   recordCheck(ownerDocId, check)
-  useStore.setState({ agentState: 'speaking' })
+  useStore.getState().setAgentState('speaking')
   await tts.speak(r.spokenSummary)
   return `[Already read aloud to the user, verbatim: "${r.spokenSummary}". Add nothing unless the user asked something this does not answer.]`
 }
