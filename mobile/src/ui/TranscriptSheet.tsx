@@ -7,6 +7,7 @@ import {
   StyleSheet, Text, View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { COPY } from '../../../shared/voice/line'
 import { moveDocument } from '../session'
 import { useStore } from '../store'
 import { radius, space, type as type_, useTheme, type Theme } from '../theme'
@@ -82,7 +83,7 @@ export function TranscriptSheet({ onClose }: { onClose: () => void }) {
         </View>
         <ScrollView style={s.log} contentContainerStyle={s.logContent} keyboardShouldPersistTaps="always">
           {lines.length === 0 ? (
-            <Text style={s.empty}>Nothing said yet.</Text>
+            <Text style={s.empty}>{COPY.emptyTranscript}</Text>
           ) : (
             lines.map((m) => (
               <Text key={m.id} style={m.role === 'user' ? s.you : s.them}>
