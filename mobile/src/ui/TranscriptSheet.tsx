@@ -1,7 +1,12 @@
 // The conversation, when you want it. The Composer shows one line; this is the
 // last thirty, plus — when a document is open — the one control that used to
 // live in the reader's header: what shelf it is filed on (1.2A).
-import { useEffect, useRef } from 'react'
+//
+// And the second tab: every fact check asked about this document, newest first.
+// A check is the one thing the voice produces that is worth having in writing —
+// a verdict spoken once, over a book, is gone — so it is kept with the document
+// and tapping it takes the reader back to the passage it was about.
+import { useEffect, useRef, useState } from 'react'
 import {
   AccessibilityInfo, findNodeHandle, Modal, PanResponder, Platform, Pressable, ScrollView,
   StyleSheet, Text, View,
@@ -10,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { moveDocument } from '../session'
 import { useStore } from '../store'
 import { radius, space, type as type_, useTheme, type Theme } from '../theme'
-import type { Location } from '../types'
+import type { Check, Location } from '../types'
 import { choose, errorText } from './kit'
 import { COLUMN_MAX_WIDTH } from './layout'
 
@@ -21,13 +26,41 @@ const SHELVES: Location[] = ['new', 'later', 'archive']
 const DISMISS_DISTANCE = 80
 const LINES = 30
 
+// TODO(merge): COPY.emptyChecks
+const EMPTY_CHECKS = 'Nothing checked yet. Ask “is that true?” while it reads.'
+
+type Tab = 'chat' | 'checks'
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'chat', label: 'Conversation' },
+  { id: 'checks', label: 'Checks' },
+]
+
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+
+/**
+ * How long ago, in the few words a glance needs. Anything older than yesterday
+ * is just "yesterday": a check from last week is still a check, and the date
+ * would be more precision than the row is worth.
+ */
+export function relativeTime(at: number, now: number): string {
+  const ago = Math.max(0, now - at)
+  if (ago < MINUTE) return 'just now'
+  if (ago < HOUR) return `${Math.floor(ago / MINUTE)} min ago`
+  if (ago < DAY) return `${Math.floor(ago / HOUR)} h ago`
+  return 'yesterday'
+}
+
 export function TranscriptSheet({ onClose }: { onClose: () => void }) {
   const theme = useTheme()
   const s = styles(theme)
   const insets = useSafeAreaInsets()
   const chat = useStore((st) => st.chat)
+  const checks = useStore((st) => st.checks)
   const libraryDoc = useStore((st) => st.libraryDoc)
   const title = useRef<Text>(null)
+  const [tab, setTab] = useState<Tab>('chat')
 
   // VoiceOver lands inside the sheet rather than staying on the bar behind it.
   // The web has no node handles; a browser's own focus order is enough there.
@@ -61,6 +94,15 @@ export function TranscriptSheet({ onClose }: { onClose: () => void }) {
   }
 
   const lines = chat.slice(-LINES)
+  // newest first: the check you just asked for is the one you came here to read
+  const rows = [...checks].reverse()
+  const now = Date.now()
+
+  const goTo = (c: Check) => {
+    if (c.anchor === null) return
+    useStore.getState().requestJump(c.anchor)
+    onClose()
+  }
 
   return (
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
@@ -80,17 +122,56 @@ export function TranscriptSheet({ onClose }: { onClose: () => void }) {
             <Text style={s.closeGlyph}>✕</Text>
           </Pressable>
         </View>
-        <ScrollView style={s.log} contentContainerStyle={s.logContent} keyboardShouldPersistTaps="always">
-          {lines.length === 0 ? (
-            <Text style={s.empty}>Nothing said yet.</Text>
-          ) : (
-            lines.map((m) => (
-              <Text key={m.id} style={m.role === 'user' ? s.you : s.them}>
-                {m.role === 'user' ? 'You: ' : ''}{m.text}
-              </Text>
-            ))
-          )}
-        </ScrollView>
+        <View style={s.tabs}>
+          {TABS.map((t) => (
+            <Pressable
+              key={t.id}
+              testID={`transcript-tab-${t.id}`}
+              accessibilityRole="tab"
+              accessibilityLabel={t.label}
+              accessibilityState={{ selected: t.id === tab }}
+              style={[s.tab, t.id === tab && s.tabOn]}
+              onPress={() => setTab(t.id)}
+            >
+              <Text style={[s.tabText, t.id === tab && s.tabTextOn]}>{t.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+        {tab === 'chat' ? (
+          <ScrollView style={s.log} contentContainerStyle={s.logContent} keyboardShouldPersistTaps="always">
+            {lines.length === 0 ? (
+              <Text style={s.empty}>Nothing said yet.</Text>
+            ) : (
+              lines.map((m) => (
+                <Text key={m.id} style={m.role === 'user' ? s.you : s.them}>
+                  {m.role === 'user' ? 'You: ' : ''}{m.text}
+                </Text>
+              ))
+            )}
+          </ScrollView>
+        ) : (
+          <ScrollView style={s.log} contentContainerStyle={s.logContent} keyboardShouldPersistTaps="always">
+            {rows.length === 0 ? (
+              <Text style={s.empty}>{EMPTY_CHECKS}</Text>
+            ) : (
+              rows.map((c) => (
+                <Pressable
+                  key={c.id}
+                  testID="check-row"
+                  role="button"
+                  disabled={c.anchor === null}
+                  accessibilityLabel={`${c.verdict}. ${c.claim}.${c.anchor === null ? '' : ' Go to the passage.'}`}
+                  style={s.checkRow}
+                  onPress={() => goTo(c)}
+                >
+                  <Text style={s.verdict}>{c.verdict}</Text>
+                  <Text style={s.claim} numberOfLines={2}>{c.claim}</Text>
+                  <Text style={s.when}>{relativeTime(c.createdAt, now)}</Text>
+                </Pressable>
+              ))
+            )}
+          </ScrollView>
+        )}
       </View>
     </Modal>
   )
@@ -132,6 +213,18 @@ function build(theme: Theme) {
     pillText: { ...type_.meta, color: theme.accent, fontWeight: '600' },
     close: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
     closeGlyph: { fontSize: 18, color: theme.accent },
+    tabs: {
+      flexDirection: 'row', gap: space.xl, marginTop: space.sm,
+      borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.hairline,
+    },
+    tab: { minHeight: 44, justifyContent: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent', marginBottom: -1 },
+    tabOn: { borderBottomColor: theme.accent },
+    tabText: { ...type_.ui, color: theme.textTertiary, fontWeight: '600' },
+    tabTextOn: { color: theme.textPrimary },
+    checkRow: { gap: space.xs, paddingVertical: space.xs },
+    verdict: { ...type_.ui, fontWeight: '600', color: theme.textPrimary },
+    claim: { ...type_.meta, color: theme.textSecondary },
+    when: { ...type_.meta, color: theme.textTertiary },
     log: { marginTop: space.sm },
     logContent: { gap: space.md, paddingVertical: space.md },
     you: { ...type_.ui, color: theme.textSecondary },

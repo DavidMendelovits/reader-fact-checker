@@ -7,7 +7,7 @@
 // conversation outlives the document, so clearDoc keeps the chat.
 import assert from 'node:assert/strict'
 import { useStore } from './store.ts'
-import type { LibraryDoc } from './types.ts'
+import type { Check, LibraryDoc } from './types.ts'
 
 const doc = { id: 'd', title: 'T', source: 's', chapters: [{ title: 'One', paragraphs: ['a', 'b', 'c'] }] }
 const libraryDoc: LibraryDoc = {
@@ -40,11 +40,11 @@ const libraryDoc: LibraryDoc = {
 // clears the line and goes back to the library
 {
   const s = useStore.getState()
-  s.setDoc(doc, libraryDoc, 99, [])
+  s.setDoc(doc, libraryDoc, 99, [], [])
   assert.equal(useStore.getState().currentParagraph, 2, 'a bookmark past the end lands on the last paragraph')
   assert.equal(useStore.getState().screen, 'reader')
   assert.equal(useStore.getState().playing, false)
-  s.setDoc(doc, libraryDoc, -5, [])
+  s.setDoc(doc, libraryDoc, -5, [], [])
   assert.equal(useStore.getState().currentParagraph, 0, 'and one before the start lands on the first')
 
   s.pushChat({ id: 'a2', role: 'assistant', text: 'Reading.' })
@@ -88,6 +88,59 @@ const libraryDoc: LibraryDoc = {
   s.setAgentState('speaking')
   s.setAgentState('idle')
   assert.equal(useStore.getState().lastAgentLineAt, null, 'no line, no timestamp')
+}
+
+// ---- the checks a document keeps ----
+const check = (id: string, over: Partial<Check> = {}): Check => ({
+  id, claim: `claim ${id}`, verdict: 'Mostly true', summary: 'Checks out.', sources: [],
+  anchorText: 'He was an old man', anchor: 3, createdAt: 1, ...over,
+})
+
+{
+  const s = useStore.getState()
+  s.setDoc(doc, libraryDoc, 0, [], [])
+  assert.deepEqual(useStore.getState().checks, [], 'a fresh open has no checks')
+
+  s.addCheck('d', check('c1'))
+  s.addCheck('d', check('c2'))
+  assert.deepEqual(useStore.getState().checks.map((c) => c.id), ['c1', 'c2'], 'checks append, oldest first')
+
+  // a check that came back after the reader moved on belongs to a closed book
+  s.addCheck('other', check('c3'))
+  assert.deepEqual(useStore.getState().checks.map((c) => c.id), ['c1', 'c2'], 'a stale docId is ignored')
+
+  // the cap drops the oldest, not the newest
+  for (let i = 0; i < 60; i++) s.addCheck('d', check(`n${i}`))
+  const kept = useStore.getState().checks
+  assert.equal(kept.length, 50, 'fifty is the ceiling')
+  assert.equal(kept[0].id, 'n10', 'the oldest fell off')
+  assert.equal(kept[49].id, 'n59', 'the newest is still there')
+
+  s.clearDoc()
+  assert.deepEqual(useStore.getState().checks, [], 'closing the document clears its checks')
+
+  // and the saved ones come back with the document
+  s.setDoc(doc, libraryDoc, 0, [], [check('saved')])
+  assert.deepEqual(useStore.getState().checks.map((c) => c.id), ['saved'], 'setDoc loads the saved checks')
+  s.clearDoc()
+}
+
+// ---- the jump a check's row asks for ----
+{
+  const s = useStore.getState()
+  assert.equal(useStore.getState().pendingJump, null)
+  s.requestJump(7)
+  assert.equal(useStore.getState().pendingJump, 7)
+  s.requestJump(null)
+  assert.equal(useStore.getState().pendingJump, null, 'the list puts it back once it has scrolled')
+
+  // opening and closing a document never leaves one pending
+  s.requestJump(4)
+  s.setDoc(doc, libraryDoc, 0, [], [])
+  assert.equal(useStore.getState().pendingJump, null)
+  s.requestJump(4)
+  s.clearDoc()
+  assert.equal(useStore.getState().pendingJump, null)
 }
 
 console.log('store.check.ts: ok')

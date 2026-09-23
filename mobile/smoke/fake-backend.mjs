@@ -57,6 +57,10 @@ let nextHighlightId = 1000
 // POST whose kept-alive connection dies, so failing once is not failing at all.
 let failList = false
 let failAgent = false
+// GET /__slow?factcheck=1 arms one slow fact check: the next /api/factcheck takes
+// 1.5s to answer. That is the only way to be standing in the library when a check
+// comes back, which is what the ownership guard is about.
+let slowFactCheck = false
 
 function json(res, status, body) {
   res.writeHead(status, { 'Content-Type': 'application/json' })
@@ -77,6 +81,9 @@ function agentReply(messages, context) {
   if (t.startsWith('[result:') && t.includes('[doc-sea]') && !t.includes('opened')) return reply('Opening The Old Man and the Sea.', { name: 'open_document', input: { id: 'doc-sea' } })
   if (t.startsWith('[result:') && t.includes('opened "the old man')) return reply('Picking up where you left off.', { name: 'read_aloud', input: {} })
   if (t.includes('[the reader opened')) return reply('', { name: 'read_aloud', input: {} })
+  // the verdict is spoken by the tool itself, so the turn it comes back on adds nothing
+  if (t.startsWith('[result:') && t.includes('already read aloud')) return reply('')
+  if (t.includes('is that true')) return reply('', { name: 'fact_check', input: { claim: context.nearbyText.split('\n\n').find((l) => l.startsWith(`[${context.currentParagraph}]`))?.replace(/^\[\d+\] /, '') ?? 'he fished alone' } })
   if (t.includes('highlight that')) return reply('Highlighted.', { name: 'highlight', input: { text: context.nearbyText.split('\n\n').find((l) => l.startsWith(`[${context.currentParagraph}]`))?.replace(/^\[\d+\] /, '') ?? 'skiff', note: t.includes('note') ? 'for the talk' : undefined, anchor: context.currentParagraph } })
   if (t.includes('archive')) return reply('Archived.', { name: 'move_document', input: { location: 'archive' } })
   if (t.includes('what have i highlighted')) return reply('', { name: 'list_highlights', input: {} })
@@ -134,6 +141,10 @@ http.createServer(async (req, res) => {
     if (url.searchParams.has('agent')) failAgent = url.searchParams.get('agent') === '1'
     return json(res, 200, { failList, failAgent })
   }
+  if (url.pathname === '/__slow') {
+    if (url.searchParams.has('factcheck')) slowFactCheck = url.searchParams.get('factcheck') === '1'
+    return json(res, 200, { slowFactCheck })
+  }
 
   // Reader v3
   if (url.pathname === '/api/v3/list/') {
@@ -169,8 +180,18 @@ http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/navigate' && req.method === 'POST') return json(res, 200, navigateReply(JSON.parse(body)))
   if (url.pathname === '/api/factcheck' && req.method === 'POST') {
+    if (slowFactCheck) {
+      slowFactCheck = false // armed for one call: the guard, and nothing after it
+      await new Promise((r) => setTimeout(r, 1500))
+    }
     res.writeHead(200, { 'Content-Type': 'application/x-ndjson' })
-    res.write(JSON.stringify({ type: 'done', result: { verdict: 'accurate', summary: 'Checks out.', spokenSummary: 'That checks out.', sources: [] } }) + '\n')
+    res.write(JSON.stringify({ type: 'delta', text: 'Mostly' }) + '\n')
+    res.write(JSON.stringify({ type: 'done', result: {
+      verdict: 'Mostly true',
+      summary: 'He did fish alone.',
+      spokenSummary: 'Mostly true: he did fish alone.',
+      sources: [{ title: 'Hemingway', url: 'https://example.com/h' }],
+    } }) + '\n')
     return res.end()
   }
   json(res, 404, { error: `no route ${req.method} ${url.pathname}` })

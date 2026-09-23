@@ -43,6 +43,8 @@ page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
 
 /** Turn one of the backend's failure switches on or off (`list=1`, `agent=1`). */
 const failNext = (query) => fetch(`${BACKEND}/__fail?${query}`)
+/** Arm one slow answer (`factcheck=1`), so a round trip can outlive the book it was about. */
+const slowNext = (query) => fetch(`${BACKEND}/__slow?${query}`)
 
 // ---- the Composer ----
 // The bar collapses after every send, so the glyph is tapped before each line.
@@ -210,7 +212,11 @@ assert.ok(await inTheViewport(currentRow), `the voice's paragraph (¶${bookmark}
 step(`reopen resumes at the saved position (¶${bookmark}/22), row already on screen`)
 // ---- follow-the-voice: a drag takes the list, the pill hands it back (S5) ----
 await page.mouse.move(VIEWPORT.width / 2, VIEWPORT.height / 2)
-await page.mouse.wheel(0, 2500) // the reader scrolls away; the voice reads on without them
+// The reader scrolls back over what has been read; the voice reads on without
+// them. Back rather than forward because the bookmark can be near the end of the
+// book by now, where there is nothing below to scroll to and the voice never
+// leaves the screen.
+await page.mouse.wheel(0, -2500)
 const pill = page.getByTestId('back-to-voice')
 await pill.waitFor({ timeout: 5000 })
 await pill.click()
@@ -222,6 +228,56 @@ step('a scroll away raises the pill; the pill hands the list back to the voice')
 
 // the failed open is in the history the model saw on that reopen
 assert.ok(modelHeard('already did this: Could not open that') && modelHeard('no readable text'), 'the model was told why the PDF did not open')
+
+// ---- fact checks: kept with the book, and a way back to the passage (T4) ----
+const checkRows = page.getByTestId('check-row')
+const openChecks = async () => {
+  await page.getByTestId('composer-transcript').click()
+  await page.getByTestId('transcript-tab-checks').click()
+}
+const closeSheet = () => page.getByRole('button', { name: 'Close the transcript' }).last().click()
+
+// back to the first chapter first: the check is anchored where the voice is when
+// it is asked, and the point of the tap is to go back to a passage the voice has
+// since left behind.
+await sayIt('skip to chapter one', 4500)
+await sayIt('>is that true', 4000)
+await openChecks()
+await checkRows.first().waitFor({ timeout: 5000 })
+assert.equal(await checkRows.count(), 1, 'one check, not one per line of the answer')
+assert.match(await checkRows.first().innerText(), /Mostly true/, 'the verdict leads the row')
+await closeSheet()
+
+// it is saved with the document, so it is still there after the app restarts
+await page.waitForTimeout(1200) // the save is debounced
+await page.reload()
+await page.getByPlaceholder('Search your library').waitFor({ timeout: 20000 })
+await sayIt('open the hemingway book', 4000)
+await page.getByText('Chapter 1: The Harbour').waitFor()
+await openChecks()
+await checkRows.first().waitFor({ timeout: 5000 })
+assert.match(await checkRows.first().innerText(), /Mostly true/, 'the check came back with the book')
+
+// the voice reads on behind the sheet; tapping the row goes back to the passage
+// it was about, which leaves the voice somewhere else — hence the pill
+await page.waitForTimeout(6000)
+await checkRows.first().click()
+await page.getByTestId('transcript-tab-checks').waitFor({ state: 'detached', timeout: 4000 })
+await page.getByTestId('back-to-voice').waitFor({ timeout: 8000 })
+step('a fact check lands in the Checks tab, survives a restart, and jumps back to its passage')
+
+// ---- and it belongs to the book it was asked about, not to the next one ----
+await slowNext('factcheck=1') // one check slow enough to outlive the book
+await typeIt('>is that true')
+await sayIt('>back to the library', 4000)
+await page.getByRole('button', { name: 'Inbox' }).waitFor()
+await sayIt('read the sleep article', 4000)
+await page.getByText('Sleep is not a luxury', { exact: false }).first().waitFor()
+await openChecks()
+await page.getByText('Nothing checked yet', { exact: false }).waitFor({ timeout: 4000 })
+assert.equal(await checkRows.count(), 0, 'the check did not follow the reader into the next book')
+await closeSheet()
+step('a check that comes back after the book was closed is not filed under the next one')
 
 // ---- the keyboard: the field is above the keyboard, not under it (K1/6.2A) ----
 await page.getByTestId('composer-keyboard').click()

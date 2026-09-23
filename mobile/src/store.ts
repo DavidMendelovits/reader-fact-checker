@@ -2,7 +2,10 @@
 // tab, what's being searched) and the open document (text, position, playback,
 // the conversation, the highlights). `screen` says which is on show.
 import { create } from 'zustand'
-import type { ChatMessage, Doc, FlatParagraph, Highlight, LibraryDoc, Location } from './types'
+import type { ChatMessage, Check, Doc, FlatParagraph, Highlight, LibraryDoc, Location } from './types'
+
+/** How many fact checks one document keeps. The oldest fall off the end. */
+const MAX_CHECKS = 50
 
 export type Screen = 'library' | 'reader' | 'settings'
 export type AgentState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'reading'
@@ -51,6 +54,13 @@ interface State {
    */
   voiceLoading: boolean
   highlights: Highlight[]
+  /** The fact checks asked about the open document, oldest first. */
+  checks: Check[]
+  /**
+   * A paragraph the reader asked to be taken to — tapping a check's row. The
+   * list scrolls there and puts it back to null; nothing else reads it.
+   */
+  pendingJump: number | null
   notice: string | null
 
   setScreen: (screen: Screen) => void
@@ -60,7 +70,7 @@ interface State {
   setSyncing: (syncing: boolean) => void
   setSyncError: (at: number | null) => void
 
-  setDoc: (doc: Doc, libraryDoc: LibraryDoc, position: number, highlights: Highlight[]) => void
+  setDoc: (doc: Doc, libraryDoc: LibraryDoc, position: number, highlights: Highlight[], checks: Check[]) => void
   clearDoc: () => void
   setCurrentParagraph: (i: number) => void
   setRate: (r: number) => void
@@ -72,6 +82,9 @@ interface State {
   setVoiceLoading: (loading: boolean) => void
   updateChat: (id: string, patch: Partial<ChatMessage>) => void
   setHighlights: (highlights: Highlight[]) => void
+  /** Append a check to the document it was asked about, and only that one. */
+  addCheck: (docId: string, check: Check) => void
+  requestJump: (index: number | null) => void
   setNotice: (n: string | null) => void
 }
 
@@ -110,6 +123,8 @@ export const useStore = create<State>((set) => ({
   interim: '',
   voiceLoading: false,
   highlights: [],
+  checks: [],
+  pendingJump: null,
   notice: null,
 
   setScreen: (screen) => set({ screen }),
@@ -119,7 +134,7 @@ export const useStore = create<State>((set) => ({
   setSyncing: (syncing) => set({ syncing }),
   setSyncError: (syncError) => set({ syncError }),
 
-  setDoc: (doc, libraryDoc, position, highlights) => {
+  setDoc: (doc, libraryDoc, position, highlights, checks) => {
     const paragraphs = flatten(doc)
     set({
       doc,
@@ -128,11 +143,13 @@ export const useStore = create<State>((set) => ({
       currentParagraph: Math.max(0, Math.min(position, paragraphs.length - 1)),
       playing: false,
       highlights,
+      checks,
+      pendingJump: null,
       screen: 'reader',
     })
   },
   clearDoc: () =>
-    set({ doc: null, libraryDoc: null, paragraphs: [], currentParagraph: 0, playing: false, highlights: [], screen: 'library', lastAgentLine: null, lastAgentLineAt: null }),
+    set({ doc: null, libraryDoc: null, paragraphs: [], currentParagraph: 0, playing: false, highlights: [], checks: [], pendingJump: null, screen: 'library', lastAgentLine: null, lastAgentLineAt: null }),
   setCurrentParagraph: (currentParagraph) => set({ currentParagraph }),
   setRate: (rate) => set({ rate }),
   setMicEnabled: (micEnabled) => set({ micEnabled }),
@@ -162,5 +179,10 @@ export const useStore = create<State>((set) => ({
   updateChat: (id, patch) =>
     set((s) => ({ chat: s.chat.map((m) => (m.id === id ? { ...m, ...patch } : m)) })),
   setHighlights: (highlights) => set({ highlights }),
+  // A check that comes back after the reader has moved on belongs to a book that
+  // is no longer open: it is dropped here rather than landing in the wrong book.
+  addCheck: (docId, check) =>
+    set((s) => (s.doc?.id === docId ? { checks: [...s.checks, check].slice(-MAX_CHECKS) } : {})),
+  requestJump: (pendingJump) => set({ pendingJump }),
   setNotice: (notice) => set({ notice }),
 }))

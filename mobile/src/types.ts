@@ -71,12 +71,40 @@ export interface Highlight {
   pending?: 'create' | 'delete'
 }
 
+/** What /api/factcheck answers with once it has finished. */
+export interface FactCheckResult {
+  verdict: string
+  summary: string
+  spokenSummary: string
+  sources: { title: string; url: string }[]
+}
+
+/**
+ * A fact check the reader asked for, kept with the document it was asked about.
+ * `anchorText` is the opening of the paragraph that was being read at the time,
+ * so the check can be found again after the text has moved under it; `anchor` is
+ * which paragraph that is now (null when it could not be found), and is what
+ * tapping the row in the Checks tab jumps to.
+ */
+export interface Check {
+  id: string
+  claim: string
+  verdict: string
+  summary: string
+  sources: { title: string; url: string }[]
+  anchorText: string
+  anchor: number | null
+  createdAt: number
+}
+
 /** What the phone remembers about a document between sessions. */
 export interface DocState {
   position: number
   highlights: Highlight[]
   /** Reader's own highlights already merged in, keyed by their id. */
   mergedRemote: string[]
+  /** Optional: a state saved before checks existed still parses. */
+  checks?: Check[]
   updatedAt: number
 }
 
