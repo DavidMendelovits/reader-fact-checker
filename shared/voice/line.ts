@@ -53,8 +53,8 @@ export function lineFor(s: LineState): { text: string; italic: boolean } {
 
   if (s.playing) return { text: `Reading ¶${s.current + 1}/${s.total}`, italic: false }
 
-  // Idle. The last thing the agent said is better company than a hint.
-  if (s.lastAgentLine) return { text: s.lastAgentLine, italic: false }
+  // Idle. The reply has had its beat (the hold above); leaving it up forever made
+  // the bar a gravestone for the last thing said. The hint takes over instead.
   if (s.micState === 'notAsked') return { text: 'Tap the mic to talk to it', italic: false }
   if (s.micState === 'denied') return { text: 'Mic is off in Settings', italic: false }
   // The recognizer died three times in thirty seconds and the ear is off; the mic

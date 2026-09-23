@@ -61,8 +61,23 @@ assert.deepEqual(at({ playing: true, current: 0, total: 1 }), { text: 'Reading �
 // 'reading' as an agent state is not special: the player owns that line
 assert.deepEqual(at({ agentState: 'reading', playing: true }), { text: 'Reading ¶12/340', italic: false })
 
-// 6. idle: the last thing said, else a hint that depends on the mic
-assert.deepEqual(at({ lastAgentLine: 'Archived.', lastAgentLineAt: 0 }), { text: 'Archived.', italic: false })
+// 6. idle: a hint that depends on the mic. The reply had its beat and let go —
+// a stale line is the bug this section exists to catch: the bar used to keep the
+// last reply up forever, so it read like a gravestone hours after it was said.
+assert.deepEqual(at({ lastAgentLine: 'Archived.', lastAgentLineAt: 10_000 - 3001 }), {
+  text: 'Say something, or tap ⌨',
+  italic: false,
+})
+assert.deepEqual(at({ lastAgentLine: 'Archived.', lastAgentLineAt: 0 }), { text: 'Say something, or tap ⌨', italic: false })
+assert.deepEqual(at({ lastAgentLine: 'Archived.', lastAgentLineAt: 10_000 - 3001, playing: true }), {
+  text: 'Reading ¶12/340',
+  italic: false,
+})
+// but inside the hold it is still the reply, idle or not
+assert.deepEqual(at({ lastAgentLine: 'Archived.', lastAgentLineAt: 10_000 - 2999 }), {
+  text: 'Archived.',
+  italic: false,
+})
 assert.deepEqual(at({}), { text: 'Say something, or tap ⌨', italic: false })
 assert.deepEqual(at({ micState: 'muted' }), { text: 'Say something, or tap ⌨', italic: false })
 assert.deepEqual(at({ micState: 'off' }), { text: 'Say something, or tap ⌨', italic: false })
@@ -73,7 +88,9 @@ assert.deepEqual(at({ micState: 'restarting' }), { text: 'Mic restarted. Tap to 
 // 7. the on-device voice loading at boot: below every mic hint, above the idle one
 assert.deepEqual(at({ voiceLoading: true }), { text: 'Loading voice…', italic: false })
 assert.deepEqual(at({ voiceLoading: true, micState: 'notAsked' }), { text: 'Tap the mic to talk to it', italic: false })
-assert.deepEqual(at({ voiceLoading: true, lastAgentLine: 'Archived.', lastAgentLineAt: 0 }), { text: 'Archived.', italic: false })
+assert.deepEqual(at({ voiceLoading: true, lastAgentLine: 'Archived.', lastAgentLineAt: 10_000 - 2999 }), { text: 'Archived.', italic: false })
+// and once the hold is over, the boot news outranks nothing but the idle hint
+assert.deepEqual(at({ voiceLoading: true, lastAgentLine: 'Archived.', lastAgentLineAt: 0 }), { text: 'Loading voice…', italic: false })
 assert.deepEqual(at({ voiceLoading: true, playing: true }), { text: 'Reading ¶12/340', italic: false })
 
 // the mic hint never displaces something the app is actually doing

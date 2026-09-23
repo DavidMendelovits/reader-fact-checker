@@ -60,4 +60,34 @@ const libraryDoc: LibraryDoc = {
   assert.equal(after.chat.length, 4, 'the conversation outlives the document on the phone')
 }
 
+// the hold on the line starts when the voice stops, not when the text was pushed:
+// a long reply would otherwise be stale the moment it finished being spoken
+{
+  const s = useStore.getState()
+  s.pushChat({ id: 'a3', role: 'assistant', text: 'It was 1913.' })
+  const pushedAt = useStore.getState().lastAgentLineAt!
+  s.setAgentState('speaking')
+  while (Date.now() === pushedAt) { /* the speaking has to take at least a tick */ }
+
+  const before = Date.now()
+  s.setAgentState('idle')
+  assert.equal(useStore.getState().agentState, 'idle')
+  const restamped = useStore.getState().lastAgentLineAt!
+  assert.ok(restamped >= before, 'leaving speaking restarts the hold')
+  assert.ok(restamped > pushedAt, 'and the push-time stamp is not what the line holds to')
+
+  // idle → idle is not the end of anything
+  s.setAgentState('idle')
+  assert.equal(useStore.getState().lastAgentLineAt, restamped, 'a non-transition leaves the clock alone')
+  s.setAgentState('listening')
+  assert.equal(useStore.getState().lastAgentLineAt, restamped, 'and so does any other state that did not follow speech')
+
+  // with nothing on the line there is nothing to hold
+  s.clearDoc()
+  assert.equal(useStore.getState().lastAgentLine, null)
+  s.setAgentState('speaking')
+  s.setAgentState('idle')
+  assert.equal(useStore.getState().lastAgentLineAt, null, 'no line, no timestamp')
+}
+
 console.log('store.check.ts: ok')

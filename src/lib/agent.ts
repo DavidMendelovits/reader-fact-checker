@@ -81,7 +81,7 @@ async function factCheck(input: Record<string, unknown>): Promise<string> {
     if (said || !line) return
     said = line
     useStore.getState().pushChat({ id: newId(), role: 'assistant', text: line })
-    useStore.setState({ agentState: 'speaking' })
+    useStore.getState().setAgentState('speaking')
     speaking = tts.speak(line)
   }
 
@@ -169,7 +169,7 @@ async function speakTurn(messages: Msg[], context: unknown, extras: Record<strin
   const speak = (sentence: string) => {
     if (!st.speech) {
       st.speech = tts.speakStream()
-      useStore.setState({ agentState: 'speaking' })
+      useStore.getState().setAgentState('speaking')
     }
     st.speech.push(sentence)
   }
@@ -245,7 +245,7 @@ const agent = createAgent<NavAction>({
   } satisfies AgentPlayer,
   state: {
     agentState: () => useStore.getState().agentState,
-    setAgentState: (agentState) => useStore.setState({ agentState }),
+    setAgentState: (agentState) => useStore.getState().setAgentState(agentState),
     playing: () => useStore.getState().playing,
     paragraphs: () => useStore.getState().paragraphs,
     currentParagraph: () => useStore.getState().currentParagraph,

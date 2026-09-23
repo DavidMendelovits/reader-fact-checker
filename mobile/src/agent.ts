@@ -420,7 +420,7 @@ const agent = createAgent<NavAction>({
   } satisfies AgentPlayer,
   state: {
     agentState: () => useStore.getState().agentState,
-    setAgentState: (agentState) => useStore.setState({ agentState }),
+    setAgentState: (agentState) => useStore.getState().setAgentState(agentState),
     playing: () => useStore.getState().playing,
     paragraphs: () => useStore.getState().paragraphs,
     currentParagraph: () => useStore.getState().currentParagraph,

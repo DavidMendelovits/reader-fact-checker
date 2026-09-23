@@ -93,7 +93,10 @@ export function Composer({ onOpenTranscript }: { onOpenTranscript: () => void })
   })
   // `lineFor` speaks for both surfaces; on the web an absent recognizer is a browser
   // problem, not a settings one, so the idle hint says which browser to use.
-  const idleHint = !interim && agentState === 'idle' && !playing && !lastAgentLine
+  // Idle means the hint is showing: no interim, nothing playing, and the reply's
+  // 3s hold has run out (the line itself still shows the reply inside the hold).
+  const held = lastAgentLineAt !== null && Date.now() - lastAgentLineAt <= REPLY_HOLD_MS
+  const idleHint = !interim && agentState === 'idle' && !playing && !held
   const text = !supported && idleHint ? 'Mic needs Chrome — tap ⌨ to type' : line.text
 
   // The ring around the mic breathes with what the mic hears. One rAF, one DOM

@@ -137,7 +137,17 @@ export const useStore = create<State>((set) => ({
   setRate: (rate) => set({ rate }),
   setMicEnabled: (micEnabled) => set({ micEnabled }),
   setMicState: (micState) => set({ micState }),
-  setAgentState: (agentState) => set({ agentState }),
+  // The hold on the agent's line runs from when it stopped speaking, not from
+  // when the text was pushed: a reply that takes eight seconds to say would
+  // otherwise already be four seconds stale the moment the voice stopped, and
+  // vanish before you looked down. The push-time stamp stays as the fallback for
+  // replies that are never spoken.
+  setAgentState: (agentState) =>
+    set((s) =>
+      s.agentState === 'speaking' && agentState !== 'speaking' && s.lastAgentLine
+        ? { agentState, lastAgentLineAt: Date.now() }
+        : { agentState },
+    ),
   // The agent's line is tracked here rather than derived: the Composer would
   // otherwise have to subscribe to the whole chat array to find the last of it.
   pushChat: (m) =>
