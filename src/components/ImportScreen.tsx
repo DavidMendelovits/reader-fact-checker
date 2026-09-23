@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import { tts } from '../lib/providers'
 import { loadLibrary, openEntry, forgetEntry } from '../lib/persist'
 import type { LibraryEntry } from '../lib/persist'
+import { COPY } from '../../shared/voice/line.ts'
 import { Glyph } from './Glyph'
 
 // ---- cross-book search ----
@@ -66,7 +67,7 @@ export function ImportScreen() {
 
   return (
     <div className="import-screen">
-      <h1>readwithme</h1>
+      <h1>{COPY.productName}</h1>
       <p className="tagline">
         Listen to any article or book, and talk to it — interrupt any time to ask what’s true.
       </p>

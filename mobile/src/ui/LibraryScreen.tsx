@@ -7,6 +7,7 @@ import {
   TextInput, View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { COPY } from '../../../shared/voice/line'
 import { library, openDocument, refreshLibrary } from '../session'
 import { openingTurn } from '../agent'
 import { useStore } from '../store'
@@ -95,7 +96,7 @@ export function LibraryScreen() {
   return (
     <View style={s.screen}>
       <View style={[s.header, { paddingTop: insets.top + space.md }]}>
-        <Text style={s.h1}>Reader</Text>
+        <Text style={s.h1}>{COPY.productName}</Text>
         <Pressable role="button" accessibilityLabel="Settings" style={s.headerButton} onPress={() => useStore.getState().setScreen('settings')}>
           <Text style={s.link}>Settings</Text>
         </Pressable>

@@ -8,6 +8,7 @@ import {
 } from 'react-native'
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { COPY } from '../../../shared/voice/line'
 import { startLibrary } from '../session'
 import { saveToken } from '../settings'
 import { radius, space, type as type_, useTheme, type Theme } from '../theme'
@@ -55,7 +56,7 @@ export function SignInScreen({ onSaved }: { onSaved: (t: string) => void }) {
         contentContainerStyle={[s.body, { paddingTop: insets.top + space.xxl, paddingBottom: insets.bottom + space.xxl }]}
         keyboardShouldPersistTaps="handled"
       >
-        <Text style={s.h1}>readwithme</Text>
+        <Text style={s.h1}>{COPY.productName}</Text>
         <Text style={s.prose}>Paste your Readwise access token. It stays on this device.</Text>
         <Pressable role="button" accessibilityLabel="Open readwise.io/access_token" style={s.linkRow} onPress={() => void Linking.openURL(TOKEN_PAGE)}>
           <Text style={s.link}>readwise.io/access_token</Text>
