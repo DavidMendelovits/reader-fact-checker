@@ -21,7 +21,6 @@ const ROLES = {
   prose: { fontSize: 15, lineHeight: 22 },
   row: { fontSize: 16, lineHeight: 22, fontWeight: '500' },
   meta: { fontSize: 13, lineHeight: 18 },
-  glyph: { fontSize: 18, lineHeight: 22 },
   chevron: { fontSize: 20 },
   input: { fontSize: 16 },
 } as const

@@ -38,8 +38,6 @@ export const type = {
   row: { fontSize: 16, lineHeight: 22, fontWeight: weight.medium },
   /** Dates, counts, hints. Nothing is smaller than this. */
   meta: { fontSize: 13, lineHeight: 18 },
-  /** A glyph set in text rather than drawn. */
-  glyph: { fontSize: 18, lineHeight: 22 },
   /** The chevron at the end of a list row, which reads small at 18. */
   chevron: { fontSize: 20 },
   /**

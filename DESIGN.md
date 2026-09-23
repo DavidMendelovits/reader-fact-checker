@@ -40,7 +40,6 @@ Reading is a built-in serif, chrome is the system face; nothing is below 13.
 | Prose | system | 15 / 22 | 400 |
 | Row | system | 16 / 22 | 500 |
 | Meta | system | 13 / 18 | 400 |
-| Glyph | system | 18 / 22 | 400 |
 | Chevron | system | 20 | 400 |
 | Input | system | 16 | 400 |
 
