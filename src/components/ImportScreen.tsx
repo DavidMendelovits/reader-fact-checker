@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import { tts } from '../lib/providers'
 import { loadLibrary, openEntry, forgetEntry } from '../lib/persist'
 import type { LibraryEntry } from '../lib/persist'
+import { Glyph } from './Glyph'
 
 // ---- cross-book search ----
 //
@@ -151,7 +152,7 @@ export function ImportScreen() {
                       {matches.map((m, i) => (
                         <span className="library-hit" key={i}>
                           <span className="library-hit-source">
-                            {m.source === 'highlight' ? '✦ highlight' : '💬 conversation'}
+                            {m.source === 'highlight' ? 'highlight' : 'conversation'}
                           </span>
                           {m.snippet}
                         </span>
@@ -166,7 +167,7 @@ export function ImportScreen() {
                         setLibrary(loadLibrary())
                       }}
                     >
-                      ✕
+                      <Glyph name="close" size={16} />
                     </button>
                   </li>
                 )

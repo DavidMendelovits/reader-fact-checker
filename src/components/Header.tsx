@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { pause, checkWholeDocument, cancelDocumentCheck } from '../lib/controller'
 import { tts } from '../lib/providers'
+import { Glyph } from './Glyph'
 
 // Four things, in one row that never wraps at 375px: back, title, speed, check.
 // Mic and Play moved to the Composer; position moved into its line.
@@ -95,7 +96,7 @@ export function Header() {
           <span className="check-label">
             Checking {progress.done}/{progress.total}
           </span>
-          <span aria-hidden="true">✕</span>
+          <Glyph name="close" size={16} />
           <span
             className="check-bar"
             style={{ transform: `scaleX(${progress.total ? progress.done / progress.total : 0})` }}

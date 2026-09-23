@@ -782,6 +782,9 @@ input::placeholder { color: var(--text-tertiary); }
 .composer-btn.mic[data-mic='live'] {
   border-color: transparent;
   background: var(--mic-live);
+  /* the glyph inks in the page's own background, as the phone does: white on the
+     light theme's deep green, near-black on the dark theme's pale one */
+  color: var(--background-primary);
   /* the ring breathes with what the mic hears; --mic-level is written by a rAF */
   box-shadow: 0 0 0 calc(2px + 6px * var(--mic-level, 0)) color-mix(in srgb, var(--mic-live) 30%, transparent);
 }
@@ -790,8 +793,9 @@ input::placeholder { color: var(--text-tertiary); }
   background: var(--background-tertiary);
   opacity: 0.6;
 }
-.composer-btn.mic[data-mic='denied'] { border-color: var(--border-error); }
-/* the slash: drawn, not typed, so it themes and never depends on a font */
+.composer-btn.mic[data-mic='denied'],
+.composer-btn.mic:disabled { border-color: var(--border-error); color: var(--text-error); }
+/* the slash: drawn over the glyph, sized to the button rather than to any glyph box */
 .composer-btn.mic[data-mic='denied']::after,
 .composer-btn.mic:disabled::after {
   content: '';

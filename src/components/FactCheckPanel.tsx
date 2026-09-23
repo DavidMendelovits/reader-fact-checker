@@ -1,6 +1,7 @@
 import { useStore } from '../store'
 import { completeField, partialField } from '../lib/factcheck'
 import type { FactCheckJob, Verdict } from '../types'
+import { Glyph } from './Glyph'
 
 const scrollTo = (anchor?: number) => {
   if (anchor != null)
@@ -8,13 +9,13 @@ const scrollTo = (anchor?: number) => {
 }
 
 export const VERDICT_META: Record<Verdict, { label: string; className: string }> = {
-  accurate: { label: '✓ Accurate', className: 'v-accurate' },
-  inaccurate: { label: '✗ Inaccurate', className: 'v-inaccurate' },
-  misleading: { label: '⚠ Misleading', className: 'v-misleading' },
-  unverifiable: { label: '? Unverifiable', className: 'v-unverifiable' },
+  accurate: { label: 'Accurate', className: 'v-accurate' },
+  inaccurate: { label: 'Inaccurate', className: 'v-inaccurate' },
+  misleading: { label: 'Misleading', className: 'v-misleading' },
+  unverifiable: { label: 'Unverifiable', className: 'v-unverifiable' },
 }
 
-const KIND_LABEL = { voice: '🎙 voice', highlight: '✎ highlight', document: '📄 doc scan' }
+const KIND_LABEL = { voice: 'voice', highlight: 'highlight', document: 'doc scan' }
 
 function JobCard({ job }: { job: FactCheckJob }) {
   // the verdict field closes well before the object does — show it the moment it lands
@@ -76,9 +77,9 @@ export function FactCheckPanel() {
           {highlights.map((h) => (
             <div key={h.id} className="job-card">
               <div className="job-head">
-                <span className="kind">✦ ¶ {h.anchor + 1}</span>
+                <span className="kind">¶ {h.anchor + 1}</span>
                 <button className="card-remove" title="Remove highlight" onClick={() => removeHighlight(h.id)}>
-                  ✕
+                  <Glyph name="close" size={14} />
                 </button>
               </div>
               <blockquote onClick={() => scrollTo(h.anchor)}>{h.text}</blockquote>

@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import { checkSelection, highlightSelection, play } from '../lib/controller'
 import { VERDICT_META } from './FactCheckPanel'
 import type { FactCheckJob, Highlight } from '../types'
+import { Glyph } from './Glyph'
 
 /**
  * One paragraph. Memo'd on exactly what it draws: a streaming fact check writes to
@@ -184,9 +185,11 @@ export function Reader() {
     <div className="reader" ref={containerRef}>
       {toolbar && (
         <div className="selection-toolbar" style={{ left: toolbar.x, top: toolbar.y }}>
-          <button onPointerDown={runToolbar(checkSelection)}>✓ Fact check this</button>
-          <button onPointerDown={runToolbar(highlightSelection)}>✦ Highlight</button>
-          <button onPointerDown={runToolbar((_text, anchor) => play(anchor))}>▶ Play from here</button>
+          <button onPointerDown={runToolbar(checkSelection)}>Fact check this</button>
+          <button onPointerDown={runToolbar(highlightSelection)}>Highlight</button>
+          <button onPointerDown={runToolbar((_text, anchor) => play(anchor))}>
+            <Glyph name="play" size={14} /> Play from here
+          </button>
         </div>
       )}
       {offscreen && playing && (
