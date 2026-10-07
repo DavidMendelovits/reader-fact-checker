@@ -116,4 +116,26 @@ function player(paragraphs: string[]) {
   assert.deepEqual(seen, [0], 'release after pause resumes nothing')
 }
 
+// --- a buffered source is synthesized and played a sentence at a time ---------
+{
+  const calls: string[] = []
+  const buffered: AudioSource = {
+    buffered: true,
+    synthesize: async (text) => {
+      calls.push(text)
+      return new Response('wav')
+    },
+  }
+  const p = new TtsPlayer(buffered)
+  p.clearCacheForNewDoc()
+  p.setParagraphs(['First one. Second, with Dr. Who? Third!'])
+  const range = p.playFrom(0)
+  for (let k = 0; k < 3; k++) {
+    await tick()
+    FakeAudio.last?.end()
+  }
+  assert.equal(await range, 'completed')
+  assert.deepEqual(calls, ['First one.', 'Second, with Dr. Who?', 'Third!'], 'one synthesize per sentence, in order')
+}
+
 console.log('tts.check: ok')

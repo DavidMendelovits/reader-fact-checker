@@ -34,10 +34,15 @@ export interface Transcriber {
 
 /**
  * The voice. Text in, a streamable audio response out — the player decides
- * whether to stream it through MediaSource or buffer it into a blob. Today this
- * is the server's /api/tts, which hides the vendor; an in-browser synthesizer
- * would implement the same thing and return a synthetic Response.
+ * whether to stream it through MediaSource or buffer it into a blob. Either the
+ * server's /api/tts, which hides the vendor, or Paradee synthesizing in the page
+ * and returning a synthetic Response (paradee.ts).
  */
 export interface AudioSource {
+  /**
+   * The response is a whole clip that can't be streamed through MediaSource
+   * (Paradee's WAV). The player then plays it a sentence at a time instead.
+   */
+  readonly buffered?: boolean
   synthesize(text: string, signal?: AbortSignal): Promise<Response>
 }

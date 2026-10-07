@@ -6,6 +6,7 @@
 import { apiFetch } from './api.ts'
 import { attachOutput } from './audio-levels.ts'
 import type { AudioSource } from './ports.ts'
+import { SentenceSplitter } from './sentences.ts'
 // the hold policy is shared with the phone player; its checks live next to it
 import { HoldGate } from '../../shared/voice/holdGate.ts'
 
@@ -31,6 +32,14 @@ const ECHO_MEMORY = 6000
 // Chrome streams MP3 into MediaSource fine; anything else falls back to buffering.
 const CAN_STREAM =
   typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported('audio/mpeg')
+
+/** A paragraph as the sentences a buffered source synthesizes and plays one at a time. */
+function sentencesOf(text: string): string[] {
+  const splitter = new SentenceSplitter()
+  const out = splitter.push(text)
+  const rest = splitter.flush()
+  return rest ? [...out, rest] : out
+}
 
 async function synthesize(source: AudioSource, text: string): Promise<string> {
   const res = await source.synthesize(text)
@@ -205,15 +214,23 @@ export class TtsPlayer {
         if (session !== this.session || resume === 'abandon') return 'stopped'
       }
       this.onParagraphChange(i)
-      // Prefetch two ahead. One was enough when every paragraph cost a full
-      // synthesis wait; now that the current one streams, a deeper queue is what
-      // keeps the *gaps* between paragraphs at zero.
-      for (const n of [i + 1, i + 2]) {
-        if (n <= last) void getAudioUrl(this.source, `p${n}`, this.paragraphs[n]).catch(() => {})
-      }
       try {
         this.speaking = this.paragraphs[i]
-        await this.playParagraph(i, session)
+        // asked for before the prefetches below, so a source that synthesizes
+        // one request at a time (Paradee) does this paragraph first
+        const played = this.playParagraph(i, session)
+        // Prefetch two ahead. One was enough when every paragraph cost a full
+        // synthesis wait; now that the current one streams, a deeper queue is what
+        // keeps the *gaps* between paragraphs at zero. A buffered source plays a
+        // sentence at a time, so warming the first sentence is enough.
+        for (const n of [i + 1, i + 2]) {
+          if (n > last) continue
+          const [key, text] = this.source.buffered
+            ? [`p${n}:0`, sentencesOf(this.paragraphs[n])[0] ?? '']
+            : [`p${n}`, this.paragraphs[n]]
+          if (text) void getAudioUrl(this.source, key, text).catch(() => {})
+        }
+        await played
         if (session !== this.session) return 'stopped'
         failStreak = 0
       } catch (e) {
@@ -249,12 +266,34 @@ export class TtsPlayer {
   private async playParagraph(i: number, session: number): Promise<void> {
     const key = `p${i}`
     const text = this.paragraphs[i]
+    if (this.source.buffered) return this.playSentences(i, session)
     if (blobCache.has(key) || !CAN_STREAM) {
       const url = await getAudioUrl(this.source, key, text)
       if (session !== this.session) return
       return this.playUrl(url, session)
     }
     return this.playStreamed(text, session)
+  }
+
+  /**
+   * A buffered source can't stream, so audio starts after the first sentence
+   * synthesizes rather than the whole paragraph; the next sentence synthesizes
+   * while this one plays. A hold or a pause stops it between sentences, and the
+   * paragraph replays from its first (cached) sentence on release.
+   */
+  private async playSentences(i: number, session: number): Promise<void> {
+    const parts = sentencesOf(this.paragraphs[i])
+    // Ask for every sentence now, synchronously, so a source that synthesizes one
+    // request at a time does this whole paragraph before runRange's prefetches.
+    // ponytail: an interrupt doesn't cancel the queued ones; they land in the cache.
+    const urls = parts.map((text, k) => getAudioUrl(this.source, `p${i}:${k}`, text))
+    urls.forEach((u) => u.catch(() => {}))
+    for (let k = 0; k < parts.length; k++) {
+      const url = await urls[k]
+      if (session !== this.session || this.gate.held) return
+      await this.playUrl(url, session)
+      if (session !== this.session || this.gate.held) return
+    }
   }
 
   private playStreamed(text: string, session: number): Promise<void> {
@@ -387,7 +426,8 @@ export class TtsPlayer {
         }
         try {
           this.speaking = text
-          if (first) await this.playStreamed(text, session)
+          // a buffered source can't stream, so its first sentence plays from a blob too
+          if (first && !this.source.buffered) await this.playStreamed(text, session)
           else {
             const url = await getAudioUrl(this.source, `s:${text}`, text)
             if (session !== this.session) return
