@@ -23,4 +23,6 @@ try {
 } catch {
   /* storage blocked: the URL still decides for this load */
 }
-export const tts = new TtsPlayer(choice === 'paradee' ? paradeeSpeech : serverSpeech)
+/** Paradee when it's the voice in use, so the app can preload it and show it loading. */
+export const pageVoice = choice === 'paradee' ? paradeeSpeech : null
+export const tts = new TtsPlayer(pageVoice ?? serverSpeech)

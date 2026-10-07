@@ -8,6 +8,9 @@ interface State {
   currentParagraph: number
   playing: boolean
   rate: number
+  /** Paradee loading in the page (null for the server voice); progress is 0..1 when known. */
+  voiceStatus: 'loading' | 'ready' | 'error' | null
+  voiceProgress: number | null
   // voice agent
   micEnabled: boolean
   micMuted: boolean
@@ -65,6 +68,8 @@ export const useStore = create<State>((set) => ({
   currentParagraph: 0,
   playing: false,
   rate: 1,
+  voiceStatus: null,
+  voiceProgress: null,
   micEnabled: false,
   micMuted: false,
   micDenied: false,
