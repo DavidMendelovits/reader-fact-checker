@@ -33,6 +33,13 @@ export function pause() {
 
 tts.onParagraphChange = (i) => useStore.setState({ currentParagraph: i })
 
+// iOS lets the player's elements play only after a tap has started them (see
+// TtsPlayer.unlock). Capture phase, so it runs inside the very tap whose onClick
+// calls play(), and inside the import tap that hands the floor to the agent, which
+// may start narration with read_aloud long after any tap.
+for (const type of ['touchend', 'click', 'keydown'] as const)
+  document.addEventListener(type, () => tts.unlock(), { capture: true, passive: true })
+
 // Keep the phone's screen awake while narrating — iOS suspends a locked web page's
 // JS, so playback dies with the screen. Wake lock is the web's only lever here.
 // ponytail: true lock-screen playback needs a native wrapper or one continuous

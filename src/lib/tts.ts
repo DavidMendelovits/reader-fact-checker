@@ -5,6 +5,7 @@
 // extension-explicit so this file can run under node --experimental-strip-types
 import { apiFetch } from './api.ts'
 import { attachOutput } from './audio-levels.ts'
+import { encodeWav } from './paradee-core.ts'
 import type { AudioSource } from './ports.ts'
 import { SentenceSplitter } from './sentences.ts'
 // the hold policy is shared with the phone player; its checks live next to it
@@ -22,6 +23,16 @@ export const serverSpeech: AudioSource = {
 }
 
 const blobCache = new Map<string, Promise<string>>() // cacheKey -> object URL
+
+let silence = ''
+/** 30 ms of silence, for TtsPlayer.unlock(). A data: URL, so nothing to revoke. */
+function silentClip(): string {
+  if (!silence) {
+    const bytes = new Uint8Array(encodeWav([new Float32Array(240)], 8000))
+    silence = `data:audio/wav;base64,${btoa(String.fromCharCode(...bytes))}`
+  }
+  return silence
+}
 
 // How long text stays echo-matchable after it finishes playing. Recognition
 // finalizes an utterance seconds after the audio it heard has stopped, so the
@@ -41,18 +52,28 @@ function sentencesOf(text: string): string[] {
   return rest ? [...out, rest] : out
 }
 
-async function synthesize(source: AudioSource, text: string): Promise<string> {
-  const res = await source.synthesize(text)
+async function synthesize(source: AudioSource, text: string, signal?: AbortSignal): Promise<string> {
+  const res = await source.synthesize(text, signal)
   if (!res.ok) throw new Error(`TTS failed (${res.status}): ${await res.text()}`)
   return URL.createObjectURL(await res.blob())
 }
 
-function getAudioUrl(source: AudioSource, key: string, text: string): Promise<string> {
+function getAudioUrl(source: AudioSource, key: string, text: string, signal?: AbortSignal): Promise<string> {
   let p = blobCache.get(key)
   if (!p) {
-    p = synthesize(source, text)
-    p.catch(() => blobCache.delete(key)) // allow retry after failure
-    blobCache.set(key, p)
+    const made = synthesize(source, text, signal)
+    const forget = () => {
+      if (blobCache.get(key) === made) blobCache.delete(key)
+    }
+    made.catch(forget) // allow retry after failure
+    // Dropped from the queue: forget it now, not when the queue gets round to
+    // rejecting it, so asking again right away queues it afresh.
+    if (signal) {
+      signal.addEventListener('abort', forget, { once: true })
+      made.then(() => signal.removeEventListener('abort', forget), () => {})
+    }
+    blobCache.set(key, made)
+    p = made
   }
   return p
 }
@@ -122,6 +143,14 @@ export class TtsPlayer {
   }
 
   private audio = new Audio()
+  // A buffered source plays a sentence at a time, and a fresh src costs a fetch and
+  // decode before the first sound, which iOS Safari is slow at. So while one clip
+  // plays, the next loads in this second element, and playUrl swaps the two when it
+  // is handed the url waiting here. `audio` is always the one playing.
+  private spare = new Audio()
+  private spareUrl = ''
+  /** Elements iOS has let play: see unlock(). */
+  private unlocked = new WeakSet<HTMLAudioElement>()
   private session = 0 // bumped to cancel in-flight playback loops
   onParagraphChange: (index: number) => void = () => {}
   onEnded: () => void = () => {}
@@ -153,6 +182,18 @@ export class TtsPlayer {
   }
   private streamAbort: AbortController | null = null
   private narrating = false
+  // A buffered source (Paradee) synthesizes one request at a time and keeps a
+  // paragraph or more queued ahead, so on a pause or a jump that queue would hold
+  // up the position the reader actually wants. Aborting this drops every request
+  // not yet started. The server path never gets a signal.
+  private queued = new AbortController()
+  private get queueSignal(): AbortSignal | undefined {
+    return this.source.buffered ? this.queued.signal : undefined
+  }
+  private dropQueued() {
+    this.queued.abort()
+    this.queued = new AbortController()
+  }
   private gate = new HoldGate()
   // Resolves the paragraph currently awaited in playFrom. A paused <audio> never
   // fires 'ended', so without this an interruption left read_aloud hanging forever.
@@ -185,6 +226,7 @@ export class TtsPlayer {
    */
   async playFrom(index: number, until = Infinity): Promise<'completed' | 'stopped' | 'failed'> {
     const session = ++this.session
+    this.dropQueued() // whatever was queued for the last range plays no part in this one
     const last = Math.min(until, this.paragraphs.length - 1)
     this.index = index
     this.setNarrating(true)
@@ -221,15 +263,12 @@ export class TtsPlayer {
         const played = this.playParagraph(i, session)
         // Prefetch two ahead. One was enough when every paragraph cost a full
         // synthesis wait; now that the current one streams, a deeper queue is what
-        // keeps the *gaps* between paragraphs at zero. A buffered source plays a
-        // sentence at a time, so warming the first sentence is enough.
-        for (const n of [i + 1, i + 2]) {
-          if (n > last) continue
-          const [key, text] = this.source.buffered
-            ? [`p${n}:0`, sentencesOf(this.paragraphs[n])[0] ?? '']
-            : [`p${n}`, this.paragraphs[n]]
-          if (text) void getAudioUrl(this.source, key, text).catch(() => {})
-        }
+        // keeps the *gaps* between paragraphs at zero.
+        if (this.source.buffered) this.queueAhead(i, last)
+        else
+          for (const n of [i + 1, i + 2]) {
+            if (n <= last) void getAudioUrl(this.source, `p${n}`, this.paragraphs[n]).catch(() => {})
+          }
         await played
         if (session !== this.session) return 'stopped'
         failStreak = 0
@@ -259,6 +298,21 @@ export class TtsPlayer {
   }
 
   /**
+   * A buffered source synthesizes slower than a stream arrives (on a phone, near
+   * real time), so its queue must never run dry: the whole next paragraph and the
+   * first sentence of the one after go in behind this paragraph's own sentences.
+   * Warming only the next paragraph's first sentence left synthesis idle until that
+   * paragraph started, then starved its second sentence.
+   */
+  private queueAhead(i: number, last: number) {
+    const ahead: [string, string][] = []
+    if (i + 1 <= last) sentencesOf(this.paragraphs[i + 1]).forEach((t, k) => ahead.push([`p${i + 1}:${k}`, t]))
+    const next = i + 2 <= last ? sentencesOf(this.paragraphs[i + 2])[0] : undefined
+    if (next) ahead.push([`p${i + 2}:0`, next])
+    for (const [key, text] of ahead) void getAudioUrl(this.source, key, text, this.queueSignal).catch(() => {})
+  }
+
+  /**
    * Prefetched paragraphs play instantly from cache; an uncached one (the first
    * after Play, or after an interruption) streams so audio starts on the first
    * chunk rather than after the whole clip synthesizes.
@@ -285,14 +339,62 @@ export class TtsPlayer {
     const parts = sentencesOf(this.paragraphs[i])
     // Ask for every sentence now, synchronously, so a source that synthesizes one
     // request at a time does this whole paragraph before runRange's prefetches.
-    // ponytail: an interrupt doesn't cancel the queued ones; they land in the cache.
-    const urls = parts.map((text, k) => getAudioUrl(this.source, `p${i}:${k}`, text))
+    // A hold leaves the queued ones running (the release replays this paragraph); a
+    // pause or a new range drops whichever haven't started (dropQueued).
+    const urls = parts.map((text, k) => getAudioUrl(this.source, `p${i}:${k}`, text, this.queueSignal))
     urls.forEach((u) => u.catch(() => {}))
     for (let k = 0; k < parts.length; k++) {
       const url = await urls[k]
       if (session !== this.session || this.gate.held) return
-      await this.playUrl(url, session)
+      const played = this.playUrl(url, session)
+      // the clip after this one, the next paragraph's first when it was queued ahead
+      this.preloadWhenReady(k + 1 < parts.length ? urls[k + 1] : blobCache.get(`p${i + 1}:0`), session)
+      await played
       if (session !== this.session || this.gate.held) return
+    }
+  }
+
+  /** Load `next` into the spare element once it's synthesized, unless playback moved on. */
+  private preloadWhenReady(next: Promise<string> | undefined, session: number) {
+    void next?.then(
+      (url) => {
+        if (session !== this.session || this.gate.held || url === this.spareUrl) return
+        this.spareUrl = url
+        this.spare.preload = 'auto'
+        this.spare.src = url
+        this.spare.load()
+      },
+      () => {},
+    )
+  }
+
+  /**
+   * iOS Safari only lets an element play() once play() has been called on it inside
+   * a tap. The narration has to start after synthesis, well outside the tap, and the
+   * spare is never started by one at all, so without this playback would stop at the
+   * second sentence. The controller calls it from every tap (capture phase, so the
+   * Play button's own tap counts); each element gets a silent clip once, while idle.
+   * attachOutput resumes the AudioContext synchronously too, inside the tap, which
+   * iOS needs before attachOutput will route an element through the meter.
+   */
+  unlock() {
+    if (!this.source.buffered) return // the server voice is left exactly as it was
+    for (const el of [this.audio, this.spare]) {
+      void attachOutput(el)
+      if (this.unlocked.has(el) || !el.paused) continue
+      if (el === this.spare) this.spareUrl = '' // its preload is about to be replaced
+      el.src = silentClip()
+      el.play().then(
+        () => {
+          this.unlocked.add(el)
+          if (el.src === silence) el.pause() // unless a real clip has taken over since
+        },
+        (e) => {
+          // NotAllowedError: not a gesture iOS counts, try the next one. Anything else
+          // (a real clip's load interrupting this one) means play() was allowed.
+          if (e?.name !== 'NotAllowedError') this.unlocked.add(el)
+        },
+      )
     }
   }
 
@@ -325,10 +427,15 @@ export class TtsPlayer {
   }
 
   private playUrl(url: string, session: number): Promise<void> {
+    if (url && url === this.spareUrl) {
+      // already loading (or loaded) in the spare: play that, keep this one as the spare
+      ;[this.audio, this.spare] = [this.spare, this.audio]
+      this.spare.onended = this.spare.onerror = null
+    } else this.audio.src = url
+    this.spareUrl = ''
     void attachOutput(this.audio) // idempotent; no-op if WebAudio isn't usable
     return new Promise((resolve) => {
       this.interrupt = resolve
-      this.audio.src = url
       this.audio.playbackRate = this.rate
       this.audio.onended = () => resolve()
       this.audio.onerror = () => resolve()
@@ -371,6 +478,7 @@ export class TtsPlayer {
 
   pause() {
     this.session++ // cancels the loop
+    this.dropQueued()
     this.gate.abandon() // a parked loop unwinds as 'stopped'
     this.stopAudio()
     this.setNarrating(false)
@@ -379,6 +487,7 @@ export class TtsPlayer {
   setRate(rate: number) {
     this.rate = rate
     this.audio.playbackRate = rate
+    this.spare.playbackRate = rate
   }
 
   clearCacheForNewDoc() {
@@ -429,11 +538,14 @@ export class TtsPlayer {
           // a buffered source can't stream, so its first sentence plays from a blob too
           if (first && !this.source.buffered) await this.playStreamed(text, session)
           else {
-            const url = await getAudioUrl(this.source, `s:${text}`, text)
+            const url = await getAudioUrl(this.source, `s:${text}`, text, this.queueSignal)
             if (session !== this.session) return
-            await this.playUrl(url, session)
+            const played = this.playUrl(url, session)
+            if (this.source.buffered && queue.length) this.preloadWhenReady(blobCache.get(`s:${queue[0]}`), session)
+            await played
           }
         } catch (e) {
+          if (session !== this.session) return // cut off, and its queued sentences dropped
           console.error('TTS error, skipping sentence', e)
         } finally {
           this.remember(this.speaking)
@@ -450,7 +562,7 @@ export class TtsPlayer {
         if (!t || ended) return
         queue.push(t)
         // synthesize ahead of playback; the first sentence streams instead
-        if (pushed++ > 0) void getAudioUrl(this.source, `s:${t}`, t).catch(() => {})
+        if (pushed++ > 0) void getAudioUrl(this.source, `s:${t}`, t, this.queueSignal).catch(() => {})
         signal()
       },
       end: () => {

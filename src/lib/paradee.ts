@@ -7,7 +7,7 @@
 // 24 kHz samples -> WAV. The model, eSpeak and onnxruntime all load on preload()
 // or the first synthesize, so picking the server voice costs nothing.
 import type { AudioSource } from './ports.ts'
-import { SAMPLE_RATE, chunkPhonemes, encodeWav, splitSentences, toIds } from './paradee-core.ts'
+import { SAMPLE_RATE, chunkPhonemes, encodeWav, splitSentences, toIds, trimSilence } from './paradee-core.ts'
 
 const REPO = 'https://huggingface.co/sahilmahendrakar/Paradee-8M-v1.0/resolve/v1.0'
 const MODEL_URL = `${REPO}/onnx/paradee_int8.onnx`
@@ -101,7 +101,8 @@ async function run(text: string, signal?: AbortSignal, quiet = false): Promise<R
         input_ids: new ort.Tensor('int64', BigInt64Array.from(ids, BigInt), [1, ids.length]),
         speed: new ort.Tensor('float32', Float32Array.of(1), [1]),
       })
-      parts.push(out.waveform.data as Float32Array)
+      // the model's own padding at both ends reads as a stall between sentences
+      parts.push(trimSilence(out.waveform.data as Float32Array, SAMPLE_RATE))
     }
   }
   const wav = encodeWav(parts, SAMPLE_RATE)

@@ -27,16 +27,23 @@ function makeAnalyser(c: AudioContext): AnalyserNode {
   return a
 }
 
+// The player has two elements (the second preloads the next clip); both feed the one
+// output analyser, so the meter and the echo bookkeeping hear whichever is playing.
+const routed = new WeakSet<HTMLMediaElement>()
+
 export async function attachOutput(el: HTMLAudioElement): Promise<void> {
-  if (output) return
+  if (routed.has(el)) return
   try {
     const c = context()
     await c.resume()
     if (c.state !== 'running') return // never rewire a suspended context
-    const src = c.createMediaElementSource(el)
-    output = makeAnalyser(c)
-    src.connect(output)
-    output.connect(c.destination)
+    if (routed.has(el)) return // another call got here first; a second source would throw
+    routed.add(el)
+    if (!output) {
+      output = makeAnalyser(c)
+      output.connect(c.destination)
+    }
+    c.createMediaElementSource(el).connect(output)
   } catch (e) {
     console.warn('output meter unavailable', e)
   }

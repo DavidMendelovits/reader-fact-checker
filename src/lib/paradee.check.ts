@@ -5,7 +5,7 @@
 // The model, eSpeak and onnxruntime need a browser; what is checked here is
 // what the reference Python inference pins down: ids, the 510 cut, the WAV.
 import assert from 'node:assert/strict'
-import { MAX_PHONEMES, chunkPhonemes, encodeWav, splitSentences, toIds } from './paradee-core.ts'
+import { MAX_PHONEMES, chunkPhonemes, encodeWav, splitSentences, toIds, trimSilence } from './paradee-core.ts'
 
 // --- sentences: the reference regex ------------------------------------------
 assert.deepEqual(splitSentences('  One. Two?  Three…\n\nFour '), ['One.', 'Two?', 'Three…', 'Four'])
@@ -32,6 +32,24 @@ assert.deepEqual(splitSentences('  One. Two?  Three…\n\nFour '), ['One.', 'Two
   assert.equal(chunks[1], Array(3).fill(word).join(' '))
   // no space at all: a hard cut at 510
   assert.deepEqual(chunkPhonemes('y'.repeat(1100)).map((c) => c.length), [510, 510, 80])
+}
+
+// --- trim: each end's silence cut to keepMs, quiet speech inside left alone ---
+{
+  const sr = 1000 // 1 sample = 1 ms
+  const x = new Float32Array(1000) // 300 ms silence, 400 ms sound, 300 ms silence
+  for (let i = 300; i < 700; i++) x[i] = i % 2 ? 0.5 : -0.5
+  x[500] = 0 // a silent sample mid-speech is not an end
+  x[50] = 0.005 // noise under the floor doesn't count as sound
+  const t = trimSilence(x, sr, 120)
+  assert.equal(t.length, 120 + 400 + 120)
+  assert.equal(t[120], -0.5, 'speech starts after exactly 120 ms of kept silence')
+  assert.equal(t[120 + 399], 0.5, 'and its last sample survives')
+  // less silence than keepMs at an end: nothing to cut there
+  assert.equal(trimSilence(x.subarray(250), sr, 120).length, 50 + 400 + 120)
+  // all silence: unchanged rather than an empty clip
+  assert.equal(trimSilence(new Float32Array(200), sr, 120).length, 200)
+  assert.equal(trimSilence(new Float32Array(0), sr, 120).length, 0)
 }
 
 // --- WAV: 44-byte header, 16-bit mono PCM, parts concatenated ----------------

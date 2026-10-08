@@ -9,21 +9,29 @@
 // release takes on a prefetched paragraph.
 import assert from 'node:assert/strict'
 
-/** The two-line <audio> the player actually uses: play, pause, onended. */
+/** The few lines of <audio> the player actually uses: play, pause, load, onended. */
 class FakeAudio {
+  /** The element play() was last called on: the player has two, and swaps them. */
   static last: FakeAudio | null = null
   src = ''
+  preload = ''
   playbackRate = 1
   onended: (() => void) | null = null
   onerror: (() => void) | null = null
   playing = false
+  /** The src each play() started, in order. */
+  played: string[] = []
 
-  constructor() {
-    FakeAudio.last = this
+  get paused(): boolean {
+    return !this.playing
   }
+
+  load(): void {}
 
   play(): Promise<void> {
     this.playing = true
+    this.played.push(this.src)
+    FakeAudio.last = this
     return Promise.resolve()
   }
 
@@ -136,6 +144,139 @@ function player(paragraphs: string[]) {
   }
   assert.equal(await range, 'completed')
   assert.deepEqual(calls, ['First one.', 'Second, with Dr. Who?', 'Third!'], 'one synthesize per sentence, in order')
+}
+
+// --- the next sentence loads in the second element while this one plays -------
+{
+  // the fake source finishes in the order it was asked, so the k-th object URL is
+  // the k-th sentence asked for
+  const asked: string[] = []
+  const urls = new Map<string, string>() // object URL -> the sentence it says
+  const orig = URL.createObjectURL
+  URL.createObjectURL = (() => {
+    const url = `blob:clip${urls.size}`
+    urls.set(url, asked[urls.size])
+    return url
+  }) as typeof URL.createObjectURL
+  const buffered: AudioSource = {
+    buffered: true,
+    synthesize: async (text) => {
+      asked.push(text)
+      return new Response('wav')
+    },
+  }
+  const p = new TtsPlayer(buffered)
+  p.clearCacheForNewDoc()
+  p.setParagraphs(['A one. A two.', 'B one.'])
+  const range = p.playFrom(0)
+  await tick()
+  const first = FakeAudio.last!
+  assert.deepEqual(first.played.map((u) => urls.get(u)), ['A one.'])
+  const spare = (p as any).spare as FakeAudio
+  assert.notEqual(spare, first)
+  assert.equal(urls.get(spare.src), 'A two.', 'loading while A one plays')
+  assert.equal(spare.preload, 'auto')
+
+  first.end()
+  await tick()
+  assert.equal(FakeAudio.last, spare, 'A two plays from the element it loaded in')
+  assert.deepEqual(spare.played.map((u) => urls.get(u)), ['A two.'])
+  assert.equal(urls.get(first.src), 'B one.', 'and the next paragraph loads in the other')
+
+  // a hold mid-sentence, then release: the paragraph replays from its first sentence
+  p.hold()
+  assert.equal(spare.playing, false, 'the hold stops the element that is playing')
+  p.setRate(1.5)
+  await tick()
+  p.release()
+  await tick()
+  assert.equal(urls.get(FakeAudio.last!.src), 'A one.')
+  assert.equal(FakeAudio.last!.playbackRate, 1.5)
+  FakeAudio.last!.end()
+  await tick()
+  assert.equal(urls.get(FakeAudio.last!.src), 'A two.')
+  FakeAudio.last!.end()
+  await tick()
+  assert.equal(urls.get(FakeAudio.last!.src), 'B one.')
+  FakeAudio.last!.end()
+  assert.equal(await range, 'completed')
+  URL.createObjectURL = orig
+}
+
+// --- unlock: a silent clip in each idle element, never the one playing --------
+{
+  const p = new TtsPlayer({ buffered: true, synthesize: async () => new Response('wav') })
+  p.unlock()
+  const [a, b] = [(p as any).audio, (p as any).spare] as FakeAudio[]
+  assert.ok(a.played[0]?.startsWith('data:audio/wav;base64,'))
+  assert.ok(b.played[0]?.startsWith('data:audio/wav;base64,'))
+  await tick()
+  assert.equal(a.playing || b.playing, false, 'paused again once play() was allowed')
+  p.unlock()
+  assert.equal(a.played.length + b.played.length, 2, 'once per element')
+  // the server voice is left alone
+  const server = new TtsPlayer({ synthesize: async () => new Response('mp3') })
+  server.unlock()
+  assert.equal(((server as any).audio as FakeAudio).played.length, 0)
+}
+
+// --- a buffered source keeps a paragraph queued ahead, the current one first --
+{
+  const asked: { text: string; signal?: AbortSignal }[] = []
+  // a source that never finishes: what's being checked is the order things are asked for
+  const slow: AudioSource = {
+    buffered: true,
+    synthesize: (text, signal) => {
+      asked.push({ text, signal })
+      return new Promise<Response>(() => {})
+    },
+  }
+  const p = new TtsPlayer(slow)
+  p.clearCacheForNewDoc()
+  p.setParagraphs(['A one. A two.', 'B one. B two. B three.', 'C one. C two.', 'D one.'])
+  void p.playFrom(0)
+  await tick()
+  assert.deepEqual(
+    asked.map((a) => a.text),
+    ['A one.', 'A two.', 'B one.', 'B two.', 'B three.', 'C one.'],
+    'this paragraph, then all of the next, then the first sentence of the one after',
+  )
+
+  // a jump: everything not yet started is dropped and the new position asked for afresh
+  void p.playFrom(2)
+  await tick()
+  assert.ok(asked.slice(0, 6).every((a) => a.signal?.aborted), 'the old range’s queue is dropped')
+  assert.deepEqual(
+    asked.slice(6).map((a) => a.text),
+    ['C one.', 'C two.', 'D one.'],
+    'not served from the dropped promises',
+  )
+  assert.ok(asked.slice(6).every((a) => !a.signal?.aborted))
+
+  // a hold keeps the queue (release replays this paragraph); a pause drops it
+  p.hold()
+  assert.ok(asked.slice(6).every((a) => !a.signal?.aborted), 'a hold drops nothing')
+  p.pause()
+  assert.ok(asked.every((a) => a.signal?.aborted), 'a pause drops the lot')
+}
+
+// --- the server path never gets a signal --------------------------------------
+{
+  const signals: (AbortSignal | undefined)[] = []
+  const server: AudioSource = {
+    synthesize: async (_text, signal) => {
+      signals.push(signal)
+      return new Response('mp3')
+    },
+  }
+  const p = new TtsPlayer(server)
+  p.clearCacheForNewDoc()
+  p.setParagraphs(['one', 'two', 'three'])
+  void p.playFrom(0)
+  await tick()
+  assert.equal(signals.length, 3, 'this paragraph and two ahead, whole')
+  assert.ok(signals.every((s) => s === undefined))
+  p.pause()
 }
 
 console.log('tts.check: ok')

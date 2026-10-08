@@ -36,6 +36,36 @@ export function toIds(ps: string, vocab: Record<string, number>): number[] {
   return [0, ...ids.slice(0, MAX_PHONEMES), 0]
 }
 
+/** Quieter than this (about -40 dBFS) counts as silence when trimming. */
+export const SILENCE_FLOOR = 0.01
+/**
+ * Silence left at each end of a clip, so two clips back to back pause about twice
+ * this. The model's own pauses at commas run 200-430 ms (median ~300); a sentence
+ * break shorter than a comma sounds rushed, so ~360 ms.
+ */
+export const KEEP_SILENCE_MS = 180
+
+/**
+ * The model pads every clip with ~0.3 s of silence before the speech and ~0.47 s
+ * after it. Played a sentence at a time, that is a ~0.8 s stall between every two
+ * sentences; this cuts each end down to `keepMs`. A clip with no sound above the
+ * floor comes back unchanged.
+ */
+export function trimSilence(
+  x: Float32Array,
+  sampleRate: number,
+  keepMs = KEEP_SILENCE_MS,
+  floor = SILENCE_FLOOR,
+): Float32Array {
+  let first = 0
+  while (first < x.length && Math.abs(x[first]) < floor) first++
+  if (first === x.length) return x
+  let last = x.length - 1
+  while (Math.abs(x[last]) < floor) last--
+  const keep = Math.round((keepMs / 1000) * sampleRate)
+  return x.subarray(Math.max(0, first - keep), Math.min(x.length, last + 1 + keep))
+}
+
 /** 16-bit mono PCM WAV of the concatenated parts. */
 export function encodeWav(parts: Float32Array[], sampleRate: number): ArrayBuffer {
   const n = parts.reduce((sum, p) => sum + p.length, 0)
