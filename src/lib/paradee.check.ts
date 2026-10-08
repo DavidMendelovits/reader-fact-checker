@@ -5,7 +5,7 @@
 // The model, eSpeak and onnxruntime need a browser; what is checked here is
 // what the reference Python inference pins down: ids, the 510 cut, the WAV.
 import assert from 'node:assert/strict'
-import { MAX_PHONEMES, chunkPhonemes, encodeWav, splitSentences, toIds, trimSilence } from './paradee-core.ts'
+import { KEEP_SILENCE_MS, MAX_PHONEMES, chunkPhonemes, encodeWav, splitSentences, toIds, trimSilence } from './paradee-core.ts'
 
 // --- sentences: the reference regex ------------------------------------------
 assert.deepEqual(splitSentences('  One. Two?  Three…\n\nFour '), ['One.', 'Two?', 'Three…', 'Four'])
@@ -50,7 +50,8 @@ assert.deepEqual(splitSentences('  One. Two?  Three…\n\nFour '), ['One.', 'Two
   // all silence: unchanged rather than an empty clip
   assert.equal(trimSilence(new Float32Array(200), sr, 120).length, 200)
   assert.equal(trimSilence(new Float32Array(0), sr, 120).length, 0)
-}
+  // by default only a margin is left: the pause between clips is the player's
+  assert.equal(trimSilence(x, sr).length, KEEP_SILENCE_MS + 400 + KEEP_SILENCE_MS)}
 
 // --- WAV: 44-byte header, 16-bit mono PCM, parts concatenated ----------------
 {

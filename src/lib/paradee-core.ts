@@ -39,11 +39,11 @@ export function toIds(ps: string, vocab: Record<string, number>): number[] {
 /** Quieter than this (about -40 dBFS) counts as silence when trimming. */
 export const SILENCE_FLOOR = 0.01
 /**
- * Silence left at each end of a clip, so two clips back to back pause about twice
- * this. The model's own pauses at commas run 200-430 ms (median ~300); a sentence
- * break shorter than a comma sounds rushed, so ~360 ms.
+ * Silence left at each end of a clip: a margin, not the pause. Soft onsets and
+ * tails run at most ~25 ms under the floor, so this keeps them with room to spare;
+ * the pause between sentences and paragraphs is the player's (TtsPlayer.setGaps).
  */
-export const KEEP_SILENCE_MS = 180
+export const KEEP_SILENCE_MS = 50
 
 /**
  * The model pads every clip with ~0.3 s of silence before the speech and ~0.47 s

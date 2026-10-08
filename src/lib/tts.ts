@@ -5,7 +5,7 @@
 // extension-explicit so this file can run under node --experimental-strip-types
 import { apiFetch } from './api.ts'
 import { attachOutput } from './audio-levels.ts'
-import { encodeWav } from './paradee-core.ts'
+import { KEEP_SILENCE_MS, encodeWav } from './paradee-core.ts'
 import type { AudioSource } from './ports.ts'
 import { SentenceSplitter } from './sentences.ts'
 // the hold policy is shared with the phone player; its checks live next to it
@@ -165,6 +165,18 @@ export class TtsPlayer {
   private paragraphs: string[] = []
   private index = 0
   rate = 1
+  // A buffered source's clips are trimmed to a bare margin (trimSilence), so the
+  // pauses are the player's: this between two sentences, that after a paragraph.
+  sentenceGap = 350
+  paragraphGap = 700
+
+  /** Set either pause, in ms, clamped to 0-3000; anything not a number keeps the old one. */
+  setGaps({ sentence, paragraph }: { sentence?: number; paragraph?: number }) {
+    const ms = (v: number | undefined, was: number) =>
+      typeof v === 'number' && Number.isFinite(v) ? Math.min(3000, Math.max(0, v)) : was
+    this.sentenceGap = ms(sentence, this.sentenceGap)
+    this.paragraphGap = ms(paragraph, this.paragraphGap)
+  }
   /** Text currently coming out of the speaker — the echo filter matches against it. */
   speaking = ''
   private recent: { text: string; until: number }[] = []
@@ -291,6 +303,8 @@ export class TtsPlayer {
       if (session !== this.session) return 'stopped'
       if (this.gate.held) continue // park at the top; the index stays on this paragraph
       this.index = i + 1
+      // the next paragraph's first clip is already loading in the spare meanwhile
+      if (this.source.buffered && this.index <= last) await this.gap(this.paragraphGap, session)
     }
     if (session !== this.session) return 'stopped'
     this.onEnded()
@@ -344,6 +358,8 @@ export class TtsPlayer {
     const urls = parts.map((text, k) => getAudioUrl(this.source, `p${i}:${k}`, text, this.queueSignal))
     urls.forEach((u) => u.catch(() => {}))
     for (let k = 0; k < parts.length; k++) {
+      // the sentence keeps synthesizing (and loading in the spare) through the gap
+      if (k > 0) await this.gap(this.sentenceGap, session)
       const url = await urls[k]
       if (session !== this.session || this.gate.held) return
       const played = this.playUrl(url, session)
@@ -352,6 +368,24 @@ export class TtsPlayer {
       await played
       if (session !== this.session || this.gate.held) return
     }
+  }
+
+  /**
+   * Silence between two clips, stopped short by whatever stops a clip: pause() and
+   * hold() resolve it through `interrupt`. Like a clip, it never resolves once a new
+   * range has taken over, so a superseded loop can't run on into the live one.
+   */
+  private gap(heard: number, session: number): Promise<void> {
+    // both clips keep a trim margin at their ends, so the setting is the pause heard
+    const ms = heard - 2 * KEEP_SILENCE_MS
+    return new Promise((resolve) => {
+      if (ms <= 0 || session !== this.session) return resolve()
+      const timer = setTimeout(() => session === this.session && resolve(), ms)
+      this.interrupt = () => {
+        clearTimeout(timer)
+        resolve()
+      }
+    })
   }
 
   /** Load `next` into the spare element once it's synthesized, unless playback moved on. */
@@ -505,7 +539,8 @@ export class TtsPlayer {
    * Speak text that arrives a sentence at a time — the agent's reply, which the
    * model is still writing while the first sentence plays. The first sentence
    * streams (audio on the first byte); later ones are synthesized the moment they
-   * are pushed and play from cache, so the gap between sentences stays at zero.
+   * are pushed and play from cache, so the gap between sentences stays at zero
+   * (a buffered source's at sentenceGap).
    *
    * pause() cuts it off like any other playback: whatever is queued is dropped and
    * end() resolves as soon as the current clip stops.
@@ -532,6 +567,10 @@ export class TtsPlayer {
           if (ended) return
           await new Promise<void>((r) => (wake = r))
           continue
+        }
+        if (!first && this.source.buffered) {
+          await this.gap(this.sentenceGap, session) // the sentence synthesizes meanwhile
+          if (session !== this.session) return
         }
         try {
           this.speaking = text

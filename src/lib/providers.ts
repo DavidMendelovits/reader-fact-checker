@@ -16,7 +16,8 @@ import { paradeeSpeech } from './paradee'
 
 export const voice: Transcriber = new VoiceListener()
 
-let choice = new URLSearchParams(location.search).get('voice')
+const query = new URLSearchParams(location.search)
+let choice = query.get('voice')
 try {
   if (choice === 'paradee' || choice === 'server') localStorage.setItem('rfc-voice', choice)
   else choice = localStorage.getItem('rfc-voice')
@@ -26,3 +27,22 @@ try {
 /** Paradee when it's the voice in use, so the app can preload it and show it loading. */
 export const pageVoice = choice === 'paradee' ? paradeeSpeech : null
 export const tts = new TtsPlayer(pageVoice ?? serverSpeech)
+
+// ?sentenceGap=<ms>&paragraphGap=<ms>: the pauses Paradee's player leaves between
+// sentences and after a paragraph, remembered (clamped) like the voice.
+const stored = (key: string) => {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+const ms = (v: string | null) => parseFloat(v ?? '') // NaN, which setGaps ignores, when absent
+tts.setGaps({ sentence: ms(stored('rfc-sentence-gap')), paragraph: ms(stored('rfc-paragraph-gap')) })
+tts.setGaps({ sentence: ms(query.get('sentenceGap')), paragraph: ms(query.get('paragraphGap')) })
+try {
+  if (query.has('sentenceGap')) localStorage.setItem('rfc-sentence-gap', String(tts.sentenceGap))
+  if (query.has('paragraphGap')) localStorage.setItem('rfc-paragraph-gap', String(tts.paragraphGap))
+} catch {
+  /* storage blocked: the URL still decides for this load */
+}

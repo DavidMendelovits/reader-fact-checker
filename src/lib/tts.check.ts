@@ -8,6 +8,7 @@
 // under node, so playback takes the cached-blob path, which is also the path a
 // release takes on a prefetched paragraph.
 import assert from 'node:assert/strict'
+import { mock } from 'node:test'
 
 /** The few lines of <audio> the player actually uses: play, pause, load, onended. */
 class FakeAudio {
@@ -55,6 +56,7 @@ class FakeAudio {
 }
 
 const { TtsPlayer } = await import('./tts.ts')
+const { KEEP_SILENCE_MS } = await import('./paradee-core.ts')
 type AudioSource = import('./ports.ts').AudioSource
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -136,6 +138,7 @@ function player(paragraphs: string[]) {
   }
   const p = new TtsPlayer(buffered)
   p.clearCacheForNewDoc()
+  p.setGaps({ sentence: 0, paragraph: 0 }) // the pauses have their own case below
   p.setParagraphs(['First one. Second, with Dr. Who? Third!'])
   const range = p.playFrom(0)
   for (let k = 0; k < 3; k++) {
@@ -167,6 +170,7 @@ function player(paragraphs: string[]) {
   }
   const p = new TtsPlayer(buffered)
   p.clearCacheForNewDoc()
+  p.setGaps({ sentence: 0, paragraph: 0 })
   p.setParagraphs(['A one. A two.', 'B one.'])
   const range = p.playFrom(0)
   await tick()
@@ -277,6 +281,59 @@ function player(paragraphs: string[]) {
   assert.equal(signals.length, 3, 'this paragraph and two ahead, whole')
   assert.ok(signals.every((s) => s === undefined))
   p.pause()
+}
+
+// --- buffered: the pauses are the player's, and a pause cuts one short ---------
+{
+  // fake timers; tick() itself waits on setTimeout, so this flushes on setImmediate
+  mock.timers.enable({ apis: ['setTimeout'] })
+  const flush = async () => {
+    for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r))
+  }
+  const p = new TtsPlayer({ buffered: true, synthesize: async () => new Response('wav') })
+  p.clearCacheForNewDoc()
+  // the setting is the pause heard; the timer covers it less both clips' trim margins
+  const margin = 2 * KEEP_SILENCE_MS
+  p.setGaps({ sentence: 350 + margin, paragraph: 700 + margin })
+  p.setParagraphs(['A one. A two.', 'B one.', 'C one.'])
+  const seen: number[] = []
+  p.onParagraphChange = (i) => seen.push(i)
+  const els = [(p as any).audio, (p as any).spare] as FakeAudio[]
+  const started = () => els.reduce((n, a) => n + a.played.length, 0)
+  const range = p.playFrom(0)
+  await flush()
+  assert.equal(started(), 1)
+
+  FakeAudio.last!.end() // A one
+  await flush()
+  mock.timers.tick(349)
+  await flush()
+  assert.equal(started(), 1, 'silent for the sentence gap')
+  mock.timers.tick(1)
+  await flush()
+  assert.equal(started(), 2, 'A two starts once it is up')
+
+  FakeAudio.last!.end() // A two, the paragraph's last
+  await flush()
+  mock.timers.tick(699)
+  await flush()
+  assert.equal(started(), 2, 'silent for the paragraph gap')
+  assert.deepEqual(seen, [0], 'and still on paragraph A')
+  mock.timers.tick(1)
+  await flush()
+  assert.equal(started(), 3)
+  assert.deepEqual(seen, [0, 1])
+
+  FakeAudio.last!.end() // B one
+  await flush()
+  mock.timers.tick(300)
+  p.pause()
+  assert.equal(await range, 'stopped', 'a pause mid-gap ends the range now')
+  mock.timers.tick(3000)
+  await flush()
+  assert.equal(started(), 3, 'and nothing plays after it')
+  assert.deepEqual(seen, [0, 1])
+  mock.timers.reset()
 }
 
 console.log('tts.check: ok')
