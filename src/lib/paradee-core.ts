@@ -9,6 +9,29 @@ export const SAMPLE_RATE = 24000
 /** The text side has 512 positions, two of which are the pad tokens at each end. */
 export const MAX_PHONEMES = 510
 
+// eSpeak spells these letter by letter. phonemize.ts already expands Dr./Mr./
+// Ms./Mrs., numbers and money, and eSpeak says "etc." as "et cetera" itself.
+const LATIN: [RegExp, string][] = [
+  [/\be\.g\./gi, 'for example'],
+  [/\bi\.e\./gi, 'that is'],
+  [/\bvs\./gi, 'versus'], // only with the period: "VS Code" is not "versus Code"
+  [/\bcf\./gi, 'compare'],
+]
+
+/**
+ * What the reader would say rather than spell: the Latin abbreviations, and n/m
+ * as "n over m". A pair that could be a US month/day (1/2, 10/7) or part of a
+ * longer date (10/7/2026) is left as it is.
+ */
+export function normalizeText(text: string): string {
+  for (const [re, said] of LATIN)
+    text = text.replace(re, (m) => (m[0] === m[0].toUpperCase() ? said[0].toUpperCase() + said.slice(1) : said))
+  return text.replace(/(?<![\w./])(\d+)\/(\d+)(?![\w/]|\.\d)/g, (m, a: string, b: string) => {
+    if (+a >= 1 && +a <= 12 && +b >= 1 && +b <= 31) return m
+    return a === '24' && b === '7' ? '24 7' : `${a} over ${b}`
+  })
+}
+
 /** Long text is read one sentence at a time. */
 export function splitSentences(text: string): string[] {
   return text

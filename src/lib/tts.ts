@@ -210,6 +210,10 @@ export class TtsPlayer {
   // Resolves the paragraph currently awaited in playFrom. A paused <audio> never
   // fires 'ended', so without this an interruption left read_aloud hanging forever.
   private interrupt: (() => void) | null = null
+  // Resolves the playFrom a newer one replaces. The replaced loop stays parked in
+  // its clip or gap (they never resolve once a new range has taken over), so
+  // without this its read_aloud waited forever.
+  private supersede: ((outcome: 'stopped') => void) | null = null
 
   setParagraphs(paragraphs: string[]) {
     this.paragraphs = paragraphs
@@ -232,18 +236,21 @@ export class TtsPlayer {
 
   /**
    * Read paragraphs [index, until] aloud. Resolves 'completed' when the range
-   * finishes, 'stopped' if pause() cancelled it (the agent's read_aloud tool
-   * distinguishes the outcomes — 'stopped' means the user talked over it), or
-   * 'failed' when synthesis itself is down — see runRange.
+   * finishes, 'stopped' if pause() or a newer playFrom cancelled it (the agent's
+   * read_aloud tool distinguishes the outcomes — 'stopped' means the user talked
+   * over it), or 'failed' when synthesis itself is down — see runRange.
    */
   async playFrom(index: number, until = Infinity): Promise<'completed' | 'stopped' | 'failed'> {
+    this.remember(this.speaking) // audible until the new range replaces it
+    this.supersede?.('stopped')
     const session = ++this.session
     this.dropQueued() // whatever was queued for the last range plays no part in this one
     const last = Math.min(until, this.paragraphs.length - 1)
     this.index = index
     this.setNarrating(true)
+    const superseded = new Promise<'stopped'>((resolve) => (this.supersede = resolve))
     try {
-      return await this.runRange(index, last, session)
+      return await Promise.race([this.runRange(index, last, session), superseded])
     } finally {
       // only clear if we're still the live session — a barge-in that immediately
       // started a new range must not be flipped back off by the old one unwinding
@@ -297,8 +304,12 @@ export class TtsPlayer {
           }
         }
       } finally {
-        this.remember(this.speaking)
-        this.speaking = ''
+        // a replaced range unwinding late (its synthesis was still in flight) must
+        // leave alone the paragraph the new one is saying; a pause clears it
+        if (session === this.session || !this.narrating) {
+          this.remember(this.speaking)
+          this.speaking = ''
+        }
       }
       if (session !== this.session) return 'stopped'
       if (this.gate.held) continue // park at the top; the index stays on this paragraph

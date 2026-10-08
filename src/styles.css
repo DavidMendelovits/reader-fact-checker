@@ -818,6 +818,7 @@ input::placeholder { color: var(--text-tertiary); }
   inset: 0;
   border-radius: inherit;
   background: conic-gradient(var(--text-interactive) calc(var(--voice-progress, 0.25) * 1turn), var(--border-secondary) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
   pointer-events: none;
 }

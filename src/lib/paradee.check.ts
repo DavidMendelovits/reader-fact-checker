@@ -5,10 +5,20 @@
 // The model, eSpeak and onnxruntime need a browser; what is checked here is
 // what the reference Python inference pins down: ids, the 510 cut, the WAV.
 import assert from 'node:assert/strict'
-import { KEEP_SILENCE_MS, MAX_PHONEMES, chunkPhonemes, encodeWav, splitSentences, toIds, trimSilence } from './paradee-core.ts'
+import { KEEP_SILENCE_MS, MAX_PHONEMES, chunkPhonemes, encodeWav, normalizeText, splitSentences, toIds, trimSilence } from './paradee-core.ts'
 
 // --- sentences: the reference regex ------------------------------------------
 assert.deepEqual(splitSentences('  One. Two?  Three…\n\nFour '), ['One.', 'Two?', 'Three…', 'Four'])
+
+// --- normalize: said, not spelled; anything date-like left alone -------------
+assert.equal(
+  normalizeText('Pi is roughly 22/7, e.g. 3.14, i.e. close enough.'),
+  'Pi is roughly 22 over 7, for example 3.14, that is close enough.',
+)
+assert.equal(normalizeText('E.g. cats vs. dogs, cf. Smith, etc.'), 'For example cats versus dogs, compare Smith, etc.')
+assert.equal(normalizeText('I.e. 355/113 or 3/40, open 24/7.'), 'That is 355 over 113 or 3 over 40, open 24 7.')
+for (const kept of ['On 10/7/2026.', 'Half is 1/2.', 'On 9/11', '1.5/2', 'v1/2', 'a/b', 'VS Code', 'ie. no'])
+  assert.equal(normalizeText(kept), kept)
 
 // --- ids: pad at each end, unknown phonemes dropped, at most 510 inside -------
 {

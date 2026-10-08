@@ -112,5 +112,8 @@ export default defineConfig(({ mode }) => {
   Object.assign(process.env, loadEnv(mode, process.cwd(), ''))
   return {
     plugins: [react(), apiRoutes()],
+    // ort finds its wasm next to its own bundle (new URL(..., import.meta.url)), and
+    // in dev a pre-bundled copy has no wasm beside it
+    optimizeDeps: { exclude: ['onnxruntime-web'] },
   }
 })

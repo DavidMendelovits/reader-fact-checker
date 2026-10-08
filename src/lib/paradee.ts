@@ -7,7 +7,7 @@
 // 24 kHz samples -> WAV. The model, eSpeak and onnxruntime all load on preload()
 // or the first synthesize, so picking the server voice costs nothing.
 import type { AudioSource } from './ports.ts'
-import { SAMPLE_RATE, chunkPhonemes, encodeWav, splitSentences, toIds, trimSilence } from './paradee-core.ts'
+import { SAMPLE_RATE, chunkPhonemes, encodeWav, normalizeText, splitSentences, toIds, trimSilence } from './paradee-core.ts'
 
 const REPO = 'https://huggingface.co/sahilmahendrakar/Paradee-8M-v1.0/resolve/v1.0'
 const MODEL_URL = `${REPO}/onnx/paradee_int8.onnx`
@@ -60,9 +60,8 @@ async function init() {
   // the wasm download and compile below can't be measured: indeterminate from here
   paradeeSpeech.onStatus('loading')
   // Inference runs in ort's worker so it never blocks the mic handling; the wasm
-  // comes from the CDN at exactly the installed version, so Vite needs no config.
+  // is the copy Vite emits next to ort's bundle, so it is always the installed version.
   ort.env.wasm.proxy = true
-  ort.env.wasm.wasmPaths = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ort.env.versions.web}/dist/`
   const session = await ort.InferenceSession.create(new Uint8Array(model))
   const vocab: Record<string, number> = JSON.parse(new TextDecoder().decode(config)).vocab
   return { ort, session, vocab, phonemize, toMisaki }
@@ -92,7 +91,8 @@ async function run(text: string, signal?: AbortSignal, quiet = false): Promise<R
   const { ort, session, vocab, phonemize, toMisaki } = await load()
   const started = performance.now()
   const parts: Float32Array[] = []
-  for (const sentence of splitSentences(text)) {
+  // before the split, which would otherwise cut a sentence at "e.g."
+  for (const sentence of splitSentences(normalizeText(text))) {
     signal?.throwIfAborted()
     for (const ps of chunkPhonemes(toMisaki(await phonemize(sentence)))) {
       signal?.throwIfAborted()

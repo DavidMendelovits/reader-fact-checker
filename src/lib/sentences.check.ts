@@ -38,6 +38,8 @@ assert.deepEqual(split('Mr. Darcy arrives at Mt. Pleasant. He is late.'), [
 ])
 assert.deepEqual(split('J. R. R. Tolkien wrote it. True.'), ['J. R. R. Tolkien wrote it.', 'True.'])
 assert.deepEqual(split('Use e.g. this one. Done.'), ['Use e.g. this one.', 'Done.'])
+assert.deepEqual(split('Pi is 22/7, i.e. close, cf. Archimedes. Done.'), ['Pi is 22/7, i.e. close, cf. Archimedes.', 'Done.'])
+assert.deepEqual(split('E.g. this. I.e. that.'), ['E.g. this.', 'I.e. that.'])
 
 // closing quotes ride with the sentence they end
 assert.deepEqual(split('He said "no." Then he left.'), ['He said "no."', 'Then he left.'])

@@ -336,4 +336,76 @@ function player(paragraphs: string[]) {
   mock.timers.reset()
 }
 
+// --- a new range replaces one mid-gap: the old resolves now, the new plays on --
+{
+  mock.timers.enable({ apis: ['setTimeout'] })
+  const flush = async () => {
+    for (let i = 0; i < 6; i++) await new Promise((r) => setImmediate(r))
+  }
+  const p = new TtsPlayer({ buffered: true, synthesize: async () => new Response('wav') })
+  p.clearCacheForNewDoc()
+  p.setParagraphs(['A one. A two.', 'B one.'])
+  const playing: boolean[] = []
+  p.onPlayingChange = (v) => playing.push(v)
+  const els = [(p as any).audio, (p as any).spare] as FakeAudio[]
+  const started = () => els.reduce((n, a) => n + a.played.length, 0)
+  let outcome = ''
+  void p.playFrom(0).then((o) => (outcome = o))
+  await flush()
+  FakeAudio.last!.end() // A one; A two waits out the sentence gap
+  await flush()
+  const next = p.playFrom(1)
+  await flush()
+  assert.equal(outcome, 'stopped', 'read_aloud hears back at once, mid-gap')
+  assert.equal(started(), 2)
+  assert.equal(FakeAudio.last!.playing, true, 'B one is playing')
+  mock.timers.tick(3000) // the old range's gap runs out
+  await flush()
+  assert.equal(started(), 2, 'and A two never plays over it')
+  assert.equal(FakeAudio.last!.playing, true)
+  assert.equal(p.speaking, 'B one.')
+  assert.deepEqual(playing, [true], '`playing` never dropped')
+  FakeAudio.last!.end()
+  assert.equal(await next, 'completed')
+  assert.deepEqual(playing, [true, false])
+  mock.timers.reset()
+}
+
+// --- server: replaced mid-synthesis and mid-clip, the same ---------------------
+{
+  let synthesized = (): void => {}
+  const server: AudioSource = {
+    synthesize: (text) =>
+      text === 'zero'
+        ? new Promise((r) => (synthesized = () => r(new Response('mp3'))))
+        : Promise.resolve(new Response('mp3')),
+  }
+  const p = new TtsPlayer(server)
+  p.clearCacheForNewDoc()
+  p.setParagraphs(['zero', 'one', 'two'])
+  const playing: boolean[] = []
+  p.onPlayingChange = (v) => playing.push(v)
+  const outcomes: string[] = []
+  void p.playFrom(0).then((o) => outcomes.push(o)) // 'zero' is still synthesizing
+  await tick()
+  void p.playFrom(1).then((o) => outcomes.push(o))
+  await tick()
+  assert.deepEqual(outcomes, ['stopped'], 'without waiting for its synthesis')
+  synthesized() // the replaced range unwinds now, late
+  await tick()
+  assert.equal(p.speaking, 'one', 'and leaves the new range its echo text')
+  assert.equal(FakeAudio.last!.playing, true)
+
+  const last = p.playFrom(2) // 'one' is mid-clip
+  await tick()
+  assert.deepEqual(outcomes, ['stopped', 'stopped'])
+  assert.ok(p.recentlySpoken.includes('one'), 'the replaced clip stays echo-matchable')
+  assert.equal(p.speaking, 'two')
+  assert.equal(FakeAudio.last!.playing, true)
+  assert.deepEqual(playing, [true])
+  FakeAudio.last!.end()
+  assert.equal(await last, 'completed')
+  assert.deepEqual(playing, [true, false])
+}
+
 console.log('tts.check: ok')
