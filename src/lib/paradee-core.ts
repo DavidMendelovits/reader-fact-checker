@@ -20,16 +20,27 @@ const LATIN: [RegExp, string][] = [
 
 /**
  * What the reader would say rather than spell: the Latin abbreviations, and n/m
- * as "n over m". A pair that could be a US month/day (1/2, 10/7) or part of a
- * longer date (10/7/2026) is left as it is.
+ * as a fraction: "3 quarters", "2 thirds", and "n over m" when it isn't a proper
+ * fraction with a small denominator (22/7). Part of a longer date (10/7/2026) is
+ * left as it is.
+ * ponytail: a bare month/day ("on 9/11") reads as a fraction too; fractions won.
  */
 export function normalizeText(text: string): string {
   for (const [re, said] of LATIN)
     text = text.replace(re, (m) => (m[0] === m[0].toUpperCase() ? said[0].toUpperCase() + said.slice(1) : said))
-  return text.replace(/(?<![\w./])(\d+)\/(\d+)(?![\w/]|\.\d)/g, (m, a: string, b: string) => {
-    if (+a >= 1 && +a <= 12 && +b >= 1 && +b <= 31) return m
-    return a === '24' && b === '7' ? '24 7' : `${a} over ${b}`
+  return text.replace(/(?<![\w./])(\d+)\/(\d+)(?![\w/]|\.\d)/g, (_, a: string, b: string) => {
+    if (a === '24' && b === '7') return '24 7'
+    const part = PARTS[+b]
+    if (!part || +a < 1 || +a >= +b) return `${a} over ${b}`
+    return `${a} ${+a === 1 ? part[0] : part[1]}`
   })
+}
+
+// denominator -> [one, many]
+const PARTS: Record<number, [string, string]> = {
+  2: ['half', 'halves'], 3: ['third', 'thirds'], 4: ['quarter', 'quarters'], 5: ['fifth', 'fifths'],
+  6: ['sixth', 'sixths'], 7: ['seventh', 'sevenths'], 8: ['eighth', 'eighths'], 9: ['ninth', 'ninths'],
+  10: ['tenth', 'tenths'],
 }
 
 /** Long text is read one sentence at a time. */

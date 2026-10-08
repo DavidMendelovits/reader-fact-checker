@@ -17,7 +17,8 @@ assert.equal(
 )
 assert.equal(normalizeText('E.g. cats vs. dogs, cf. Smith, etc.'), 'For example cats versus dogs, compare Smith, etc.')
 assert.equal(normalizeText('I.e. 355/113 or 3/40, open 24/7.'), 'That is 355 over 113 or 3 over 40, open 24 7.')
-for (const kept of ['On 10/7/2026.', 'Half is 1/2.', 'On 9/11', '1.5/2', 'v1/2', 'a/b', 'VS Code', 'ie. no'])
+assert.equal(normalizeText('Half is 1/2, then 3/4, 2/3, 7/2.'), 'Half is 1 half, then 3 quarters, 2 thirds, 7 over 2.')
+for (const kept of ['On 10/7/2026.', '1.5/2', 'v1/2', 'a/b', 'VS Code', 'ie. no'])
   assert.equal(normalizeText(kept), kept)
 
 // --- ids: pad at each end, unknown phonemes dropped, at most 510 inside -------
