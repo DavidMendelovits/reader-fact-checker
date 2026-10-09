@@ -9,7 +9,7 @@
 const TERMINAL = /[.!?…]+["'”’)\]]*$/
 // A period after one of these is not the end of a sentence.
 const ABBREVIATIONS = new Set([
-  'mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'st', 'mt', 'vs', 'etc', 'e.g', 'i.e', 'no', 'vol', 'ch', 'fig',
+  'mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'st', 'mt', 'vs', 'etc', 'e.g', 'i.e', 'cf', 'no', 'vol', 'ch', 'fig',
 ])
 
 /** True when `head` ends at a sentence boundary that `next` (the text after the whitespace) confirms. */

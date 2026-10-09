@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "check": "node --experimental-strip-types shared/voice/echo.check.ts && node --experimental-strip-types shared/voice/holdGate.check.ts && node --experimental-strip-types shared/voice/bargeIn.check.ts && node --experimental-strip-types shared/voice/restartPolicy.check.ts && node --experimental-strip-types shared/voice/line.check.ts && node --experimental-strip-types shared/voice/glyphs.check.ts && node --experimental-strip-types shared/voice/agent.check.ts && node --experimental-strip-types shared/voice/aurora.check.ts && node --experimental-strip-types src/lib/maplimit.check.ts && node --experimental-strip-types src/lib/sentences.check.ts && node --experimental-strip-types src/lib/tts.check.ts && node --experimental-strip-types src/lib/voice.check.ts && node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/tts.check.ts && node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/navigate.check.ts && node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/_impl.check.ts && node --experimental-strip-types shared/voice/agent.errors.check.ts && node --experimental-strip-types src/store.check.ts && npx tsc --noEmit -p .",
+    "check": "node --experimental-strip-types shared/voice/echo.check.ts && node --experimental-strip-types shared/voice/holdGate.check.ts && node --experimental-strip-types shared/voice/bargeIn.check.ts && node --experimental-strip-types shared/voice/restartPolicy.check.ts && node --experimental-strip-types shared/voice/line.check.ts && node --experimental-strip-types shared/voice/glyphs.check.ts && node --experimental-strip-types shared/voice/agent.check.ts && node --experimental-strip-types shared/voice/aurora.check.ts && node --experimental-strip-types src/lib/maplimit.check.ts && node --experimental-strip-types src/lib/sentences.check.ts && node --experimental-strip-types src/lib/tts.check.ts && node --experimental-strip-types src/lib/paradee.check.ts && node --experimental-strip-types src/lib/voice.check.ts && node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/tts.check.ts && node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/navigate.check.ts && node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/_impl.check.ts && node --experimental-strip-types shared/voice/agent.errors.check.ts && node --experimental-strip-types src/store.check.ts && npx tsc --noEmit -p .",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -14,6 +14,8 @@
     "@mozilla/readability": "^0.5.0",
     "@vercel/analytics": "^2.0.1",
     "epubjs": "^0.3.93",
+    "onnxruntime-web": "^1.30.0",
+    "phonemizer": "^1.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zustand": "^5.0.2"

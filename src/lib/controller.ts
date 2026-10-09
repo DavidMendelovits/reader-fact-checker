@@ -4,7 +4,7 @@
 // transport controls and the whole-document scan stay direct: a play button should
 // not need a model round-trip, and a batch scan is a job, not a conversation.
 import { useStore } from '../store'
-import { tts, voice } from './providers'
+import { pageVoice, tts, voice } from './providers'
 import { beginUtterance, falseStart, openingTurn, say, sayInterim } from './agent'
 import { startMicMeter, stopMicMeter } from './audio-levels'
 import { checkPassage, completeField, extractClaims } from './factcheck'
@@ -32,6 +32,13 @@ export function pause() {
 }
 
 tts.onParagraphChange = (i) => useStore.setState({ currentParagraph: i })
+
+// iOS lets the player's elements play only after a tap has started them (see
+// TtsPlayer.unlock). Capture phase, so it runs inside the very tap whose onClick
+// calls play(), and inside the import tap that hands the floor to the agent, which
+// may start narration with read_aloud long after any tap.
+for (const type of ['touchend', 'click', 'keydown'] as const)
+  document.addEventListener(type, () => tts.unlock(), { capture: true, passive: true })
 
 // Keep the phone's screen awake while narrating — iOS suspends a locked web page's
 // JS, so playback dies with the screen. Wake lock is the web's only lever here.
@@ -62,6 +69,20 @@ tts.onPlayingChange = (playing) => {
   voice.setPlaying(playing) // the level gate only fires during narration (3.2A)
 }
 tts.onEnded = () => useStore.setState({ playing: false })
+
+// Paradee's first load is a 9 MB model plus onnxruntime's wasm, seconds even from
+// cache, so it starts once the page has painted and the Play button shows it. A Play
+// meanwhile just waits on the same load; a failed one is retried by the next Play.
+if (pageVoice) {
+  pageVoice.onStatus = (voiceStatus, progress) =>
+    useStore.setState({
+      voiceStatus,
+      voiceProgress: progress ?? null,
+      ...(voiceStatus === 'error' ? { notice: "Couldn't load the in-browser voice." } : null),
+    })
+  const whenIdle = window.requestIdleCallback ?? ((f: () => void) => setTimeout(f, 0))
+  whenIdle(pageVoice.preload)
+}
 // The agent's replies used to mute the mic outright, plus a 1200ms tail to cover the
 // late final. Both are gone: the mute made barging in over a reply impossible, and
 // the tail ate the first words of anyone who answered the moment it stopped. The

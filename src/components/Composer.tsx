@@ -21,9 +21,10 @@ const MIC_TITLE: Record<LineState['micState'], string> = {
 }
 
 /** What the screen reader is told when the state changes. Never the interim words. */
-function announcement(micState: LineState['micState'], agentState: string, playing: boolean): string {
+function announcement(micState: LineState['micState'], agentState: string, playing: boolean, voiceLoading: boolean): string {
   if (agentState === 'listening') return 'Listening'
   if (agentState === 'thinking') return 'Thinking'
+  if (voiceLoading) return 'Loading voice'
   if (playing) return 'Reading'
   if (micState === 'denied') return 'Microphone blocked'
   return 'Paused'
@@ -42,6 +43,8 @@ export function Composer({ onOpenTranscript }: { onOpenTranscript: () => void })
   const lastAgentLineAt = useStore((s) => s.lastAgentLineAt)
   const current = useStore((s) => s.currentParagraph)
   const total = useStore((s) => s.paragraphs.length)
+  const voiceLoading = useStore((s) => s.voiceStatus === 'loading')
+  const voiceProgress = useStore((s) => s.voiceProgress)
 
   const [typing, setTyping] = useState(false)
   const [draft, setDraft] = useState('')
@@ -129,6 +132,15 @@ export function Composer({ onOpenTranscript }: { onOpenTranscript: () => void })
     else setMicEnabled(true)
   }
 
+  // While the in-page voice loads, Play still works: the button turns to Pause at
+  // once and the ring keeps filling until the first sentence can play.
+  const percent = voiceProgress === null ? '' : `, ${Math.round(voiceProgress * 100)}%`
+  const playLabel = voiceLoading
+    ? `Loading voice${percent}${playing ? '. Plays when ready' : ''}`
+    : playing
+      ? 'Pause'
+      : 'Play'
+
   const send = () => {
     const t = draft.trim()
     if (!t) return
@@ -180,9 +192,12 @@ export function Composer({ onOpenTranscript }: { onOpenTranscript: () => void })
         )}
 
         <button
-          className="composer-btn"
-          aria-label={playing ? 'Pause' : 'Play'}
-          title={playing ? 'Pause' : 'Play'}
+          className="composer-btn play"
+          aria-label={playLabel}
+          title={playLabel}
+          aria-busy={voiceLoading}
+          data-progress={voiceLoading && voiceProgress === null ? 'unknown' : undefined}
+          style={voiceProgress === null ? undefined : ({ '--voice-progress': voiceProgress } as React.CSSProperties)}
           onClick={() => (playing ? pause() : play())}
         >
           <Glyph name={playing ? 'pause' : 'play'} />
@@ -205,7 +220,7 @@ export function Composer({ onOpenTranscript }: { onOpenTranscript: () => void })
       </div>
 
       <div className="sr-only" role="status" aria-live="polite">
-        {announcement(micState, agentState, playing)}
+        {announcement(micState, agentState, playing, voiceLoading)}
       </div>
     </div>
   )

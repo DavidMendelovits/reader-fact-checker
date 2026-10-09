@@ -809,6 +809,21 @@ input::placeholder { color: var(--text-tertiary); }
   transform: rotate(-45deg);
 }
 
+/* the in-page voice is loading: a 2px ring fills with the model download, then
+   a quarter of it turns while onnxruntime starts (a still arc under reduced motion) */
+.composer-btn.play { position: relative; }
+.composer-btn.play[aria-busy='true']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(var(--text-interactive) calc(var(--voice-progress, 0.25) * 1turn), var(--border-secondary) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  pointer-events: none;
+}
+.composer-btn.play[data-progress='unknown']::after { animation: spin 1s linear infinite; }
+
 .composer-line {
   flex: 1;
   min-width: 0;
