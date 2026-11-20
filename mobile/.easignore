@@ -5,3 +5,6 @@ android/build/
 .expo/
 *.log
 assets/icon-concepts/
+node_modules/
+ios/
+android/
