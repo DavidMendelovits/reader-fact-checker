@@ -1,7 +1,8 @@
-// Offline stand-ins for every server port: no keys, no network, no cost.
-// `npm run dev:offline` runs the whole app on these, and the checks use them to
-// drive the real routes end to end. Each one is deterministic and small; they
-// prove the wiring, not the vendor.
+// Stand-ins for every server port, for the end-to-end test environment only:
+// no keys, no network, no cost. `npm run dev:e2e` runs the whole app on these
+// (.env.e2e), so a browser or device test can click through a real session.
+// Unit and integration tests mock the port they need instead. Each fake is
+// deterministic and small; they prove the wiring, not the vendor.
 //
 //   conversation  a rule table that answers like the agent would: greet and
 //                 read, check a claim in the background, highlight, answer

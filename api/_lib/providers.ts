@@ -8,8 +8,9 @@
 //   TTS_PROVIDER        speech         unreal if UNREAL_SPEECH_API_KEY is set, else openai
 //   DECIDER_PROVIDER    decider        typesafe if TYPESAFE_API_KEY is set, else none (no fast navigation)
 //
-// Every port but the decider also has `fake` (./adapters/fake.ts): offline, no
-// keys. `npm run dev:offline` sets all of them.
+// Every port but the decider also has `fake` (./adapters/fake.ts), for the
+// end-to-end test environment: `npm run dev:e2e` sets all of them (.env.e2e).
+// Unit and integration tests don't use it; they mock a port with override().
 //
 // Instances are built lazily and memoized per name, so a request never pays for
 // a client it doesn't use, and a test can point env at a fake before first use.

@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "check": "node scripts/test.mjs api src shared && npx tsc --noEmit -p .",
-    "test": "node scripts/test.mjs api src shared",
-    "dev:offline": "AGENT_PROVIDER=fake CLAIMS_PROVIDER=fake FACTCHECK_PROVIDER=fake TTS_PROVIDER=fake DECIDER_PROVIDER=none vite",
+    "check": "tsc --noEmit -p . && vitest run",
+    "test": "vitest",
+    "dev:e2e": "vite --mode e2e",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -27,6 +27,7 @@
     "@vercel/node": "^5.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.6.3",
-    "vite": "^6.0.3"
+    "vite": "^6.0.3",
+    "vitest": "^5.1.2"
   }
 }

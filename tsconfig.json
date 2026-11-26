@@ -10,8 +10,7 @@
     "noEmit": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
-    // *.check.ts files run directly under node --experimental-strip-types, which
-    // resolves the real extension rather than a bundler's guess
+    // tests import sibling files by their real .ts name
     "allowImportingTsExtensions": true
   },
   "include": ["src", "api", "shared", "vite.config.ts"]

@@ -1,4 +1,4 @@
-// Preloaded into every self-check by scripts/test.mjs: no test may reach a real
+// Preloaded into every phone-app check by scripts/test.mjs: no test may reach a real
 // API. Loopback is allowed, because some checks stand up a local fake server;
 // anything else fails loudly here instead of spending money or flaking on the
 // network. A check that needs a vendor's answer uses the fake providers

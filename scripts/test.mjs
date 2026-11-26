@@ -2,9 +2,12 @@
 // line per file plus a summary. Each check is a plain node script that throws
 // on failure, so a non-zero exit is a failing check.
 //
-//   node scripts/test.mjs api src shared        (root)
-//   node ../scripts/test.mjs src ../shared      (mobile/)
-//   node scripts/test.mjs shared/voice/agent.check.ts   (one file)
+//   node ../scripts/test.mjs src                 (mobile/)
+//   node ../scripts/test.mjs src/store.check.ts  (one file)
+//
+// ponytail: only the phone app still runs on this; the web, api and shared/
+// tests moved to Vitest. Its checks stub react-native with node loader hooks,
+// which need rewriting as vi.mock before they can move too. Delete this file then.
 //
 // Every check runs with the .js -> .ts resolver and the no-network guard, so a
 // test that forgets to fake a vendor fails instead of calling it.
@@ -33,6 +36,10 @@ function find(dir, out = []) {
 }
 
 const files = [...new Set(roots.flatMap((r) => find(r)))].sort()
+if (files.length === 0) {
+  console.error(`no *.check.ts files under ${roots.join(' ')}`)
+  process.exit(1)
+}
 const flags = [
   '--experimental-strip-types',
   '--no-warnings=ExperimentalWarning',
