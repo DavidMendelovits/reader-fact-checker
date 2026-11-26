@@ -5,7 +5,7 @@
 // not need a model round-trip, and a batch scan is a job, not a conversation.
 import { useStore } from '../store'
 import { tts, voice } from './providers'
-import { beginUtterance, falseStart, openingTurn, say, sayInterim } from './agent'
+import { announce, beginUtterance, falseStart, openingTurn, say, sayInterim } from './agent'
 import { startMicMeter, stopMicMeter } from './audio-levels'
 import { checkPassage, completeField, extractClaims } from './factcheck'
 import { mapLimit } from './maplimit'
@@ -152,13 +152,12 @@ export function checkSelection(text: string, anchor?: number) {
   s.addJob(job)
 
   // Say the verdict the moment that field closes, rather than after the sources and
-  // the rest of the object. Never over the narration — that's an interruption the
-  // user didn't ask for.
+  // the rest of the object: between paragraphs if the book plays, never over the agent.
   let spoken = false
   const speak = (line: string) => {
-    if (spoken || !line || useStore.getState().playing) return
+    if (spoken || !line) return
     spoken = true
-    void tts.speak(line)
+    void announce(line)
   }
   void checkPassage(passage, (raw) => {
     useStore.getState().updateJob(job.id, { partial: raw })

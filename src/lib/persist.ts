@@ -85,7 +85,8 @@ export function openEntry(entry: LibraryEntry) {
   useStore.getState().setDoc(entry.doc) // resets jobs/chat, and clears the agent conversation
   useStore.setState({
     currentParagraph: entry.currentParagraph ?? 0,
-    jobs: entry.jobs ?? [],
+    // a check that was running when the page closed will never finish
+    jobs: (entry.jobs ?? []).map((j) => (j.status === 'running' ? { ...j, status: 'error' as const, error: 'Interrupted' } : j)),
     highlights: entry.highlights ?? [],
     chat: entry.chat ?? [],
   })

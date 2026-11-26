@@ -51,7 +51,9 @@ function checksNote(jobs: FactCheckJob[]): string | undefined {
   if (voice.length === 0) return undefined
   const line = (j: FactCheckJob) =>
     j.status === 'done' && j.result
-      ? `- "${j.excerpt}" → ${j.result.verdict}. Already read aloud to the user: "${j.result.spokenSummary}"`
+      ? j.spokenAt
+        ? `- "${j.excerpt}" → ${j.result.verdict}. Already read aloud to the user: "${j.result.spokenSummary}"`
+        : `- "${j.excerpt}" → ${j.result.verdict}. Not read aloud yet; the app will say: "${j.result.spokenSummary}"`
       : j.status === 'error'
         ? `- "${j.excerpt}" → the check failed.`
         : `- "${j.excerpt}" → still checking; the app will read the verdict aloud when it lands.`
@@ -84,15 +86,18 @@ function buildContext() {
  * is playing, and never over the agent (shared/voice/background.ts).
  */
 const announcer = createAnnouncer({
-  agentState: () => useStore.getState().agentState,
+  // manual Play narrates with the agent idle; that still counts as reading
+  agentState: () => {
+    const s = useStore.getState()
+    return s.playing && s.agentState === 'idle' ? 'reading' : s.agentState
+  },
   interject: (text, cue) => tts.interject(text, cue),
   speak: async (text) => {
     useStore.getState().setAgentState('speaking')
-    try {
-      await tts.speak(text)
-    } finally {
-      if (useStore.getState().agentState === 'speaking') useStore.getState().setAgentState('idle')
-    }
+    const outcome = await tts.speak(text).catch(() => 'failed' as const)
+    // 'missed' means something else took the player (the agent's reply): it owns the state now
+    if (outcome !== 'missed' && useStore.getState().agentState === 'speaking') useStore.getState().setAgentState('idle')
+    return outcome
   },
   cue: blip,
   setTimeout: (fn, ms) => setTimeout(fn, ms),
@@ -104,6 +109,9 @@ const announcer = createAnnouncer({
  * verdict is read out by the announcer when it lands; the model hears about it
  * through the context (checksNote).
  */
+/** Say a background result out loud: between paragraphs, or now, never over the agent. */
+export const announce = (line: string) => announcer.announce(line)
+
 function factCheck(input: Record<string, unknown>): string {
   const claim = String(input.claim ?? '').trim()
   if (!claim) return 'No claim was given to check.'
@@ -133,7 +141,9 @@ async function runBackgroundCheck(job: FactCheckJob) {
     said = true
     useStore.getState().pushChat({ id: newId(), role: 'assistant', text: line })
     const queuedAt = Date.now()
-    void announcer.announce(line).then(() => {
+    void announcer.announce(line).then((spoken) => {
+      if (!spoken) return
+      useStore.getState().updateJob(job.id, { spokenAt: Date.now() })
       // ponytail: a console line, not a Meter port yet. Becomes one when the
       // replay harness needs these numbers (plan section 8).
       console.info(`[factcheck] verdict spoken ${Date.now() - job.createdAt}ms after the ask, waited ${Date.now() - queuedAt}ms for a break`)
@@ -288,7 +298,7 @@ const agent = createAgent<NavAction>({
     hold: () => tts.hold(),
     release: () => tts.release(),
     get held() { return tts.held },
-    speak: (text) => tts.speak(text),
+    speak: async (text) => { await tts.speak(text) },
     get currentIndex() { return tts.currentIndex },
     get recentlySpoken() { return tts.recentlySpoken },
   } satisfies AgentPlayer,

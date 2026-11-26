@@ -8,6 +8,7 @@ import { attachOutput } from './audio-levels.ts'
 import type { AudioSource } from './ports.ts'
 // the hold policy is shared with the phone player; its checks live next to it
 import { HoldGate } from '../../shared/voice/holdGate.ts'
+import type { SayOutcome } from '../../shared/voice/background.ts'
 
 /** The server's /api/tts route. Whatever vendor is configured there. */
 export const serverSpeech: AudioSource = {
@@ -149,7 +150,7 @@ export class TtsPlayer {
   // fires 'ended', so without this an interruption left read_aloud hanging forever.
   private interrupt: (() => void) | null = null
   /** Lines waiting for the next paragraph break (see interject). */
-  private asides: { text: string; cue?: () => void; done: (said: boolean) => void }[] = []
+  private asides: { text: string; cue?: () => void; done: (outcome: SayOutcome) => void }[] = []
 
   setParagraphs(paragraphs: string[]) {
     this.paragraphs = paragraphs
@@ -186,8 +187,11 @@ export class TtsPlayer {
     } finally {
       // only clear if we're still the live session — a barge-in that immediately
       // started a new range must not be flipped back off by the old one unwinding
-      if (session === this.session) this.setNarrating(false)
-      this.dropAsides() // the range is over; whoever asked tries again
+      // the range is over and nothing replaced it: whoever asked tries again
+      if (session === this.session) {
+        this.setNarrating(false)
+        this.dropAsides()
+      }
     }
   }
 
@@ -341,15 +345,16 @@ export class TtsPlayer {
 
   /**
    * Say a line at the next paragraph break of the range that is playing, then
-   * carry on reading. Resolves true once it has been said; false when nothing
-   * is narrating, or the range ended or was talked over before it was said.
+   * carry on reading. 'missed' when nothing is narrating, or the range ended or
+   * was talked over before it was said; 'failed' when its speech failed.
    *
    * ponytail: waits for a paragraph break, which can be most of a minute on a
    * long paragraph. A sentence break would need the player to know where its
    * audio's sentences fall; revisit once the reading voice reports word timings.
    */
-  interject(text: string, cue?: () => void): Promise<boolean> {
-    if (!this.narrating) return Promise.resolve(false)
+  interject(text: string, cue?: () => void): Promise<SayOutcome> {
+    if (!this.narrating) return Promise.resolve('missed')
+    void getAudioUrl(this.source, `s:${text}`, text).catch(() => {}) // ready by the break
     return new Promise((done) => this.asides.push({ text, cue, done }))
   }
 
@@ -359,28 +364,32 @@ export class TtsPlayer {
       if (session !== this.session || this.gate.held) return false
       const aside = this.asides.shift()!
       aside.cue?.()
-      let said = false
+      let outcome: SayOutcome = 'missed'
       try {
         this.speaking = aside.text
         const url = await getAudioUrl(this.source, `s:${aside.text}`, aside.text)
         if (session === this.session && !this.gate.held) {
           await this.playUrl(url, session)
-          said = session === this.session && !this.gate.held
+          if (session === this.session && !this.gate.held) outcome = 'said'
         }
       } catch (e) {
-        console.error('TTS error on a background line', e)
+        // a stop or hold aborts the clip too; only a live session counts as a failure
+        if (session === this.session && !this.gate.held) {
+          console.error('TTS error on a background line', e)
+          outcome = 'failed'
+        }
       } finally {
         this.remember(this.speaking)
         this.speaking = ''
-        aside.done(said)
+        aside.done(outcome)
       }
-      if (!said) return false
+      if (outcome === 'missed') return false
     }
     return true
   }
 
   private dropAsides() {
-    for (const aside of this.asides.splice(0)) aside.done(false)
+    for (const aside of this.asides.splice(0)) aside.done('missed')
   }
 
   pause() {
@@ -401,7 +410,7 @@ export class TtsPlayer {
   }
 
   /** Speak arbitrary text (fact-check verdicts) outside the paragraph loop. */
-  speak(text: string): Promise<void> {
+  speak(text: string): Promise<SayOutcome> {
     const s = this.speakStream()
     s.push(text)
     return s.end()
@@ -429,26 +438,29 @@ export class TtsPlayer {
       wake = null
     }
 
-    const drain = async () => {
+    const drain = async (): Promise<SayOutcome> => {
       let first = true
+      let failed = false
       for (;;) {
-        if (session !== this.session) return
+        if (session !== this.session) return 'missed'
         const text = queue.shift()
         if (text === undefined) {
-          if (ended) return
+          if (ended) return failed ? 'failed' : 'said'
           await new Promise<void>((r) => (wake = r))
           continue
         }
         try {
           this.speaking = text
-          if (first) await this.playStreamed(text, session)
+          // no MediaSource (Safari on iOS): the first sentence buffers like the rest
+          if (first && CAN_STREAM) await this.playStreamed(text, session)
           else {
             const url = await getAudioUrl(this.source, `s:${text}`, text)
-            if (session !== this.session) return
+            if (session !== this.session) return 'missed'
             await this.playUrl(url, session)
           }
         } catch (e) {
           console.error('TTS error, skipping sentence', e)
+          failed = true
         } finally {
           this.remember(this.speaking)
           this.speaking = ''
@@ -479,7 +491,10 @@ export class TtsPlayer {
 export interface SpeechStream {
   /** Queue a complete sentence. Ignored after end(). */
   push(text: string): void
-  /** No more sentences; resolves once everything queued has played, or playback was cut off. */
-  end(): Promise<void>
+  /**
+   * No more sentences; resolves once everything queued has played ('said'), or
+   * playback was cut off ('missed'), or a sentence failed to synthesize ('failed').
+   */
+  end(): Promise<SayOutcome>
 }
 
