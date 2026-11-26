@@ -148,6 +148,8 @@ export class TtsPlayer {
   // Resolves the paragraph currently awaited in playFrom. A paused <audio> never
   // fires 'ended', so without this an interruption left read_aloud hanging forever.
   private interrupt: (() => void) | null = null
+  /** Lines waiting for the next paragraph break (see interject). */
+  private asides: { text: string; cue?: () => void; done: (said: boolean) => void }[] = []
 
   setParagraphs(paragraphs: string[]) {
     this.paragraphs = paragraphs
@@ -185,6 +187,7 @@ export class TtsPlayer {
       // only clear if we're still the live session — a barge-in that immediately
       // started a new range must not be flipped back off by the old one unwinding
       if (session === this.session) this.setNarrating(false)
+      this.dropAsides() // the range is over; whoever asked tries again
     }
   }
 
@@ -203,6 +206,12 @@ export class TtsPlayer {
       if (this.gate.held) {
         const resume = await this.gate.wait()
         if (session !== this.session || resume === 'abandon') return 'stopped'
+      }
+      // A background result (a fact-check verdict) waits for this break, so it
+      // lands between paragraphs instead of over one.
+      if (!(await this.playAsides(session))) {
+        if (session !== this.session) return 'stopped'
+        continue // the user talked over it: park at the top of this paragraph
       }
       this.onParagraphChange(i)
       // Prefetch two ahead. One was enough when every paragraph cost a full
@@ -330,7 +339,52 @@ export class TtsPlayer {
     this.interrupt = null
   }
 
+  /**
+   * Say a line at the next paragraph break of the range that is playing, then
+   * carry on reading. Resolves true once it has been said; false when nothing
+   * is narrating, or the range ended or was talked over before it was said.
+   *
+   * ponytail: waits for a paragraph break, which can be most of a minute on a
+   * long paragraph. A sentence break would need the player to know where its
+   * audio's sentences fall; revisit once the reading voice reports word timings.
+   */
+  interject(text: string, cue?: () => void): Promise<boolean> {
+    if (!this.narrating) return Promise.resolve(false)
+    return new Promise((done) => this.asides.push({ text, cue, done }))
+  }
+
+  /** Plays every waiting aside. False if the range was stopped or held during one. */
+  private async playAsides(session: number): Promise<boolean> {
+    while (this.asides.length > 0) {
+      if (session !== this.session || this.gate.held) return false
+      const aside = this.asides.shift()!
+      aside.cue?.()
+      let said = false
+      try {
+        this.speaking = aside.text
+        const url = await getAudioUrl(this.source, `s:${aside.text}`, aside.text)
+        if (session === this.session && !this.gate.held) {
+          await this.playUrl(url, session)
+          said = session === this.session && !this.gate.held
+        }
+      } catch (e) {
+        console.error('TTS error on a background line', e)
+      } finally {
+        this.remember(this.speaking)
+        this.speaking = ''
+        aside.done(said)
+      }
+      if (!said) return false
+    }
+    return true
+  }
+
+  private dropAsides() {
+    for (const aside of this.asides.splice(0)) aside.done(false)
+  }
+
   pause() {
+    this.dropAsides()
     this.session++ // cancels the loop
     this.gate.abandon() // a parked loop unwinds as 'stopped'
     this.stopAudio()

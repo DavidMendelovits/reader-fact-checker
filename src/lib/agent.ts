@@ -23,6 +23,7 @@ import { SentenceSplitter } from './sentences'
 import { decide, type NavAction } from './navigate'
 import type { Doc, FactCheckJob, Highlight } from '../types'
 import { createAgent, type AgentPlayer, type Block, type Msg, type NavResult } from '../../shared/voice/agent'
+import { createAnnouncer } from '../../shared/voice/background'
 
 let reopenedAt: number | null = null // set by persist when a saved entry is reopened
 
@@ -40,6 +41,23 @@ function chapterStarts(doc: Doc) {
   })
 }
 
+/**
+ * What the background checks came to, for the model's context: it never sees a
+ * verdict otherwise, since the app reads it out on its own. The last few only.
+ */
+function checksNote(jobs: FactCheckJob[]): string | undefined {
+  // the store keeps jobs newest first; the note reads oldest first
+  const voice = jobs.filter((j) => j.kind === 'voice').slice(0, 3).reverse()
+  if (voice.length === 0) return undefined
+  const line = (j: FactCheckJob) =>
+    j.status === 'done' && j.result
+      ? `- "${j.excerpt}" → ${j.result.verdict}. Already read aloud to the user: "${j.result.spokenSummary}"`
+      : j.status === 'error'
+        ? `- "${j.excerpt}" → the check failed.`
+        : `- "${j.excerpt}" → still checking; the app will read the verdict aloud when it lands.`
+  return `Background fact checks (the cards with sources are on screen):\n${voice.map(line).join('\n')}`
+}
+
 function buildContext() {
   const s = useStore.getState()
   const cur = Math.min(s.currentParagraph, Math.max(0, s.paragraphs.length - 1))
@@ -55,13 +73,40 @@ function buildContext() {
       .slice(from, to + 1)
       .map((p, i) => `[${from + i}] ${p.text}`)
       .join('\n\n'),
+    extra: checksNote(s.jobs),
   }
 }
 
 // ---- client-side tools (read_aloud and set_speed live in the loop) ----
 
-async function factCheck(input: Record<string, unknown>): Promise<string> {
-  const claim = String(input.claim ?? '')
+/**
+ * Background results are said between paragraphs, or right away when nothing
+ * is playing, and never over the agent (shared/voice/background.ts).
+ */
+const announcer = createAnnouncer({
+  agentState: () => useStore.getState().agentState,
+  interject: (text, cue) => tts.interject(text, cue),
+  speak: async (text) => {
+    useStore.getState().setAgentState('speaking')
+    try {
+      await tts.speak(text)
+    } finally {
+      if (useStore.getState().agentState === 'speaking') useStore.getState().setAgentState('idle')
+    }
+  },
+  cue: blip,
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+})
+
+/**
+ * fact_check returns at once and the check runs on: a verdict costs 5 to 30
+ * seconds, and holding the turn for it stopped the book for all of them. The
+ * verdict is read out by the announcer when it lands; the model hears about it
+ * through the context (checksNote).
+ */
+function factCheck(input: Record<string, unknown>): string {
+  const claim = String(input.claim ?? '').trim()
+  if (!claim) return 'No claim was given to check.'
   const anchor = Number.isInteger(input.anchor) ? (input.anchor as number) : useStore.getState().currentParagraph
   const job: FactCheckJob = {
     id: newId(), kind: 'voice', status: 'running',
@@ -71,37 +116,41 @@ async function factCheck(input: Record<string, unknown>): Promise<string> {
     highlightId: useStore.getState().highlights.find((h) => h.anchor === anchor)?.id,
   }
   useStore.getState().addJob(job)
+  void runBackgroundCheck(job)
+  return (
+    'Started a background fact check. The app will read the verdict aloud on its own when it lands, ' +
+    'between paragraphs if the book is playing. Do not wait for it or mention it again now: ' +
+    'if the user was listening, call read_aloud in this same turn so the book keeps going.'
+  )
+}
 
-  // spokenSummary is written to be read aloud and closes well before the written
-  // summary and the sources do. Saying it the moment it lands skips a whole model
-  // turn and a second synthesis that only rephrased what we already had.
-  let speaking: Promise<void> | null = null
-  let said = ''
+async function runBackgroundCheck(job: FactCheckJob) {
+  const doc = useStore.getState().doc
+  let said = false
   const say = (line: string) => {
-    if (said || !line) return
-    said = line
+    // a verdict for a book that has since been closed is not worth saying
+    if (said || !line || useStore.getState().doc !== doc) return
+    said = true
     useStore.getState().pushChat({ id: newId(), role: 'assistant', text: line })
-    useStore.getState().setAgentState('speaking')
-    speaking = tts.speak(line)
+    const queuedAt = Date.now()
+    void announcer.announce(line).then(() => {
+      // ponytail: a console line, not a Meter port yet. Becomes one when the
+      // replay harness needs these numbers (plan section 8).
+      console.info(`[factcheck] verdict spoken ${Date.now() - job.createdAt}ms after the ask, waited ${Date.now() - queuedAt}ms for a break`)
+    })
   }
-
   try {
-    const result = await checkPassage(claim, (raw) => {
+    const result = await checkPassage(job.excerpt, (raw) => {
       useStore.getState().updateJob(job.id, { partial: raw })
+      // spokenSummary closes well before the written summary and the sources:
+      // queue it the moment it does
       say(completeField(raw, 'spokenSummary'))
     })
     useStore.getState().updateJob(job.id, { status: 'done', result })
     say(result.spokenSummary) // a cached verdict resolves with no stream to speak from
-    // Hold the tool open until the verdict has been read out. The next model turn
-    // begins the moment this returns, and anything it says calls tts.speak(), which
-    // pauses the player first — cutting our own verdict off mid-sentence.
-    if (speaking) await speaking
-    return said
-      ? `[Already read aloud to the user, verbatim: "${said}" — the card with sources is on screen. Add nothing unless the user asked something this does not answer.]`
-      : JSON.stringify({ verdict: result.verdict, findings: result.summary })
   } catch (e) {
     useStore.getState().updateJob(job.id, { status: 'error', error: String(e) })
-    return `The fact check failed: ${e instanceof Error ? e.message : String(e)}`
+    say("I couldn't finish that fact check. The card has the error.")
   }
 }
 
@@ -276,6 +325,7 @@ const agent = createAgent<NavAction>({
 useStore.subscribe((s, prev) => {
   if (s.doc !== prev.doc) {
     agent.resetConversation()
+    announcer.clear()
     // openEntry marks the reopen *after* setDoc, so this only clears a stale mark
     reopenedAt = null
   }

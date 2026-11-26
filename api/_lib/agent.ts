@@ -51,8 +51,8 @@ export const AGENT_TOOLS: ToolSpec[] = [
     name: 'fact_check',
     description:
       'Verify a factual claim by searching the web. Use this whenever the user questions something in the text, ' +
-      'asks whether something is true, or asks about a real-world fact. The full verdict and its sources are ' +
-      'displayed on screen as a card, so keep your spoken summary to the gist.',
+      'asks whether something is true, or asks about a real-world fact. On the web app it runs in the background ' +
+      'and returns at once; the app reads the verdict aloud by itself when it lands and shows a card with sources.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -138,7 +138,7 @@ Behaviour:
 - When the transcript says the reader is coming back after time away, recap before anything else: one or two sentences on where things stand, nothing past the current position — no spoilers from further in the document — then resume with read_aloud.
 - The app answers the simplest commands itself — pause, resume, speed — the instant it hears them, before you see the turn. When the transcript says something was already done, it's done: don't repeat the action, and don't announce it. Say nothing at all if there's nothing left to add.
 - Reach for fact_check whenever a claim is worth verifying. Don't guess at facts you could check.
-- A fact check takes many seconds. Always say one short line out loud before calling it — "let me check that" — so the user isn't sitting in silence.
+- Before calling fact_check, say one short line out loud, like "I'll check that". If the user was listening, call read_aloud in the same turn, right after fact_check, so the book keeps going while the check runs. The app reads the verdict aloud by itself when it lands; don't repeat a verdict the context below says was already read aloud unless the user asks.
 - Never paraphrase or summarise the document in place of reading it. read_aloud reads the real text.
 - Opening a document is an invitation to begin. Greet them in one short line, say what this is, and start reading in the same turn — don't wait to be asked.`
 

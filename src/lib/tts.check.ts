@@ -116,4 +116,73 @@ function player(paragraphs: string[]) {
   assert.deepEqual(seen, [0], 'release after pause resumes nothing')
 }
 
+// --- interject: a background line waits for the paragraph break ---------------
+{
+  const p = player(['one', 'two'])
+  const seen: number[] = []
+  const cues: string[] = []
+  p.onParagraphChange = (i) => seen.push(i)
+
+  assert.equal(await p.interject('nothing playing'), false, 'no narration, nothing to interject into')
+
+  const range = p.playFrom(0)
+  await tick()
+  let said: boolean | null = null
+  void p.interject('the verdict', () => cues.push('cue')).then((v) => { said = v })
+  await tick()
+  assert.equal(said, null, 'it does not cut into the paragraph playing')
+  assert.deepEqual(cues, [])
+
+  FakeAudio.last?.end() // paragraph 0 ends: the break
+  await tick()
+  assert.deepEqual(cues, ['cue'])
+  assert.deepEqual(seen, [0], 'paragraph 1 waits for the line')
+  assert.equal(p.recentlySpoken.includes('the verdict'), true, 'the echo filter knows the line')
+
+  FakeAudio.last?.end() // the line ends
+  await tick()
+  assert.equal(said, true)
+  assert.deepEqual(seen, [0, 1], 'then the book carries on')
+  FakeAudio.last?.end()
+  assert.equal(await range, 'completed')
+}
+
+// --- interject: talked over is "not said", and the book stays on its paragraph --
+{
+  const p = player(['one', 'two'])
+  const seen: number[] = []
+  p.onParagraphChange = (i) => seen.push(i)
+  const range = p.playFrom(0)
+  await tick()
+  const said = p.interject('the verdict')
+  FakeAudio.last?.end()
+  await tick()
+  p.hold() // the user starts talking over the line
+  assert.equal(await said, false)
+  p.release()
+  await tick()
+  assert.deepEqual(seen, [0, 1], 'the next paragraph plays once, after the hold')
+  p.pause()
+  assert.equal(await range, 'stopped')
+}
+
+// --- interject: a pause or the range ending drops the waiting line ------------
+{
+  const p = player(['one'])
+  const range = p.playFrom(0)
+  await tick()
+  const said = p.interject('the verdict')
+  p.pause()
+  assert.equal(await said, false)
+  assert.equal(await range, 'stopped')
+
+  const q = player(['one'])
+  const range2 = q.playFrom(0)
+  await tick()
+  const said2 = q.interject('too late')
+  FakeAudio.last?.end() // the last paragraph ends; no break follows
+  assert.equal(await range2, 'completed')
+  assert.equal(await said2, false)
+}
+
 console.log('tts.check: ok')
