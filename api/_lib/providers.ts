@@ -8,6 +8,9 @@
 //   TTS_PROVIDER        speech         unreal if UNREAL_SPEECH_API_KEY is set, else openai
 //   DECIDER_PROVIDER    decider        typesafe if TYPESAFE_API_KEY is set, else none (no fast navigation)
 //
+// Every port but the decider also has `fake` (./adapters/fake.ts): offline, no
+// keys. `npm run dev:offline` sets all of them.
+//
 // Instances are built lazily and memoized per name, so a request never pays for
 // a client it doesn't use, and a test can point env at a fake before first use.
 import type { ConversationModel, Decider, JsonCompletion, SearchModel, SpeechSynthesizer } from './ports.js'
@@ -16,6 +19,7 @@ import { perplexityAdapter } from './adapters/perplexity.js'
 import { openaiSpeech } from './adapters/openai-speech.js'
 import { unrealSpeech } from './adapters/unreal-speech.js'
 import { typesafeDecider } from './adapters/typesafe.js'
+import { fakeConversation, fakeJson, fakeSearch, fakeSpeech } from './adapters/fake.js'
 
 export interface Providers {
   conversation: ConversationModel
@@ -34,14 +38,16 @@ const anthropic = () =>
 
 type Factory<T> = () => T
 const registry = {
-  conversation: { anthropic } as Record<string, Factory<ConversationModel>>,
-  json: { anthropic } as Record<string, Factory<JsonCompletion>>,
+  conversation: { anthropic, fake: fakeConversation } as Record<string, Factory<ConversationModel>>,
+  json: { anthropic, fake: fakeJson } as Record<string, Factory<JsonCompletion>>,
   search: {
     perplexity: () => perplexityAdapter({ model: process.env.FACTCHECK_MODEL ?? 'sonar' }),
+    fake: () => fakeSearch(),
   } as Record<string, Factory<SearchModel>>,
   speech: {
     openai: () => openaiSpeech({ model: 'gpt-4o-mini-tts', voice: process.env.OPENAI_TTS_VOICE ?? 'nova' }),
     unreal: () => unrealSpeech({ voice: process.env.UNREAL_SPEECH_VOICE ?? 'Sierra' }),
+    fake: fakeSpeech,
   } as Record<string, Factory<SpeechSynthesizer>>,
   decider: {
     typesafe: () => typesafeDecider({ model: process.env.TYPESAFE_MODEL ?? 'jev-latest' }),

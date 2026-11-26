@@ -105,6 +105,18 @@ Optionally, `TYPESAFE_API_KEY` turns on the decision model for navigation (see "
 
 Restart `npm run dev` after editing `.env.local`.
 
+### Offline, with no keys
+
+```bash
+npm run dev:offline
+```
+
+Every server service runs on a fake (`api/_lib/adapters/fake.ts`): a rule-based agent, a fact check that answers after 4 seconds (`FAKE_SEARCH_MS`), and a silent voice that takes as long as the text would to say. Nothing leaves your machine and nothing is billed. Each service can be faked on its own too, for example `FACTCHECK_PROVIDER=fake npm run dev` keeps the real voice and agent.
+
+### Tests
+
+`npm run check` runs every `*.check.ts` in parallel (`scripts/test.mjs`), then `tsc`. Checks can't reach the internet: a preloaded guard (`scripts/no-network.mjs`) fails any request that isn't to localhost, so every vendor is faked. CI runs the same on every pull request.
+
 Fact checks run on Perplexity rather than an agentic search-then-read loop because search *is* the product there — retrieval happens inside one inference pass, which is most of why a verdict lands in seconds instead of tens of seconds.
 
 ## Demo script
