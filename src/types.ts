@@ -55,7 +55,7 @@ export interface FactCheckJob {
   highlightId?: string
   /** Raw model text as it streams in, so a running card fills in rather than sitting empty. */
   partial?: string
-  /** When a voice check's verdict was read aloud; unset until it has been. */
-  spokenAt?: number
+  /** A voice check's verdict: true once read aloud, false if it never will be, unset while queued. */
+  spoken?: boolean
   createdAt: number
 }

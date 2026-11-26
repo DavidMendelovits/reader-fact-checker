@@ -13,5 +13,5 @@
     // tests import sibling files by their real .ts name
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "api", "shared", "vite.config.ts"]
+  "include": ["src", "api", "shared", "test", "vite.config.ts", "vitest.config.ts"]
 }

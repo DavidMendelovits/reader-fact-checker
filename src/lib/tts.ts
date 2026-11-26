@@ -441,11 +441,12 @@ export class TtsPlayer {
     const drain = async (): Promise<SayOutcome> => {
       let first = true
       let failed = false
+      let cut = false // a hold (the user started talking) stops the clip without a new session
       for (;;) {
         if (session !== this.session) return 'missed'
         const text = queue.shift()
         if (text === undefined) {
-          if (ended) return failed ? 'failed' : 'said'
+          if (ended) return cut ? 'missed' : failed ? 'failed' : 'said'
           await new Promise<void>((r) => (wake = r))
           continue
         }
@@ -458,9 +459,13 @@ export class TtsPlayer {
             if (session !== this.session) return 'missed'
             await this.playUrl(url, session)
           }
+          if (this.gate.held) cut = true
         } catch (e) {
-          console.error('TTS error, skipping sentence', e)
-          failed = true
+          if (this.gate.held) cut = true
+          else {
+            console.error('TTS error, skipping sentence', e)
+            failed = true
+          }
         } finally {
           this.remember(this.speaking)
           this.speaking = ''

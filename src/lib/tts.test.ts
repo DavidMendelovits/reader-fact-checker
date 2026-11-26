@@ -198,6 +198,15 @@ describe('TtsPlayer outcomes', () => {
     assert.equal(await broken.speak('a verdict'), 'failed')
   })
 
+  it('speak() cut off by a hold (a cough) is missed, not said or failed', async () => {
+    const p = player([])
+    const line = p.speak('a verdict')
+    await tick()
+    p.hold()
+    assert.equal(await line, 'missed')
+    p.release()
+  })
+
   it('interject: a line whose speech fails is reported failed and the book carries on', async () => {
     let calls = 0
     const p = new TtsPlayer({

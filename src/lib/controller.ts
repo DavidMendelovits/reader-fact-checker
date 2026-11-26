@@ -154,8 +154,9 @@ export function checkSelection(text: string, anchor?: number) {
   // Say the verdict the moment that field closes, rather than after the sources and
   // the rest of the object: between paragraphs if the book plays, never over the agent.
   let spoken = false
+  const doc = s.doc
   const speak = (line: string) => {
-    if (spoken || !line) return
+    if (spoken || !line || useStore.getState().doc !== doc) return
     spoken = true
     void announce(line)
   }

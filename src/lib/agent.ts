@@ -51,9 +51,11 @@ function checksNote(jobs: FactCheckJob[]): string | undefined {
   if (voice.length === 0) return undefined
   const line = (j: FactCheckJob) =>
     j.status === 'done' && j.result
-      ? j.spokenAt
+      ? j.spoken === true
         ? `- "${j.excerpt}" → ${j.result.verdict}. Already read aloud to the user: "${j.result.spokenSummary}"`
-        : `- "${j.excerpt}" → ${j.result.verdict}. Not read aloud yet; the app will say: "${j.result.spokenSummary}"`
+        : j.spoken === false
+          ? `- "${j.excerpt}" → ${j.result.verdict}. The app could not read this aloud; tell the user if it comes up: "${j.result.spokenSummary}"`
+          : `- "${j.excerpt}" → ${j.result.verdict}. Not read aloud yet; the app will say: "${j.result.spokenSummary}"`
       : j.status === 'error'
         ? `- "${j.excerpt}" → the check failed.`
         : `- "${j.excerpt}" → still checking; the app will read the verdict aloud when it lands.`
@@ -95,8 +97,10 @@ const announcer = createAnnouncer({
   speak: async (text) => {
     useStore.getState().setAgentState('speaking')
     const outcome = await tts.speak(text).catch(() => 'failed' as const)
-    // 'missed' means something else took the player (the agent's reply): it owns the state now
-    if (outcome !== 'missed' && useStore.getState().agentState === 'speaking') useStore.getState().setAgentState('idle')
+    const s = useStore.getState()
+    // Cut off by the agent's reply: the reply owns 'speaking' now. Cut off by
+    // Play, or finished: nobody is talking, so the agent is idle again.
+    if (s.agentState === 'speaking' && (outcome !== 'missed' || s.playing)) s.setAgentState('idle')
     return outcome
   },
   cue: blip,
@@ -142,8 +146,8 @@ async function runBackgroundCheck(job: FactCheckJob) {
     useStore.getState().pushChat({ id: newId(), role: 'assistant', text: line })
     const queuedAt = Date.now()
     void announcer.announce(line).then((spoken) => {
+      useStore.getState().updateJob(job.id, { spoken })
       if (!spoken) return
-      useStore.getState().updateJob(job.id, { spokenAt: Date.now() })
       // ponytail: a console line, not a Meter port yet. Becomes one when the
       // replay harness needs these numbers (plan section 8).
       console.info(`[factcheck] verdict spoken ${Date.now() - job.createdAt}ms after the ask, waited ${Date.now() - queuedAt}ms for a break`)
