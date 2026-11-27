@@ -112,3 +112,7 @@ export function startFor(chapters: Chapter[], at: StartAt, saved: number | null,
   const elsewhere = saved == null && at.from !== 'beginning' && at.percent == null && !at.chapter?.trim() && (readerProgress ?? 0) > 0
   return startParagraph(chapters, elsewhere ? { ...at, percent: readerProgress! * 100 } : at, saved)
 }
+
+/** What open_document tells the model about where the reader now is. */
+export const positionLine = (paragraph: number, chapter: string | null) =>
+  `Position: paragraph ${paragraph}${chapter ? ` (chapter "${chapter}")` : ''}. Call read_aloud with no \`from\` to start reading there.`

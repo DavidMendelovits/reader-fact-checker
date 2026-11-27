@@ -8,16 +8,7 @@ import type { Highlight, LibraryDoc, RemoteHighlight } from './types'
 
 // ponytail: progress is Reader's. The phone's own place in a book lives in that
 // book's saved state, read only when it is opened.
-const candidate = (d: LibraryDoc): Candidate => ({
-  id: d.id,
-  title: d.title,
-  author: d.author,
-  summary: d.summary,
-  wordCount: d.wordCount,
-  progress: d.readingProgress,
-  location: d.location,
-  updatedAt: d.updatedAt,
-})
+const candidate = (d: LibraryDoc): Candidate => ({ ...d, progress: d.readingProgress })
 
 /** Candidates for what to read next, best first, leaving out the open document. */
 export function recommendNext(docs: LibraryDoc[], openId: string | null, input: Record<string, unknown>): string {

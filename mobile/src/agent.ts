@@ -15,7 +15,7 @@
 // the ones declared here browse, open, file and close documents, and are sent to
 // the server with every request alongside the guidance for using them.
 import { concatenated, highlightParts, joinParts } from '../../shared/library/concat.ts'
-import { parseStartAt, startParagraph } from '../../shared/library/start.ts'
+import { parseStartAt, positionLine, startParagraph } from '../../shared/library/start.ts'
 import { findHighlights, recommendNext } from './libraryTools'
 import { useStore } from './store'
 import { tts, voice } from './providers'
@@ -254,11 +254,6 @@ function searchLibrary(input: Record<string, unknown>): string {
   return docs.map((d) => row(d, true)).join('\n')
 }
 
-const positionLine = (p: number) => {
-  const chapter = chapterTitleAt(p)
-  return `Position: paragraph ${p}${chapter ? ` (chapter "${chapter}")` : ''}. Call read_aloud with no \`from\` to start reading there.`
-}
-
 async function openDoc(input: Record<string, unknown>): Promise<string> {
   const id = String(input.id ?? '').trim()
   if (!id) return 'No document id given.'
@@ -270,14 +265,14 @@ async function openDoc(input: Record<string, unknown>): Promise<string> {
     if ('error' in at) return at.error
     s.setCurrentParagraph(at.paragraph)
     positionChanged()
-    return `"${s.doc.title}" is already open. ${positionLine(at.paragraph)}`
+    return `"${s.doc.title}" is already open. ${positionLine(at.paragraph, at.chapter)}`
   }
   try {
     const { doc, libraryDoc, position: at } = await openDocument(id, start)
     const total = doc.chapters.reduce((n, ch) => n + ch.paragraphs.length, 0)
     return (
       `Opened "${doc.title}"${libraryDoc.author ? ` by ${libraryDoc.author}` : ''}. ` +
-      `${total} paragraphs in ${doc.chapters.length} chapters. ${positionLine(at)}`
+      `${total} paragraphs in ${doc.chapters.length} chapters. ${positionLine(at, chapterTitleAt(at))}`
     )
   } catch (e) {
     return e instanceof Error ? e.message : String(e)

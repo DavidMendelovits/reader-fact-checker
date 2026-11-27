@@ -10,7 +10,7 @@
 import { useStore } from '../store'
 import type { Doc } from '../types'
 import { highlightLine, searchDocs, searchHighlights } from '../../shared/library/search.ts'
-import { parseStartAt, startFor } from '../../shared/library/start.ts'
+import { parseStartAt, positionLine, startFor } from '../../shared/library/start.ts'
 import { candidateLine, recommend, type Candidate } from '../../shared/library/recommend.ts'
 import type { LibraryDoc } from '../../shared/library/types.ts'
 import { fetchChapters, library } from './library'
@@ -116,7 +116,7 @@ export async function openDocument(input: Record<string, unknown>): Promise<stri
   const at = startFor(doc.chapters, parseStartAt(input), saved, item.readwise?.readingProgress)
   if ('error' in at) return at.error
 
-  const where = `Position: paragraph ${at.paragraph}${at.chapter ? ` (chapter "${at.chapter}")` : ''}. Call read_aloud with no \`from\` to start reading there.`
+  const where = positionLine(at.paragraph, at.chapter)
   if (open?.id === doc.id) {
     useStore.getState().setCurrentParagraph(at.paragraph)
     return `"${doc.title}" is already open. ${where}`
