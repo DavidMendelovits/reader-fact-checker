@@ -81,6 +81,7 @@ function harness(opts: {
   decide?: (text: string, early: boolean) => Nav | null
   trimAbove?: number
   trimTo?: number
+  handedOff?: () => void
 }): Harness {
   const player = new FakePlayer()
   const chat: Chat[] = []
@@ -129,6 +130,7 @@ function harness(opts: {
     clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
     trimAbove: opts.trimAbove,
     trimTo: opts.trimTo,
+    handedOff: opts.handedOff,
   }
 
   return {
@@ -213,6 +215,32 @@ describe('conversation loop', () => {
     assert.equal(h.chat[0].text, 'stop reading', 'the bubble is corrected to what was actually said')
     assert.equal(h.apiCalls(), 0, 'a transport command never reaches the model')
     assert.equal(h.player.pauseCalls, 1, 'and it is not paused twice')
+  })
+
+  // the client meter times a turn's first sound from the hand-off, so a command
+  // the app answers itself must not start that clock
+  it('reports the hand-off after the interruption it made, so the first sound is timed from silence', async () => {
+    let pausesAtHandOff = -1
+    const h = harness({
+      script: (call) => (call === 0 ? READ_ALOUD : DONE),
+      handedOff: () => (pausesAtHandOff = h.player.pauseCalls),
+    })
+    h.agent.say('read to me')
+    await settle()
+    const before = h.player.pauseCalls
+    h.agent.say('what does that word mean')
+    assert.equal(pausesAtHandOff, before + 1, 'the reading stopped before the clock started')
+    await settle()
+  })
+
+  it('reports a hand-off to the model, and not a command the app ran itself', async () => {
+    let handed = 0
+    const h = harness({ script: () => DONE, handedOff: () => handed++ })
+    h.agent.say('stop')
+    assert.equal(handed, 0)
+    h.agent.say('what does that word mean')
+    assert.equal(handed, 1)
+    await settle()
   })
 
   // the fast-resume regression (X4): "keep going" with no turn running has to

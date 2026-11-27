@@ -167,3 +167,118 @@ describe('BargeInGate', () => {
     assert.equal(holds.length, 2, 'the second utterance holds too')
   })
 })
+
+// The client meter's view of barge-in: one report per barge-in, timed from the
+// first loud report of the run, and marked a false start when no words came.
+describe('BargeInGate measurements', () => {
+  function measured(over: { silenceMs?: number } = {}) {
+    const t = gate(over)
+    const seen: { path: string; ms: number; real: boolean }[] = []
+    t.g.onMeasure = (m) => seen.push(m)
+    return { ...t, seen }
+  }
+
+  it('times a level hold from the first loud report and reports it real once words come', () => {
+    const { c, g, seen } = measured()
+    g.level(0.1, true)
+    c.advance(80)
+    g.level(0.4, true) // the run starts here
+    c.advance(80)
+    g.level(0.4, true) // the hold fires here
+    assert.deepEqual(seen, [], 'not known to be real yet')
+    g.words()
+    g.words() // every interim calls it; one report
+    g.utteranceDone()
+    assert.deepEqual(seen, [{ path: 'level', ms: 80, real: true }])
+  })
+
+  it('reports a hold the silence released as a false start', () => {
+    const { c, g, seen, releases } = measured({ silenceMs: 1500 })
+    g.level(0.4, true)
+    c.advance(80)
+    g.level(0.4, true)
+    g.level(0.1, true)
+    c.advance(1600)
+    assert.equal(releases.length, 1)
+    assert.deepEqual(seen, [{ path: 'level', ms: 80, real: false }])
+  })
+
+  it('counts a final with no interim before it as words', () => {
+    const { c, g, seen } = measured()
+    g.level(0.4, true)
+    c.advance(80)
+    g.level(0.4, true)
+    g.utteranceDone()
+    assert.deepEqual(seen, [{ path: 'level', ms: 80, real: true }])
+  })
+
+  it('reports a recognizer that ended mid-hold as a false start', () => {
+    const { c, g, seen } = measured()
+    g.level(0.4, true)
+    c.advance(80)
+    g.level(0.4, true)
+    g.reset()
+    assert.deepEqual(seen, [{ path: 'level', ms: 80, real: false }])
+  })
+
+  it('times a words-path stop from the latest loud run while narration plays', () => {
+    const { c, g, seen } = measured()
+    g.level(0.4, true) // one loud report: the run starts, the hold does not fire
+    c.advance(80)
+    g.level(0.1, true)
+    c.advance(500)
+    g.wordsHold()
+    g.wordsHold()
+    assert.deepEqual(seen, [{ path: 'words', ms: 580, real: true }])
+    g.utteranceDone()
+    c.advance(80)
+    g.level(0.4, true)
+    c.advance(80)
+    g.level(0.1, true)
+    g.wordsHold()
+    assert.equal(seen.length, 2, 'the next utterance is measured afresh')
+  })
+
+  it('does not time a words-path stop with nothing playing or no recent loud run', () => {
+    const { c, g, seen } = measured()
+    g.level(0.1, true)
+    g.wordsHold()
+    g.level(0.4, false)
+    g.wordsHold()
+    assert.deepEqual(seen, [], 'nothing was playing')
+    g.level(0.4, true)
+    g.level(0.1, true)
+    c.advance(5000)
+    g.level(0.1, true)
+    g.wordsHold()
+    assert.deepEqual(seen, [], 'the loud run is too old to time from')
+  })
+
+  it('a cough does not stop the next quiet barge-in being timed', () => {
+    const { c, g, seen } = measured({ silenceMs: 1500 })
+    g.level(0.4, true)
+    c.advance(80)
+    g.level(0.4, true)
+    g.level(0.1, true)
+    c.advance(1600) // released: a false start, and no final ever comes
+    g.level(0.4, true)
+    c.advance(80)
+    g.level(0.1, true)
+    g.wordsHold()
+    assert.deepEqual(seen.map((m) => [m.path, m.real]), [['level', false], ['words', true]])
+  })
+
+  it('a words-path stop the level then catches up with is one barge-in', () => {
+    const { c, g, seen } = measured()
+    g.level(0.4, true)
+    g.level(0.1, true)
+    c.advance(300)
+    g.wordsHold() // stopped on the transcript; narration stays "playing" through the hold
+    g.level(0.5, true)
+    g.level(0.5, true) // louder now: the level fires too
+    g.words()
+    g.utteranceDone()
+    assert.deepEqual(seen.map((m) => m.path), ['words'])
+  })
+})
+

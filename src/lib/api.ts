@@ -64,6 +64,15 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
 }
 
 /**
+ * Fire-and-forget POST with the access code if there is one: no prompt, no
+ * retry, and `keepalive` so it still goes when sent as the page closes.
+ */
+export function sendQuietly(path: string, body: unknown): void {
+  const init: RequestInit = { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+  fetch(path, withCode(init, storedCode())).catch(() => {})
+}
+
+/**
  * POST to a route that answers in newline-delimited JSON, handing each parsed line
  * to `onLine` as it lands. Resolves when the stream closes.
  */

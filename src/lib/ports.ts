@@ -7,6 +7,8 @@
  * a turn. Implementations own the mic and any echo handling; the app supplies
  * the handlers and tells the ear what is currently playing so it can ignore it.
  */
+import type { ClientEvent } from './clientMeter.ts'
+
 export interface Transcriber {
   /** False when this environment can't do speech input at all (the UI hides the mic). */
   readonly supported: boolean
@@ -26,6 +28,8 @@ export interface Transcriber {
   /** It was a cough — no words followed the hold. Resume where the hold parked. */
   onFalseStart: () => void
   onError: (msg: string) => void
+  /** A barge-in timed, or a stretch of streamed audio counted, for the client meter. */
+  onMeasure: (e: ClientEvent) => void
   /** Text currently playing through the speakers, for echo rejection. */
   getSpokenText: () => string
   /** That plus what played in the last few seconds; recognition finalizes late. */

@@ -127,6 +127,8 @@ export class TtsPlayer {
    * it: every place that used to flip `playing` by hand eventually drifted.
    */
   onPlayingChange: (playing: boolean) => void = () => {}
+  /** A clip actually began to sound: a paragraph of the book, or a reply or aside. */
+  onAudioStart: (kind: 'narration' | 'reply') => void = () => {}
 
   private paragraphs: string[] = []
   private index = 0
@@ -273,7 +275,7 @@ export class TtsPlayer {
     return this.playStreamed(text, session)
   }
 
-  private playStreamed(text: string, session: number): Promise<void> {
+  private playStreamed(text: string, session: number, kind: 'narration' | 'reply' = 'narration'): Promise<void> {
     void attachOutput(this.audio)
     // Interrupting mid-paragraph must kill the download too, or every barge-in
     // leaves a stream draining in the background and burns TTS credits.
@@ -289,6 +291,7 @@ export class TtsPlayer {
             return resolve()
           }
           this.audio.playbackRate = this.rate
+          this.audio.onplaying = () => this.onAudioStart(kind)
           this.audio.onended = () => resolve()
           this.audio.onerror = () => resolve()
           this.audio.play().catch(() => resolve())
@@ -301,12 +304,13 @@ export class TtsPlayer {
     })
   }
 
-  private playUrl(url: string, session: number): Promise<void> {
+  private playUrl(url: string, session: number, kind: 'narration' | 'reply' = 'narration'): Promise<void> {
     void attachOutput(this.audio) // idempotent; no-op if WebAudio isn't usable
     return new Promise((resolve) => {
       this.interrupt = resolve
       this.audio.src = url
       this.audio.playbackRate = this.rate
+      this.audio.onplaying = () => this.onAudioStart(kind)
       this.audio.onended = () => resolve()
       this.audio.onerror = () => resolve()
       this.audio.play().catch(() => resolve())
@@ -372,7 +376,7 @@ export class TtsPlayer {
         this.speaking = aside.text
         const url = await getAudioUrl(this.source, `s:${aside.text}`, aside.text)
         if (session === this.session && !this.gate.held) {
-          await this.playUrl(url, session)
+          await this.playUrl(url, session, 'reply')
           if (session === this.session && !this.gate.held) outcome = 'said'
         }
       } catch (e) {
@@ -393,6 +397,11 @@ export class TtsPlayer {
 
   private dropAsides() {
     for (const aside of this.asides.splice(0)) aside.done('missed')
+  }
+
+  /** Audio is coming out of the speaker right now. */
+  get sounding(): boolean {
+    return !this.audio.paused
   }
 
   pause() {
@@ -456,11 +465,11 @@ export class TtsPlayer {
         try {
           this.speaking = text
           // no MediaSource (Safari on iOS): the first sentence buffers like the rest
-          if (first && CAN_STREAM) await this.playStreamed(text, session)
+          if (first && CAN_STREAM) await this.playStreamed(text, session, 'reply')
           else {
             const url = await getAudioUrl(this.source, `s:${text}`, text)
             if (session !== this.session) return 'missed'
-            await this.playUrl(url, session)
+            await this.playUrl(url, session, 'reply')
           }
           if (this.gate.held) cut = true
         } catch (e) {

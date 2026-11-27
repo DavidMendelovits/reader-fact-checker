@@ -175,16 +175,24 @@ export interface Decider {
  * so two vendors behind one port compare on the same numbers.
  */
 export interface MeterEvent {
-  port: 'conversation' | 'json' | 'search' | 'speech' | 'decider' | 'listen'
+  /**
+   * The server's ports, plus what only the browser sees (clientMeter.ts):
+   * bargein, how long the narration played over the reader before it ducked;
+   * first_audio, from handing a turn to the model to the first sound back;
+   * listen_audio, seconds of mic audio sent to the speech-input vendor.
+   */
+  port: 'conversation' | 'json' | 'search' | 'speech' | 'decider' | 'listen' | 'bargein' | 'first_audio' | 'listen_audio'
   provider: string
+  /** Set on events the browser reported: which app sent them. */
+  client?: 'web' | 'phone'
   model?: string
   /** Until the call settled; for speech, until the audio stream opened. */
   ms: number
   /** Until the first text arrived, for the ports that stream it. */
   firstMs?: number
   ok: boolean
-  /** Billed units, where the port reports them: tokens, or characters of speech. */
-  units?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; chars?: number }
+  /** Billed units, where the port reports them: tokens, characters of speech, or seconds of audio heard. */
+  units?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; chars?: number; seconds?: number }
   /** US dollars, when the price table knows the model. */
   cost?: number
 }

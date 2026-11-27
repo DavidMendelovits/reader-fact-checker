@@ -13,6 +13,7 @@ class FakeAudio {
   playbackRate = 1
   onended: (() => void) | null = null
   onerror: (() => void) | null = null
+  onplaying: (() => void) | null = null
   playing = false
 
   constructor() {
@@ -21,6 +22,7 @@ class FakeAudio {
 
   play(): Promise<void> {
     this.playing = true
+    this.onplaying?.()
     return Promise.resolve()
   }
 
@@ -227,4 +229,20 @@ describe('TtsPlayer outcomes', () => {
     assert.equal(await range, 'completed')
   })
 
+})
+
+describe('TtsPlayer audio start', () => {
+  it('says which kind of clip began to sound: the book, or a reply', async () => {
+    const p = player(['one'])
+    const kinds: string[] = []
+    p.onAudioStart = (k) => kinds.push(k)
+    void p.playFrom(0)
+    await tick()
+    assert.deepEqual(kinds, ['narration'])
+    const said = p.speak('Sure.')
+    await tick()
+    FakeAudio.last?.end()
+    await said
+    assert.deepEqual(kinds, ['narration', 'reply'])
+  })
 })

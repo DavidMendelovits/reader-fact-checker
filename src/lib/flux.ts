@@ -15,6 +15,7 @@
 
 import { apiFetch } from './api.ts'
 import { audioContext, getMicStream, readLevels, SPEECH_FLOOR } from './audio-levels.ts'
+import type { ClientEvent } from './clientMeter.ts'
 import type { Transcriber } from './ports.ts'
 import { confident, countWords, MIN_INTERIM_WORDS } from './voice.ts'
 import { BargeInGate } from '../../shared/voice/bargeIn.ts'
@@ -45,6 +46,8 @@ const MAX_BACKOFF_MS = 8000
 const MAX_FAILURES = 4
 /** Audio kept while the stream is (re)opening, so "pause" said on unmute isn't lost: about a second. */
 const MAX_HELD_FRAMES = 12
+/** Audio sent between meter reports, a minute: a tab closed mid-stream loses at most this. */
+const REPORT_FRAMES = 750
 /** A stream that ran this long was healthy; its close starts the failure count over. */
 const HEALTHY_MS = 10_000
 
@@ -91,6 +94,8 @@ export class FluxListener implements Transcriber {
   private gen = 0
   private failures = 0
   private openedAt = 0
+  private sentFrames = 0 // since the last meter report: Flux bills the audio by the second
+  private reportedAt = 0 // when the open stream's current meter report began
   private ws: WebSocket | null = null
   private retry: ReturnType<typeof setTimeout> | null = null
   private meter: ReturnType<typeof setInterval> | null = null
@@ -114,6 +119,7 @@ export class FluxListener implements Transcriber {
   onSpeechStart: () => void = () => {}
   onFalseStart: () => void = () => {}
   onError: (msg: string) => void = () => {}
+  onMeasure: (e: ClientEvent) => void = () => {}
   getSpokenText: () => string = () => ''
   getRecentSpokenText: () => string = () => ''
 
@@ -126,6 +132,7 @@ export class FluxListener implements Transcriber {
       this.talking = false
       this.onFalseStart()
     }
+    this.barge.onMeasure = (m) => this.onMeasure({ port: 'bargein', provider: m.path, ms: m.ms, ok: m.real })
   }
 
   /**
@@ -223,6 +230,7 @@ export class FluxListener implements Transcriber {
     this.barge.words()
     if (!this.talking && countWords(text) >= MIN_INTERIM_WORDS) {
       this.talking = true
+      this.barge.wordsHold()
       this.onSpeechStart()
     }
     this.onInterim(text)
@@ -234,7 +242,11 @@ export class FluxListener implements Transcriber {
     const ws = this.ws
     const open = ws?.readyState === WebSocket.OPEN
     this.framer.push(toInt16(this.resampler.push(samples)), (frame) => {
-      if (open) return ws!.send(frame)
+      if (open) {
+        ws!.send(frame)
+        if (++this.sentFrames >= REPORT_FRAMES) this.report()
+        return
+      }
       this.held.push(frame)
       if (this.held.length > MAX_HELD_FRAMES) this.held.shift()
     })
@@ -297,7 +309,8 @@ export class FluxListener implements Transcriber {
     this.ws = ws
     ws.onopen = () => {
       if (this.ws !== ws) return
-      this.openedAt = Date.now()
+      this.openedAt = this.reportedAt = Date.now()
+      this.sentFrames = this.held.length
       for (const frame of this.held) ws.send(frame)
       this.held = []
     }
@@ -317,9 +330,26 @@ export class FluxListener implements Transcriber {
       this.endTurn()
       if (this.openedAt && Date.now() - this.openedAt >= HEALTHY_MS) this.failures = 0
       this.openedAt = 0
+      this.report(true)
       if (!this.running || this.userMuted) return // unmuting reconnects
       this.failed(gen, new Error(`stream closed (${e.code})`))
     }
+  }
+
+  /**
+   * The audio sent on the open stream since the last report, with how long that
+   * took. Every minute of audio and once more when the stream ends, so the meter
+   * still gets most of a stream the tab closes on.
+   */
+  private report(ended = false) {
+    const now = Date.now()
+    if (this.reportedAt && this.sentFrames > 0) {
+      const seconds = (this.sentFrames * FRAME_SAMPLES) / SAMPLE_RATE
+      // ok whatever ended the stream: the audio was sent, and is billed
+      this.onMeasure({ port: 'listen_audio', provider: 'deepgram', ms: now - this.reportedAt, ok: true, units: { seconds } })
+    }
+    this.reportedAt = ended ? 0 : now
+    this.sentFrames = 0
   }
 
   private failed(gen: number, e: unknown) {
@@ -344,6 +374,7 @@ export class FluxListener implements Transcriber {
     const ws = this.ws
     this.ws = null
     if (!ws) return
+    this.report(true)
     // CloseStream has Flux finish the audio it holds; this listener is done with it either way.
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'CloseStream' }))
     ws.close()

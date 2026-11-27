@@ -19,6 +19,7 @@ import type { SpeechStream } from './tts'
 import { tts } from './providers'
 import { checkPassage, completeField } from './factcheck'
 import { blip } from './earcon'
+import { firstAudio } from './clientMeter'
 import { apiNdjson, isTransient, RETRY_WAITS } from './api'
 import { SentenceSplitter } from './sentences'
 import { decide, type NavAction } from './navigate'
@@ -338,6 +339,11 @@ const agent = createAgent<NavAction>({
   client: 'web',
   buildContext,
   blip,
+  // only from silence: with the book still sounding, the next clip to start is
+  // just its next paragraph, not the answer
+  handedOff: () => {
+    if (!tts.sounding) firstAudio.handedOff()
+  },
   newId,
   now: () => Date.now(),
   setTimeout: (fn, ms) => setTimeout(fn, ms),

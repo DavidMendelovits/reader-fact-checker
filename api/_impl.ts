@@ -8,6 +8,7 @@ export { factcheck, factcheckNdjson, passageFromMessages, type FactCheckResult }
 export { extractClaims } from './_lib/claims.js'
 export { ttsStream } from './_lib/speech.js'
 export { listenGrant } from './_lib/listen.js'
+export { recordClientEvents } from './_lib/clientMeter.js'
 export { fetchArticle, blockedHost } from './_lib/fetch.js'
 export { navigate, type NavigateRequest, type NavigateDecision } from './_lib/navigate.js'
 export { libraryRequest, LibraryError, type LibraryRequest, type LibraryResponse } from './_lib/library.js'
