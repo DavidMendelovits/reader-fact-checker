@@ -46,7 +46,8 @@ export function findChapter(chapters: Chapter[], spoken: string): number | null 
   if (n != null) {
     // a title that carries the number wins: "Chapter 3", "III", "Part Three"
     const forms = new Set([String(n), NUMBER_WORDS[n], ROMAN[n]].filter(Boolean))
-    const titled = chapters.findIndex((c) => tokens(c.title).some((w) => forms.has(w)))
+    // only where a title numbers itself ("Chapter 3", "III. Landfall"), not "What I Saw"
+    const titled = chapters.findIndex((c) => tokens(c.title).some((w, j, t) => forms.has(w) && (j === 0 || NUMBERED.has(t[j - 1]))))
     if (titled >= 0) return titled
     if (n >= 1 && n <= chapters.length) return n - 1
   }

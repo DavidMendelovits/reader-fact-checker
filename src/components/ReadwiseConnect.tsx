@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { librarySnapshot, readwiseToken, refreshLibrary, setReadwiseToken } from '../lib/library'
+import { library, librarySnapshot, readwiseToken, setReadwiseToken } from '../lib/library'
 
 /**
  * Connect a Readwise library so "switch to the Hemingway one" works by voice.
@@ -13,7 +13,7 @@ export function ReadwiseConnect() {
 
   async function sync() {
     setSyncing(true)
-    await refreshLibrary()
+    await library() // syncs only a library that never synced; a stale one refreshes behind
     setSnap(librarySnapshot())
     setSyncing(false)
   }

@@ -71,6 +71,9 @@ describe('findChapter', () => {
     const plain: Chapter[] = [{ title: 'Opening', paragraphs: ['a'] }, { title: 'Middle', paragraphs: ['b'] }]
     expect(findChapter(plain, 'chapter 2')).toBe(1)
     expect(findChapter(plain, 'chapter 9')).toBeNull()
+    // "I" in a title is a word, not a numeral
+    const prose: Chapter[] = [{ title: 'Prologue', paragraphs: ['a'] }, { title: 'What I Saw', paragraphs: ['b'] }, { title: 'Chapter 1', paragraphs: ['c'] }]
+    expect(findChapter(prose, 'chapter one')).toBe(2)
   })
 })
 

@@ -22,9 +22,12 @@ describe('dropOne', () => {
     dropOne(list)
     expect(ids(list)).toEqual(['book-new'])
   })
-  test('a lone Readwise copy at the top still goes before the books', () => {
-    const list = [e('readwise:a'), e('book-old')]
+  test('never the newest, the document being saved, while anything else is left', () => {
+    const list = [e('readwise:open'), e('book-a'), e('book-b')]
     dropOne(list)
-    expect(ids(list)).toEqual(['book-old'])
+    expect(ids(list)).toEqual(['readwise:open', 'book-a'])
+    const alone = [e('readwise:open')]
+    dropOne(alone)
+    expect(alone).toEqual([])
   })
 })

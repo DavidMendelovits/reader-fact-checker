@@ -41,12 +41,13 @@ export function loadLibrary(): LibraryEntry[] {
 
 /**
  * Lose one entry: the oldest Readwise copy, since its text can be fetched
- * again; with none, the oldest entry. `entries` is newest first.
+ * again; with none, the oldest entry. `entries` is newest first, and the newest
+ * (the document being saved) goes only when it is all that is left.
  */
 export function dropOne(entries: LibraryEntry[]) {
   let i = entries.length - 1
   while (i > 0 && !entries[i].id.startsWith('readwise:')) i--
-  entries.splice(entries[i].id.startsWith('readwise:') ? i : entries.length - 1, 1)
+  entries.splice(i > 0 ? i : entries.length - 1, 1)
 }
 
 function writeLibrary(entries: LibraryEntry[]) {
@@ -139,9 +140,15 @@ export function switchTo(doc: Doc, entry: LibraryEntry | undefined, at: number) 
     currentParagraph: at,
     jobs: restoredJobs(entry),
     highlights: entry?.highlights ?? [],
-    // the document's own transcript first, so the save after this keeps it
-    chat: [...(entry?.chat ?? []), ...chat],
+    // the document's own transcript first, so the save after this keeps it;
+    // a message already in it (from an earlier switch) isn't added twice
+    chat: mergeChat(entry?.chat ?? [], chat),
   })
+}
+
+function mergeChat(saved: ChatMessage[], live: ChatMessage[]): ChatMessage[] {
+  const seen = new Set(saved.map((m) => m.id))
+  return [...saved, ...live.filter((m) => !seen.has(m.id))]
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null

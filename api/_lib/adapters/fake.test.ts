@@ -51,6 +51,9 @@ describe('e2e environment fakes', () => {
     assert.deepEqual([open.name, open.input], ['open_document', { id: 'fake-storm' }])
     const [read] = tools(await agentTurn([result('Opened "The Long Storm". Position: paragraph 4.')], context))
     assert.deepEqual([read.name, read.input], ['read_aloud', {}])
+    // "open" inside a question is not a switch
+    const [check] = tools(await agentTurn([{ role: 'user', content: 'is it true the shop was open late?' }], context))
+    assert.equal(check.name, 'fact_check')
   })
 
   it('fact check: streams a verdict and marks it as offline', async () => {

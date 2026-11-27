@@ -134,8 +134,10 @@ const STALE_MS = 10 * 60 * 1000
 /**
  * The cached library, synced first if it never has been (or the last try
  * failed). A cache older than ten minutes answers now and refreshes behind.
+ * With no token there is no library to sync.
  */
 export async function library(): Promise<{ docs: LibraryDoc[]; highlights: RemoteHighlight[]; error: string | null }> {
+  if (!readwiseToken()) return { docs: [], highlights: [], error: null } // not connected: what's saved here is the library
   if (!cache.lastSync) await refreshLibrary()
   else if (Date.now() - Date.parse(cache.lastSync) > STALE_MS) void refreshLibrary()
   return { docs: cache.docs, highlights: cache.highlights, error: cache.lastSync ? null : lastError }

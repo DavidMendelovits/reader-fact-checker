@@ -49,7 +49,7 @@ function lastToolResults(messages: Message[]): string[] {
 function libraryStep(results: string[]): Block[] | null {
   for (const r of results) {
     if (/^Opened |is already open/.test(r)) return [toolUse('read_aloud', {})]
-    const found = r.match(/^\[([^\]]+)\]/)
+    const found = r.match(/^\[([a-z][\w-]*)\]/i) // a library id, not find_in_document's [12]
     if (found) return [toolUse('open_document', { id: found[1] })]
   }
   return null
@@ -67,7 +67,7 @@ function reply(text: string, context: string, results: string[]): Block[] {
   const t = text.toLowerCase()
   const read = () => toolUse('read_aloud', { from: at })
   if (!t.trim()) return libraryStep(results) ?? [] // tool results only
-  const open = t.match(/\b(?:switch to|open|start reading)\s+(.+)/)
+  const open = t.trim().match(/^(?:switch to|open|start reading)\s+(.+)/)
   if (open) return [toolUse('search_library', { query: open[1] })]
   if (/what should i read|recommend/.test(t)) return [toolUse('recommend', {})]
   if (t.startsWith('[the reader')) return [{ type: 'text', text: 'Starting where you are.' }, read()]
