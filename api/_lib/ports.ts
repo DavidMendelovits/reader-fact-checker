@@ -60,6 +60,8 @@ export interface TurnUsage {
 export interface TurnResult {
   content: Block[]
   usage?: TurnUsage
+  /** The model that answered, as the vendor names it (prices are per model). */
+  model?: string
 }
 
 /** A tool-calling chat model that can stream its text. */
@@ -141,4 +143,31 @@ export type DecisionAnswer =
 export interface Decider {
   readonly name: string
   decide(state: unknown, questions: Record<string, DecisionQuestion>): Promise<Record<string, DecisionAnswer>>
+}
+
+// ---- the meter ----
+
+/**
+ * One call to an outside service: how long it took and what it billed. Every
+ * port is metered the same way (./meter.ts wraps whatever providers.ts picks),
+ * so two vendors behind one port compare on the same numbers.
+ */
+export interface MeterEvent {
+  port: 'conversation' | 'json' | 'search' | 'speech' | 'decider'
+  provider: string
+  model?: string
+  /** Until the call settled; for speech, until the audio stream opened. */
+  ms: number
+  /** Until the first text arrived, for the ports that stream it. */
+  firstMs?: number
+  ok: boolean
+  /** Billed units, where the port reports them: tokens, or characters of speech. */
+  units?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; chars?: number }
+  /** US dollars, when the price table knows the model. */
+  cost?: number
+}
+
+/** Where meter events go. Logs by default; a test or a replay run puts its own here. */
+export interface Meter {
+  record(event: MeterEvent): void
 }
