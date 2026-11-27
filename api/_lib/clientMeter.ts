@@ -18,7 +18,7 @@ const PROVIDERS: Record<string, readonly string[]> = {
 }
 
 export const MAX_EVENTS = 50
-const MAX_MS = 3_600_000 // an hour: a stream's wall time is the longest thing timed here
+const MAX_MS = 86_400_000 // a day: a stream reports each minute of audio, but a muted one runs on
 const MAX_SECONDS = 3_600
 
 const whole = (v: unknown, max: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max

@@ -253,4 +253,19 @@ describe('BargeInGate measurements', () => {
     g.wordsHold()
     assert.deepEqual(seen, [], 'the loud run is too old to time from')
   })
+
+  it('a cough does not stop the next quiet barge-in being timed', () => {
+    const { c, g, seen } = measured({ silenceMs: 1500 })
+    g.level(0.4, true)
+    c.advance(80)
+    g.level(0.4, true)
+    g.level(0.1, true)
+    c.advance(1600) // released: a false start, and no final ever comes
+    g.level(0.4, true)
+    c.advance(80)
+    g.level(0.1, true)
+    g.wordsHold()
+    assert.deepEqual(seen.map((m) => [m.path, m.real]), [['level', false], ['words', true]])
+  })
 })
+

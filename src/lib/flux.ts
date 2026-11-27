@@ -46,6 +46,8 @@ const MAX_BACKOFF_MS = 8000
 const MAX_FAILURES = 4
 /** Audio kept while the stream is (re)opening, so "pause" said on unmute isn't lost: about a second. */
 const MAX_HELD_FRAMES = 12
+/** Audio sent between meter reports, a minute: a tab closed mid-stream loses at most this. */
+const REPORT_FRAMES = 750
 /** A stream that ran this long was healthy; its close starts the failure count over. */
 const HEALTHY_MS = 10_000
 
@@ -92,7 +94,8 @@ export class FluxListener implements Transcriber {
   private gen = 0
   private failures = 0
   private openedAt = 0
-  private sentFrames = 0 // on the open stream, for the meter: Flux bills the audio by the second
+  private sentFrames = 0 // since the last meter report: Flux bills the audio by the second
+  private reportedAt = 0 // when the open stream's current meter report began
   private ws: WebSocket | null = null
   private retry: ReturnType<typeof setTimeout> | null = null
   private meter: ReturnType<typeof setInterval> | null = null
@@ -240,8 +243,9 @@ export class FluxListener implements Transcriber {
     const open = ws?.readyState === WebSocket.OPEN
     this.framer.push(toInt16(this.resampler.push(samples)), (frame) => {
       if (open) {
-        this.sentFrames++
-        return ws!.send(frame)
+        ws!.send(frame)
+        if (++this.sentFrames >= REPORT_FRAMES) this.report(true)
+        return
       }
       this.held.push(frame)
       if (this.held.length > MAX_HELD_FRAMES) this.held.shift()
@@ -305,7 +309,7 @@ export class FluxListener implements Transcriber {
     this.ws = ws
     ws.onopen = () => {
       if (this.ws !== ws) return
-      this.openedAt = Date.now()
+      this.openedAt = this.reportedAt = Date.now()
       this.sentFrames = this.held.length
       for (const frame of this.held) ws.send(frame)
       this.held = []
@@ -325,19 +329,25 @@ export class FluxListener implements Transcriber {
       this.ws = null
       this.endTurn()
       if (this.openedAt && Date.now() - this.openedAt >= HEALTHY_MS) this.failures = 0
-      this.streamed(e.code === 1000)
+      this.openedAt = 0
+      this.report(e.code === 1000, true)
       if (!this.running || this.userMuted) return // unmuting reconnects
       this.failed(gen, new Error(`stream closed (${e.code})`))
     }
   }
 
-  /** The open stream is over: report how long it ran and the audio it carried. */
-  private streamed(ok: boolean) {
-    if (this.openedAt) {
+  /**
+   * The audio sent on the open stream since the last report, with how long that
+   * took. Every minute of audio and once more when the stream ends, so the meter
+   * still gets most of a stream the tab closes on.
+   */
+  private report(ok: boolean, ended = false) {
+    const now = Date.now()
+    if (this.reportedAt && this.sentFrames > 0) {
       const seconds = (this.sentFrames * FRAME_SAMPLES) / SAMPLE_RATE
-      this.onMeasure({ port: 'listen', provider: 'deepgram', ms: Date.now() - this.openedAt, ok, units: { seconds } })
+      this.onMeasure({ port: 'listen', provider: 'deepgram', ms: now - this.reportedAt, ok, units: { seconds } })
     }
-    this.openedAt = 0
+    this.reportedAt = ended ? 0 : now
     this.sentFrames = 0
   }
 
@@ -363,7 +373,7 @@ export class FluxListener implements Transcriber {
     const ws = this.ws
     this.ws = null
     if (!ws) return
-    this.streamed(true)
+    this.report(true, true)
     // CloseStream has Flux finish the audio it holds; this listener is done with it either way.
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'CloseStream' }))
     ws.close()

@@ -321,6 +321,22 @@ describe('FluxListener stream', () => {
   })
 })
 
+describe('FluxListener per-minute listen reports', () => {
+  it('reports each minute of audio as it goes, so a tab closed mid-stream still counts most of it', async () => {
+    const l = listener()
+    const seconds: number[] = []
+    l.onMeasure = (e) => e.port === 'listen' && seconds.push(e.units.seconds)
+    await l.start()
+    await tick()
+    FakeSocket.all[0].open()
+    for (let i = 0; i < 760; i++) l.audio(new Float32Array(3840))
+    assert.deepEqual(seconds, [60], 'a minute reported while the stream is still open')
+    l.stop()
+    assert.equal(seconds.length, 2)
+    assert.ok(Math.abs(seconds[1] - 0.8) < 1e-9, 'the rest when it ends')
+  })
+})
+
 describe('FluxListener barge-in measurements', () => {
   it('reports a level hold that words followed, and a words-path stop timed from the loud run', () => {
     const l = listener()

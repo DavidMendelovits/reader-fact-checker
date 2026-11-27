@@ -180,7 +180,8 @@ export class BargeInGate {
     const p = this.pending
     this.pending = null
     if (!p) return
-    this.measured = true
+    // a cough has no final to clear this, and the next quiet barge-in should still count
+    this.measured = real
     this.onMeasure({ ...p, real })
   }
 
