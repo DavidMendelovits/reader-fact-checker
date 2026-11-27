@@ -13,6 +13,7 @@
 // rather than one per paragraph. When it comes back interrupted, the interrupting
 // utterance rides along in the same user turn as the tool result — that is what
 // lets "wait, what was that?" resolve against the text that was just read.
+import { highlightParts, joinParts } from '../../shared/library/concat.ts'
 import { useStore } from '../store'
 import type { SpeechStream } from './tts'
 import { tts } from './providers'
@@ -189,8 +190,11 @@ function findInDocument(input: Record<string, unknown>): string {
 
 function highlight(input: Record<string, unknown>): string {
   const s = useStore.getState()
-  const text = String(input.text ?? '').trim()
-  if (!text) return 'No passage was given to highlight.'
+  // Highlights on the web stay in this browser, so a thought with skipped words
+  // is kept as one highlight that reads with an ellipsis where the gap is.
+  const parts = highlightParts(input)
+  if (parts.length === 0) return 'No passage was given to highlight.'
+  const text = joinParts(parts)
   const last = Math.max(0, s.paragraphs.length - 1)
   const anchor = Number.isInteger(input.anchor)
     ? Math.max(0, Math.min(last, input.anchor as number))

@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import http from 'node:http'
-import { readwiseLibrary, toLibraryDoc } from './readwise.ts'
+import { parseReadwiseNote, readwiseLibrary, toLibraryDoc } from './readwise.ts'
 import type { ReaderDoc } from './types.ts'
 
 test('the Readwise adapter against a fake Reader', async () => {
@@ -239,6 +239,13 @@ test('the Readwise adapter against a fake Reader', async () => {
       assert.equal(b.category, 'books')
       assert.ok(!('note' in b) && !('author' in b) && !('source_url' in b))
 
+      // a location orders concatenated runs; without one, none is sent
+      assert.ok(!('location' in b) && !('location_type' in b))
+      await lib.createHighlight({ doc, text: 'run', note: '.c2', location: 120003 })
+      const c = (last().body as { highlights: Record<string, unknown>[] }).highlights[0]
+      assert.equal(c.location, 120003)
+      assert.equal(c.location_type, 'order')
+
       await assert.rejects(lib.createHighlight({ doc, text: 'no id' }), /no id/)
       await assert.rejects(lib.createHighlight({ doc, text: 'boom' }), /POST failed \(500\).*kaboom/)
     }
@@ -263,4 +270,12 @@ test('the Readwise adapter against a fake Reader', async () => {
   } finally {
     server.close()
   }
+})
+
+test('a Readwise note splits back into the reader\'s note and the concatenation tag', () => {
+  assert.deepEqual(parseReadwiseNote('.c1 opener'), { note: 'opener', concat: 1 })
+  assert.deepEqual(parseReadwiseNote('.c12'), { note: null, concat: 12 })
+  assert.deepEqual(parseReadwiseNote(' plain note '), { note: 'plain note' })
+  assert.deepEqual(parseReadwiseNote('.cat food'), { note: '.cat food' })
+  assert.deepEqual(parseReadwiseNote(null), { note: null })
 })

@@ -32,6 +32,8 @@ export interface RemoteHighlight {
   docId: string
   text: string
   note: string | null
+  /** Its place in a concatenated highlight, read off the note's .cN tag. */
+  concat?: number
   updatedAt: string
 }
 
@@ -76,6 +78,7 @@ export interface Library {
   /** One page of highlights across the library. `updatedAfter` narrows to changes. */
   listHighlights(opts: { updatedAfter?: string; cursor?: string }): Promise<Page<RemoteHighlight>>
   /** Record a highlight on a document. Resolves with its id in the library. */
-  createHighlight(input: { doc: LibraryDoc; text: string; note?: string }): Promise<{ remoteId: string }>
+  /** `location` orders highlights within the document, so concatenated runs join in reading order. */
+  createHighlight(input: { doc: LibraryDoc; text: string; note?: string; location?: number }): Promise<{ remoteId: string }>
   deleteHighlight(remoteId: string): Promise<void>
 }

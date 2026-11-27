@@ -41,6 +41,17 @@ export function toLibraryDoc(d: ReaderDoc): LibraryDoc {
   }
 }
 
+/**
+ * A note as Readwise holds it, split back into the reader's note and the
+ * concatenation tag (.c1, .c2: see concat.ts). It lives here so the server
+ * function loads this file with no other imports.
+ */
+export function parseReadwiseNote(raw: string | null | undefined): { note: string | null; concat?: number } {
+  const m = (raw ?? '').trim().match(/^\.c(\d+)\b\s*([\s\S]*)$/i)
+  if (!m) return { note: raw?.trim() || null }
+  return { note: m[2].trim() || null, concat: Number(m[1]) }
+}
+
 const isHighlight = (d: ReaderDoc) => d.category === 'highlight' && !!d.parent_id
 const isNote = (d: ReaderDoc) => d.category === 'note'
 
@@ -101,14 +112,14 @@ export function readwiseLibrary(token: string, opts: ReadwiseOptions = {}): Libr
           id: d.id,
           docId: d.parent_id as string,
           text: (d.content ?? '').trim(),
-          note: d.notes?.trim() || null,
+          ...parseReadwiseNote(d.notes), // the .cN tag is Readwise's, not the reader's note
           updatedAt: d.updated_at,
         })),
         nextCursor: nextPageCursor,
       }
     },
 
-    async createHighlight({ doc, text, note }) {
+    async createHighlight({ doc, text, note, location }) {
       const res = await call(`${readwise}/highlights/`, {
         method: 'POST',
         body: JSON.stringify({
@@ -121,6 +132,8 @@ export function readwiseLibrary(token: string, opts: ReadwiseOptions = {}): Libr
               source_type: 'reader_out_loud',
               category: doc.category === 'epub' || doc.category === 'pdf' ? 'books' : 'articles',
               note: note || undefined,
+              location,
+              location_type: location == null ? undefined : 'order',
               highlighted_at: new Date().toISOString(),
             },
           ],
