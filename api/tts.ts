@@ -2,12 +2,13 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 // .js extension is required: package.json sets "type": "module", so these compile
 // to ESM and Node resolves relative imports literally at runtime.
 import { Readable } from 'node:stream'
-import { ttsStream } from './_impl.js'
+import { bodyChars, gate, ttsStream } from './_impl.js'
 
 export const maxDuration = 60
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).end()
+  if (!gate('tts', req, res, bodyChars(req.body))) return
   try {
     const { text } = req.body as { text: string }
     if (typeof text !== 'string' || !text.trim()) return res.status(400).json({ error: 'text required' })

@@ -8,6 +8,7 @@
 // tool calls would put a round-trip between every paragraph.
 import type { Block, Message, ToolSpec } from './ports.js'
 import { providers } from './providers.js'
+import { clientKit } from '../../shared/agent/clients.js'
 
 export interface AgentContext {
   title: string
@@ -20,15 +21,16 @@ export interface AgentContext {
   extra?: string
 }
 
-/**
- * What a client adds to the shared agent: tools it implements itself and the
- * guidance for them: each app brings its own library tools, since finding and
- * opening a document is done on the device. Both are byte-stable per client, so
- * the cached prefix stays warm.
- */
-export interface ClientExtras {
-  tools?: ToolSpec[]
-  system?: string
+/** Longer than either client's trimmed conversation (shared/voice/agent.ts trim). */
+export const MAX_MESSAGES = 120
+
+/** What's wrong with an agent request body, or null. The size cap is the guard's (guard.ts). */
+export function agentRequestProblem(body: unknown): { status: 400 | 413; error: string } | null {
+  const { messages, context } = (body ?? {}) as { messages?: unknown; context?: unknown }
+  if (!Array.isArray(messages) || messages.length === 0 || typeof context !== 'object' || !context)
+    return { status: 400, error: 'messages and context required' }
+  if (messages.length > MAX_MESSAGES) return { status: 413, error: 'conversation too long' }
+  return null
 }
 
 export const AGENT_TOOLS: ToolSpec[] = [
@@ -192,16 +194,23 @@ export async function agentTurn(
   context: AgentContext,
   onText: (text: string) => void = () => {},
   onTextEnd: () => void = () => {},
-  client: ClientExtras = {},
+  /**
+   * Which app is asking, as the request names it ('web' or 'phone'). Each brings
+   * its own library tools, since finding and opening a document is done on the
+   * device. The server adds that app's tools and guidance (shared/agent/clients.ts)
+   * by name, never from the request, so no request adds instructions of its own.
+   */
+  client: unknown = null,
 ): Promise<{ content: Block[] }> {
   const model = providers().conversation
+  const kit = clientKit(client)
   const started = Date.now()
   let firstText = 0
   const result = await model.turn(
     {
-      system: client.system ? `${AGENT_SYSTEM_STATIC}\n\n${client.system}` : AGENT_SYSTEM_STATIC,
+      system: kit ? `${AGENT_SYSTEM_STATIC}\n\n${kit.system}` : AGENT_SYSTEM_STATIC,
       context: agentContext(context),
-      tools: [...AGENT_TOOLS, ...(client.tools ?? [])],
+      tools: kit ? [...AGENT_TOOLS, ...kit.tools] : AGENT_TOOLS,
       messages,
     },
     {
@@ -235,7 +244,7 @@ export async function agentNdjson(
   messages: Message[],
   context: AgentContext,
   write: (line: string) => void,
-  client: ClientExtras = {},
+  client: unknown = null,
 ): Promise<void> {
   const send = (obj: unknown) => write(`${JSON.stringify(obj)}\n`)
   try {

@@ -9,7 +9,7 @@ import { resetConversation, setMicEnabled } from '../agent'
 import { kokoroSizeMb } from '../kokoro'
 import { activeVoice, enableKokoro, useVoice } from '../providers'
 import { refreshLibrary, stopLibrary } from '../session'
-import { apiBase, clearToken, saveApiBase, type ThemePreference } from '../settings'
+import { apiBase, appToken, clearToken, saveApiBase, saveAppToken, type ThemePreference } from '../settings'
 import { useStore } from '../store'
 import { radius, setThemePreference, size, space, themePreference, useTheme, weight, type as type_, type Theme } from '../theme'
 import { Composer } from './Composer'
@@ -35,6 +35,7 @@ export function SettingsScreen({ onSignOut }: { onSignOut: () => void }) {
   const syncing = useStore((st) => st.syncing)
   const lastSync = useStore((st) => st.lastSync)
   const [base, setBase] = useState(apiBase)
+  const [code, setCode] = useState(appToken)
   const [signingOut, setSigningOut] = useState(false)
   const baseValid = looksLikeUrl(base) || base.trim() === ''
 
@@ -109,6 +110,23 @@ export function SettingsScreen({ onSignOut }: { onSignOut: () => void }) {
             ) : (
               <Text style={s.error}>Not a URL</Text>
             )}
+          </View>
+
+          <View style={s.block}>
+            <Text style={s.label}>Access code</Text>
+            <TextInput
+              style={s.input}
+              value={code}
+              onChangeText={setCode}
+              onBlur={() => void saveAppToken(code)}
+              placeholder="none"
+              placeholderTextColor={theme.textTertiary}
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry
+              accessibilityLabel="Access code"
+            />
+            <Text style={s.hint}>Only if the web app above asks for one. Saved when you leave the field.</Text>
           </View>
 
           <View style={s.row}>

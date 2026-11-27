@@ -163,7 +163,7 @@ describe('/api/fetch', () => {
   it('answers in JSON with nosniff and a sandbox CSP, never as HTML from this origin', async () => {
     vi.stubGlobal('fetch', async () => new Response('<script>alert(1)</script>', { status: 200 }))
     const { out, res } = response()
-    await fetchRoute({ query: { url: 'https://a.example/' } } as never, res as never)
+    await fetchRoute({ query: { url: 'https://a.example/' }, headers: {} } as never, res as never)
     assert.equal(out.status, 200)
     assert.equal(out.headers['content-type'], 'application/json')
     assert.equal(out.headers['x-content-type-options'], 'nosniff')

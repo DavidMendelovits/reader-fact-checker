@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { navigate, type NavigateRequest } from './_impl.js'
+import { bodyChars, gate, navigate, type NavigateRequest } from './_impl.js'
 
 export const maxDuration = 10
 
@@ -11,6 +11,7 @@ export const maxDuration = 10
  */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') return res.status(405).end()
+  if (!gate('navigate', req, res, bodyChars(req.body))) return
   try {
     const decision = await navigate(req.body as NavigateRequest)
     res.status(200).json(decision ? { enabled: true, decision } : { enabled: false })

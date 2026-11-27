@@ -98,9 +98,8 @@ export interface AgentDeps<A extends { kind: string }> {
   /** Platform tools by name. read_aloud, set_speed and the loop itself are shared. */
   tools: Record<string, (input: Record<string, unknown>) => Promise<string> | string>
   buildContext(): unknown
-  /** Sent with every request; the phone declares its library tools this way. */
-  clientTools?: unknown[]
-  clientSystem?: string
+  /** Sent with every request: the server adds this client's library tools and guidance (shared/agent/clients.ts). */
+  client?: 'web' | 'phone'
   /** The web's earcon: going to the model costs a round-trip of silence. */
   blip?(): void
   newId(): string
@@ -806,8 +805,7 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
         state.setAgentState('thinking')
 
         const extras: Record<string, unknown> = {}
-        if (deps.clientTools) extras.clientTools = deps.clientTools
-        if (deps.clientSystem) extras.clientSystem = deps.clientSystem
+        if (deps.client) extras.client = deps.client
         const result = await deps.api(messages, deps.buildContext(), extras)
         const content = result.content
         messages.push({ role: 'assistant', content })

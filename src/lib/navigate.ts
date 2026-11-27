@@ -9,6 +9,7 @@
 // The phone's version (mobile/src/navigate.ts) also knows the library; here
 // the document is the whole world.
 import { useStore } from '../store'
+import { apiFetch } from './api'
 
 export type NavAction =
   | { kind: 'chapter'; index: number }
@@ -64,7 +65,7 @@ export async function decide(text: string, partial: boolean): Promise<NavAction 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch('/api/navigate', {
+    const res = await apiFetch('/api/navigate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
