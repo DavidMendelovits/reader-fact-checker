@@ -75,6 +75,22 @@ function apiRoutes(): Plugin {
         }
       })
 
+      server.middlewares.use('/api/library', async (req, res) => {
+        if (req.method !== 'POST') return json(res, 405, { error: 'POST only' })
+        const token = req.headers['x-readwise-token']
+        let body: unknown
+        try {
+          body = JSON.parse(await readBody(req))
+        } catch {
+          return json(res, 400, { error: 'JSON body required' })
+        }
+        try {
+          json(res, 200, await impl.libraryRequest(body, typeof token === 'string' ? token : null))
+        } catch (e) {
+          json(res, e instanceof impl.LibraryError ? e.status : 502, { error: e instanceof Error ? e.message : String(e) })
+        }
+      })
+
       server.middlewares.use('/api/claims', async (req, res) => {
         try {
           const { section } = JSON.parse(await readBody(req))

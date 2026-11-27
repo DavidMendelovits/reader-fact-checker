@@ -24,6 +24,7 @@ import { decide, type NavAction } from './navigate'
 import type { Doc, FactCheckJob, Highlight } from '../types'
 import { createAgent, type AgentPlayer, type Block, type Msg, type NavResult } from '../../shared/voice/agent'
 import { createAnnouncer } from '../../shared/voice/background'
+import { LIBRARY_SYSTEM, LIBRARY_TOOLS, openDocument, recommendNext, searchLibrary, searchLibraryHighlights } from './libraryTools'
 
 let reopenedAt: number | null = null // set by persist when a saved entry is reopened
 
@@ -323,10 +324,16 @@ const agent = createAgent<NavAction>({
   decide: (text, early) => decide(text, early),
   api: async (messages, context, extras) => ({ content: await speakTurn(messages, context, extras), spoken: true }),
   // Every nav kind the browser decider can return is one the shared loop handles
-  // itself (chapter, next, previous, beginning, pause, resume) — the library kinds
-  // are the phone's. Nothing routes here.
+  // itself (chapter, next, previous, beginning, pause, resume). The library is
+  // reached through the conversation (libraryTools.ts), not the fast decider.
   runNav: async (action): Promise<NavResult> => ({ chat: '', note: `Nothing to do for ${action.kind}.`, spoken: true }),
-  tools: { fact_check: factCheck, find_in_document: findInDocument, highlight },
+  tools: {
+    fact_check: factCheck, find_in_document: findInDocument, highlight,
+    search_library: searchLibrary, search_highlights: searchLibraryHighlights, open_document: openDocument, recommend: recommendNext,
+  },
+  // getters: libraryTools imports persist, which imports this file back
+  get clientTools() { return LIBRARY_TOOLS },
+  get clientSystem() { return LIBRARY_SYSTEM },
   buildContext,
   blip,
   newId,
@@ -335,10 +342,18 @@ const agent = createAgent<NavAction>({
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 })
 
-// a new document is a new conversation
+// The next document change keeps the conversation: a switch the agent made
+// itself, by voice, mid-turn (persist.switchTo).
+let keepNext = false
+export function keepConversation() {
+  keepNext = true
+}
+
+// a new document is a new conversation, unless the conversation asked for it
 useStore.subscribe((s, prev) => {
   if (s.doc !== prev.doc) {
-    agent.resetConversation()
+    if (!keepNext) agent.resetConversation()
+    keepNext = false
     announcer.clear()
     // openEntry marks the reopen *after* setDoc, so this only clears a stale mark
     reopenedAt = null

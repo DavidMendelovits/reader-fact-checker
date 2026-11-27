@@ -4,6 +4,7 @@
 //
 // Takes its Library and its storage as ports, so the self-check runs it under
 // node with a fake Reader and a Map.
+import { searchDocs } from '../../shared/library/search.ts'
 import type { KeyValueStore, Library } from './ports'
 import type { DocState, Highlight, LibraryDoc, Location, RemoteHighlight } from './types'
 
@@ -107,20 +108,9 @@ export class LibraryService {
     return this.docs.find((d) => d.id === id)
   }
 
-  /**
-   * Find documents by title, author, or a word from the summary. Spoken
-   * queries are loose — "the Hemingway one", "that article about sleep" — so
-   * this scores token overlap rather than demanding a substring.
-   */
+  /** Find documents by title, author, or a word from the summary (shared/library/search.ts). */
   search(query: string, limit = 6): LibraryDoc[] {
-    const terms = tokens(query).filter((t) => !STOP.has(t))
-    if (terms.length === 0) return []
-    return this.docs
-      .map((d) => ({ d, score: score(d, terms) }))
-      .filter((x) => x.score > 0)
-      .sort((a, b) => b.score - a.score || (a.d.updatedAt < b.d.updatedAt ? 1 : -1))
-      .slice(0, limit)
-      .map((x) => x.d)
+    return searchDocs(this.docs, query, limit)
   }
 
   async move(id: string, location: Location): Promise<void> {
@@ -203,23 +193,3 @@ export class LibraryService {
 }
 
 const sortDocs = (docs: Iterable<LibraryDoc>) => [...docs].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
-
-const STOP = new Set(['the', 'a', 'an', 'of', 'to', 'in', 'on', 'by', 'and', 'or', 'that', 'this', 'one', 'about', 'book', 'article', 'open', 'read', 'me', 'my', 'please'])
-const tokens = (s: string): string[] => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').match(/[a-z0-9']+/g) ?? []
-
-function score(d: LibraryDoc, terms: string[]): number {
-  const title = tokens(d.title)
-  const author = tokens(d.author ?? '')
-  const summary = tokens(d.summary ?? '')
-  let s = 0
-  for (const t of terms) {
-    if (title.includes(t)) s += 3
-    else if (title.some((w) => w.startsWith(t) && t.length >= 4)) s += 2
-    if (author.includes(t)) s += 3
-    else if (author.some((w) => w.startsWith(t) && t.length >= 3)) s += 2
-    if (summary.includes(t)) s += 1
-  }
-  // every term matched somewhere: a bonus, so "hemingway sea" beats a doc that only has "sea"
-  if (terms.every((t) => title.includes(t) || author.includes(t) || summary.includes(t))) s += 2
-  return s
-}

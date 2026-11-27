@@ -19,6 +19,7 @@ The interesting bet is that **the agent drives playback, rather than the UI driv
 ## Features
 
 - **Import** — paste any article URL (Readability extraction) or drop an EPUB
+- **Your library, hands-free** — paste a Readwise access token on the home screen, then say *"switch to the Hemingway one"*, *"start that piece about sleep from the beginning"*, *"go to chapter three"*, *"halfway through"*, *"what did I highlight about naps?"* or *"what should I read next?"*. Switching saves your place in the document you leave; one you started in Reader or on the phone picks up from there. The token stays in your browser and rides with each `/api/library` request; the server never stores it. Searching, start-at and recommending are shared with the phone (`shared/library/`)
 - **Conversational playback** — the agent greets you, starts reading, and keeps going into the next section on its own; interrupt by voice at any time
 - **Voice fact check** — ask about anything you just heard; it says one line so you're not sitting in silence, searches, then speaks the verdict and pins a card with sources
 - **Highlights** — say *"highlight that, it's the bit for my talk"* and your comment is saved as the note; or select text in the reader for a highlight / fact-check toolbar
@@ -43,7 +44,7 @@ The interesting bet is that **the agent drives playback, rather than the UI driv
 - **Paper and Ink.** A light theme and a dark one, following the system or pinned in Settings; reading is a serif. The tokens are in [DESIGN.md](DESIGN.md).
 - **The rest of the reader:** fact check anything you just heard, the transport fast paths, a speed pill in the header, the same agent as the web app, and the same aurora around the edges — the recognizer reports the mic level, and the aurora rises with it, sweeps while the agent thinks, and pulses while it reads.
 
-The architecture is the web app's, and the voice code is now literally shared: the conversation loop (`shared/voice/agent.ts`), the hold/release barge-in, recognizer restarts and echo handling live in `shared/voice/` and run on both platforms, with `src/lib/agent.ts` and `mobile/src/agent.ts` as thin adapters. The agent drives playback through `read_aloud`, transport commands run locally off partial transcripts, and the phone declares its own library tools to the shared agent (`clientTools` on the agent request), so the server prompt stays one thing. Model keys never ship in the bundle; the app talks to this repo's deployed `/api` routes. Reader's API is behind a `Library` port (`src/ports.ts`); Readwise is the one adapter (`src/readwise.ts`).
+The architecture is the web app's, and the voice code is now literally shared: the conversation loop (`shared/voice/agent.ts`), the hold/release barge-in, recognizer restarts and echo handling live in `shared/voice/` and run on both platforms, with `src/lib/agent.ts` and `mobile/src/agent.ts` as thin adapters. The agent drives playback through `read_aloud`, transport commands run locally off partial transcripts, and the phone declares its own library tools to the shared agent (`clientTools` on the agent request), so the server prompt stays one thing. Model keys never ship in the bundle; the app talks to this repo's deployed `/api` routes. Reader's API is behind a `Library` port (`shared/library/types.ts`); Readwise is the one adapter (`shared/library/readwise.ts`), used by the phone directly and by the web through `/api/library`.
 
 The voice is a choice. The OS voice (`expo-speech`) works out of the box. In settings, download **Kokoro** (~90MB, once) to narrate on-device through `react-native-sherpa-onnx` — the same model the web app's Unreal Speech voice is built on, so both platforms read in one voice, and the phone does it offline for free.
 
@@ -240,6 +241,7 @@ Provider selection on the server:
 | `FACTCHECK_PROVIDER` | search | `perplexity` |
 | `DECIDER_PROVIDER` | decider | `typesafe` if `TYPESAFE_API_KEY` is set, else `none` |
 | `TTS_PROVIDER` | speech | `unreal` if `UNREAL_SPEECH_API_KEY` is set, else `openai` |
+| `LIBRARY_PROVIDER` | library | `readwise`, with the caller's own token |
 
 To add a text-to-speech vendor, say: write `api/_lib/adapters/<vendor>.ts` returning a
 `SpeechSynthesizer` (one request in, a streaming MP3 out, `maxChars` if the vendor caps

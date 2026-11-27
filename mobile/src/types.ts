@@ -3,10 +3,8 @@
 // about it on the phone.
 import type { Anchor } from './highlights'
 
-export interface Chapter {
-  title: string
-  paragraphs: string[]
-}
+import type { Chapter } from '../../shared/library/types'
+export type { Chapter, LibraryDoc, Location, ReaderDoc, RemoteHighlight } from '../../shared/library/types'
 
 export interface Doc {
   id: string
@@ -25,34 +23,6 @@ export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   text: string
-}
-
-export type Location = 'new' | 'later' | 'archive' | 'feed'
-
-/** A document as the library sees it: Reader's metadata, in the app's terms. */
-export interface LibraryDoc {
-  id: string
-  title: string
-  author: string | null
-  category: string | null
-  location: Location
-  sourceUrl: string | null
-  wordCount: number | null
-  summary: string | null
-  tags: string[]
-  /** 0..1 as Reader reports it; the phone keeps its own paragraph position too. */
-  readingProgress: number | null
-  publishedDate: string | null
-  updatedAt: string
-}
-
-/** A highlight as Reader stores it: a child document of category "highlight". */
-export interface RemoteHighlight {
-  id: string
-  docId: string
-  text: string
-  note: string | null
-  updatedAt: string
 }
 
 /**
@@ -108,23 +78,3 @@ export interface DocState {
   updatedAt: number
 }
 
-/** A Readwise Reader document, as /api/v3/list returns it. */
-export interface ReaderDoc {
-  id: string
-  title: string | null
-  author: string | null
-  category: string | null
-  location: string | null
-  source_url: string | null
-  word_count: number | null
-  summary: string | null
-  tags: Record<string, unknown> | string[] | null
-  reading_progress: number | null
-  published_date: string | number | null
-  parent_id: string | null
-  /** Highlights: the highlighted text. */
-  content: string | null
-  notes: string | null
-  updated_at: string
-  html_content?: string | null
-}

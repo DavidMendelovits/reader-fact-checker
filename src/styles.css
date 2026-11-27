@@ -933,3 +933,24 @@ input::placeholder { color: var(--text-tertiary); }
     animation-iteration-count: 1 !important;
   }
 }
+
+/* Readwise: one quiet row under the import card. */
+.readwise-connect {
+  display: flex;
+  gap: var(--spacer-2);
+  align-items: center;
+  margin: var(--spacer-4) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+.readwise-connect input { flex: 1; min-width: 0; padding: var(--spacer-2) var(--spacer-3); }
+.readwise-connect > span { flex: 1; min-width: 0; }
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-tertiary);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}

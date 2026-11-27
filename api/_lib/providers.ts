@@ -7,6 +7,7 @@
 //   FACTCHECK_PROVIDER  search         perplexity (default)
 //   TTS_PROVIDER        speech         unreal if UNREAL_SPEECH_API_KEY is set, else openai
 //   DECIDER_PROVIDER    decider        typesafe if TYPESAFE_API_KEY is set, else none (no fast navigation)
+//   LIBRARY_PROVIDER    library        readwise (default), with the caller's own token
 //
 // Every port but the decider also has `fake` (./adapters/fake.ts), for the
 // end-to-end test environment: `npm run dev:e2e` sets all of them (.env.e2e).
@@ -20,7 +21,9 @@ import { perplexityAdapter } from './adapters/perplexity.js'
 import { openaiSpeech } from './adapters/openai-speech.js'
 import { unrealSpeech } from './adapters/unreal-speech.js'
 import { typesafeDecider } from './adapters/typesafe.js'
-import { fakeConversation, fakeJson, fakeSearch, fakeSpeech } from './adapters/fake.js'
+import { fakeConversation, fakeJson, fakeLibrary, fakeSearch, fakeSpeech } from './adapters/fake.js'
+import { readwiseLibrary } from '../../shared/library/readwise.js'
+import type { Library } from '../../shared/library/types.js'
 
 export interface Providers {
   conversation: ConversationModel
@@ -29,7 +32,16 @@ export interface Providers {
   speech: SpeechSynthesizer
   /** Null when nothing is configured: the feature it backs is skipped, not broken. */
   decider: Decider | null
+  /**
+   * The reader's library, opened with their own token. The token comes with
+   * each request and is never stored here: the routes are open for now, and a
+   * library behind a server-held token would be anyone's to read.
+   */
+  library: (token: string | null) => Library
 }
+
+/** A library call with no token where the provider needs one. */
+export class NoLibraryToken extends Error {}
 
 const anthropic = () =>
   anthropicAdapter({
@@ -53,6 +65,13 @@ const registry = {
   decider: {
     typesafe: () => typesafeDecider({ model: process.env.TYPESAFE_MODEL ?? 'jev-latest' }),
   } as Record<string, Factory<Decider>>,
+  library: {
+    readwise: () => (token: string | null) => {
+      if (!token) throw new NoLibraryToken('No Readwise token. Add yours in the app to use your library.')
+      return readwiseLibrary(token, { maxRetryWait: 20 }) // under api/library.ts's 30s maxDuration
+    },
+    fake: () => fakeLibrary,
+  } as Record<string, Factory<(token: string | null) => Library>>,
 }
 
 const instances = new Map<string, unknown>()
@@ -99,6 +118,9 @@ export function providers(): Providers {
       if ('decider' in overrides) return overrides.decider ?? null
       const name = deciderProvider()
       return name ? pick('decider', name) : null
+    },
+    get library() {
+      return overrides.library ?? pick('library', env('LIBRARY_PROVIDER') ?? 'readwise')
     },
   }
 }

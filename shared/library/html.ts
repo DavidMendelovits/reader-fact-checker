@@ -3,7 +3,8 @@
 // cleaned, so block tags are honest. Swap for a real parser if a document ever
 // comes out mangled.
 //
-// Runs under node for the self-check, so nothing from react-native in here.
+// Platform-free: the phone and the web app both split Reader's HTML with it, so
+// a paragraph index means the same passage on both.
 import type { Chapter } from './types'
 
 const ENTITIES: Record<string, string> = {

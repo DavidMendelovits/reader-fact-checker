@@ -40,6 +40,22 @@ describe('e2e environment fakes', () => {
     assert.deepEqual(tools, ['fact_check', 'read_aloud'])
   })
 
+  it('agent: "switch to" searches, opens the first match, then reads', async () => {
+    const tools = (out: Awaited<ReturnType<typeof agentTurn>>) =>
+      out.content.filter((b) => b.type === 'tool_use').map((b) => b as { name: string; input: Record<string, unknown> })
+    const result = (text: string) => ({ role: 'user' as const, content: [{ type: 'tool_result' as const, tool_use_id: 't', content: text }] })
+
+    const [search] = tools(await agentTurn([{ role: 'user', content: 'switch to the long storm' }], context))
+    assert.deepEqual([search.name, search.input], ['search_library', { query: 'the long storm' }])
+    const [open] = tools(await agentTurn([result('[fake-storm] The Long Storm by Ada Writer (8 min left)')], context))
+    assert.deepEqual([open.name, open.input], ['open_document', { id: 'fake-storm' }])
+    const [read] = tools(await agentTurn([result('Opened "The Long Storm". Position: paragraph 4.')], context))
+    assert.deepEqual([read.name, read.input], ['read_aloud', {}])
+    // "open" inside a question is not a switch
+    const [check] = tools(await agentTurn([{ role: 'user', content: 'is it true the shop was open late?' }], context))
+    assert.equal(check.name, 'fact_check')
+  })
+
   it('fact check: streams a verdict and marks it as offline', async () => {
     const lines: { type: string; result?: { verdict: string; spokenSummary: string } }[] = []
     await factcheckNdjson('The Great Wall is visible from the Moon.', (l) => lines.push(JSON.parse(l)))
