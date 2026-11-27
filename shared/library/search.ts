@@ -72,3 +72,9 @@ export function searchHighlights<T extends { text: string; note?: string | null 
     .slice(0, limit)
     .map((x) => x.h)
 }
+
+/** One found highlight, for the model: the passage (cut at 240 characters), its document, and the note. */
+export function highlightLine(h: { text: string; note?: string | null; title: string }): string {
+  const text = h.text.length > 240 ? `${h.text.slice(0, 240)}...` : h.text
+  return `"${text}" (${h.title})${h.note ? ` note: ${h.note}` : ''}`
+}

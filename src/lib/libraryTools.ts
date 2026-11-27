@@ -9,8 +9,8 @@
 // the server adds it to the prompt for the web client by name.
 import { useStore } from '../store'
 import type { Doc } from '../types'
-import { searchDocs, searchHighlights } from '../../shared/library/search.ts'
-import { startParagraph } from '../../shared/library/start.ts'
+import { highlightLine, searchDocs, searchHighlights } from '../../shared/library/search.ts'
+import { parseStartAt, startFor } from '../../shared/library/start.ts'
 import { candidateLine, recommend, type Candidate } from '../../shared/library/recommend.ts'
 import type { LibraryDoc } from '../../shared/library/types.ts'
 import { fetchChapters, library } from './library'
@@ -86,9 +86,7 @@ export async function searchLibraryHighlights(input: Record<string, unknown>): P
   ]
   const hits = searchHighlights(all, query)
   if (hits.length === 0) return `No highlight matches "${query}".${noLibrary(lib.error)}`
-  return hits
-    .map((h) => `"${h.text.length > 240 ? `${h.text.slice(0, 240)}...` : h.text}" (${h.title})${h.note ? ` note: ${h.note}` : ''}`)
-    .join('\n')
+  return hits.map(highlightLine).join('\n')
 }
 
 export async function openDocument(input: Record<string, unknown>): Promise<string> {
@@ -113,13 +111,9 @@ export async function openDocument(input: Record<string, unknown>): Promise<stri
     return e instanceof Error ? e.message : String(e)
   }
 
-  const from = input.from === 'beginning' ? 'beginning' : 'resume'
-  const percent = typeof input.percent === 'number' ? input.percent : undefined
-  const chapter = typeof input.chapter === 'string' ? input.chapter : undefined
-  // Never read here, but read on the phone or in Reader: pick up from there.
-  const elsewhere = !item.entry && from === 'resume' && percent == null && !chapter && (item.readwise?.readingProgress ?? 0) > 0
-  const saved = open?.id === doc.id ? useStore.getState().currentParagraph : (item.entry?.currentParagraph ?? null)
-  const at = startParagraph(doc.chapters, { from, percent: elsewhere ? item.readwise!.readingProgress! * 100 : percent, chapter }, saved)
+  // never read here (no saved copy) means Reader's progress decides where to resume
+  const saved = open?.id === doc.id ? useStore.getState().currentParagraph : item.entry ? (item.entry.currentParagraph ?? 0) : null
+  const at = startFor(doc.chapters, parseStartAt(input), saved, item.readwise?.readingProgress)
   if ('error' in at) return at.error
 
   const where = `Position: paragraph ${at.paragraph}${at.chapter ? ` (chapter "${at.chapter}")` : ''}. Call read_aloud with no \`from\` to start reading there.`

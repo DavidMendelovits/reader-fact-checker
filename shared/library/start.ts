@@ -93,3 +93,22 @@ export function startParagraph(chapters: Chapter[], at: StartAt, saved: number |
   const p = at.from === 'beginning' || saved == null ? 0 : Math.min(total - 1, Math.max(0, saved))
   return { paragraph: p, chapter: chapterAt(p) }
 }
+
+/** open_document's start options off the wire: anything malformed is dropped, not refused. */
+export function parseStartAt(input: Record<string, unknown>): StartAt {
+  return {
+    from: input.from === 'beginning' ? 'beginning' : 'resume',
+    percent: typeof input.percent === 'number' && Number.isFinite(input.percent) ? input.percent : undefined,
+    chapter: typeof input.chapter === 'string' && input.chapter.trim() ? input.chapter : undefined,
+  }
+}
+
+/**
+ * Where to start a document opened by voice. With no position kept on this
+ * device, resuming picks up Reader's own progress, so a book read on the other
+ * app or in Reader carries on from there rather than from the top.
+ */
+export function startFor(chapters: Chapter[], at: StartAt, saved: number | null, readerProgress: number | null | undefined): StartResult {
+  const elsewhere = saved == null && at.from !== 'beginning' && at.percent == null && !at.chapter?.trim() && (readerProgress ?? 0) > 0
+  return startParagraph(chapters, elsewhere ? { ...at, percent: readerProgress! * 100 } : at, saved)
+}
