@@ -131,6 +131,8 @@ test('the Readwise adapter against a fake Reader', async () => {
       return json(200, [{ id: 7, title: 'A Title', modified_highlights: [123] }])
     }
     if (req.method === 'DELETE' && url.pathname.startsWith('/v2/highlights/')) {
+      if (url.pathname === '/v2/highlights/404/') return json(404, { detail: 'Not found.' })
+      if (url.pathname === '/v2/highlights/500/') return json(500, { detail: 'kaboom' })
       res.writeHead(204)
       return res.end()
     }
@@ -255,6 +257,9 @@ test('the Readwise adapter against a fake Reader', async () => {
       await lib.deleteHighlight('123')
       assert.equal(last().method, 'DELETE')
       assert.equal(last().path, '/v2/highlights/123/')
+      // one already gone is removed as far as anyone needs; a server error is still an error
+      await lib.deleteHighlight('404')
+      await assert.rejects(lib.deleteHighlight('500'), /DELETE failed \(500\)/)
     }
 
     // ---- every request carried the token ----

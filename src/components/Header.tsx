@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { pause, checkWholeDocument, cancelDocumentCheck } from '../lib/controller'
 import { tts } from '../lib/providers'
+import { saveNow } from '../lib/persist'
 import { Glyph } from './Glyph'
 
 // Four things, in one row that never wraps at 375px: back, title, speed, check.
@@ -81,6 +82,7 @@ export function Header() {
         className="header-back"
         onClick={() => {
           pause()
+          saveNow() // the last few hundred ms of changes, as switching books does
           clearDoc()
         }}
       >

@@ -35,7 +35,7 @@ describe('libraryRequest', () => {
   })
 
   test('bad input never reaches the adapter', async () => {
-    const lib: Library = { ...fakeLibrary(), fetchHtml: vi.fn(), listDocuments: vi.fn(), listHighlights: vi.fn() }
+    const lib: Library = { ...fakeLibrary(), fetchHtml: vi.fn(), listDocuments: vi.fn(), listHighlights: vi.fn(), createHighlight: vi.fn(), deleteHighlight: vi.fn() }
     override('library', () => lib)
     const bad = [
       { op: 'html', id: '../../update/x' },
@@ -43,13 +43,41 @@ describe('libraryRequest', () => {
       { op: 'list', location: 'shortlist' },
       { op: 'list', location: 'new', cursor: 'a b' },
       { op: 'highlights', updatedAfter: 'yesterday' },
-      { op: 'move', id: 'x', location: 'archive' }, // writes aren't served
+      { op: 'move', id: 'x', location: 'archive' }, // only highlight writes are served
+      { op: 'createHighlight', doc: { title: 'T' }, text: '' },
+      { op: 'createHighlight', doc: {}, text: 'x' },
+      { op: 'createHighlight', doc: { title: 'T' }, text: 'x'.repeat(8192) },
+      { op: 'createHighlight', doc: { title: 'T' }, text: 'x', location: -1 },
+      { op: 'createHighlight', doc: { title: 'T' }, text: 'x', location: 1.5 },
+      { op: 'createHighlight', doc: { title: 'T' }, text: 'x', note: 7 },
+      { op: 'deleteHighlight', remoteId: '../1' },
+      { op: 'deleteHighlight' },
       null,
     ]
     for (const body of bad) await expect(libraryRequest(body, 't')).rejects.toMatchObject({ status: 400 })
     expect(lib.fetchHtml).not.toHaveBeenCalled()
     expect(lib.listDocuments).not.toHaveBeenCalled()
     expect(lib.listHighlights).not.toHaveBeenCalled()
+    expect(lib.createHighlight).not.toHaveBeenCalled()
+    expect(lib.deleteHighlight).not.toHaveBeenCalled()
+  })
+
+  test('a highlight goes to the adapter filed under the document, with only the fields Readwise reads', async () => {
+    const lib: Library = { ...fakeLibrary(), createHighlight: vi.fn(async () => ({ remoteId: '9' })), deleteHighlight: vi.fn(async () => {}) }
+    override('library', () => lib)
+    const doc = { title: 'The Long Storm', author: null, sourceUrl: 'https://example.com/storm', category: 'article', summary: 'not sent' }
+    expect(await libraryRequest({ op: 'createHighlight', doc, text: 'a passage', note: '.c1 why', location: 30000 }, 't')).toEqual({ remoteId: '9' })
+    expect(lib.createHighlight).toHaveBeenCalledWith({
+      doc: { title: 'The Long Storm', author: null, sourceUrl: 'https://example.com/storm', category: 'article' },
+      text: 'a passage', note: '.c1 why', location: 30000,
+    })
+    await libraryRequest({ op: 'createHighlight', doc: { title: 'T' }, text: 'x', note: '' }, 't')
+    expect(lib.createHighlight).toHaveBeenLastCalledWith({ doc: { title: 'T', author: null, sourceUrl: null, category: null }, text: 'x', note: undefined, location: undefined })
+    // an optional field Readwise would refuse is left off rather than losing the highlight
+    await libraryRequest({ op: 'createHighlight', doc: { title: 'T', author: 'a'.repeat(600), sourceUrl: 'javascript:alert(1)', category: 'Books!' }, text: 'x' }, 't')
+    expect(lib.createHighlight).toHaveBeenLastCalledWith(expect.objectContaining({ doc: { title: 'T', author: null, sourceUrl: null, category: null } }))
+    expect(await libraryRequest({ op: 'deleteHighlight', remoteId: '9' }, 't')).toEqual({ ok: true })
+    expect(lib.deleteHighlight).toHaveBeenCalledWith('9')
   })
 
   test('html for a document with text, and null for one without', async () => {

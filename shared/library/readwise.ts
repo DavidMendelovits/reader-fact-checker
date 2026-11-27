@@ -147,7 +147,12 @@ export function readwiseLibrary(token: string, opts: ReadwiseOptions = {}): Libr
     },
 
     async deleteHighlight(remoteId) {
-      await call(`${readwise}/highlights/${remoteId}/`, { method: 'DELETE' })
+      try {
+        await call(`${readwise}/highlights/${remoteId}/`, { method: 'DELETE' })
+      } catch (e) {
+        // already gone (deleted in Readwise, or a retry after a lost answer): that's the goal
+        if (!(e instanceof Error && /failed \(404\)/.test(e.message))) throw e
+      }
     },
   }
 }

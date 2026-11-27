@@ -9,6 +9,7 @@ import { useStore } from '../store'
 import { exportMessages, keepConversation, markReopened, restoreMessages } from './agent'
 import { tts } from './providers'
 import type { ChatMessage, Doc, FactCheckJob, Highlight } from '../types'
+import { READWISE } from './readwiseHighlights'
 
 const KEY = 'rfc-library'
 const MAX_ENTRIES = 8
@@ -46,7 +47,7 @@ export function loadLibrary(): LibraryEntry[] {
  */
 export function dropOne(entries: LibraryEntry[]) {
   let i = entries.length - 1
-  while (i > 0 && !entries[i].id.startsWith('readwise:')) i--
+  while (i > 0 && !entries[i].id.startsWith(READWISE)) i--
   entries.splice(i > 0 ? i : entries.length - 1, 1)
 }
 
@@ -92,6 +93,19 @@ export function saveNow() {
   if (timer) clearTimeout(timer)
   timer = null
   save()
+}
+
+/**
+ * Change a saved document's highlights without opening it: a write to Readwise
+ * that lands after the reader switched books. Gone if the entry was evicted.
+ */
+export function patchSavedHighlights(id: string, change: (hs: Highlight[]) => Highlight[]): boolean {
+  const entries = loadLibrary()
+  const entry = entries.find((e) => e.id === id)
+  if (!entry) return false
+  entry.highlights = change(entry.highlights ?? [])
+  writeLibrary(entries)
+  return true
 }
 
 export function forgetEntry(id: string) {
