@@ -45,7 +45,7 @@ export class FirstAvailable implements Transcriber {
     this.choosing ??= this.preferred.available().then((ok) => (ok ? this.preferred : this.fallback))
     const t = await this.choosing
     if (!this.wanted) return // the mic went off while the server was answering
-    if (!t.supported) return this.onError("Voice input isn't available in this browser")
+    if (!t.supported) return this.onError('Mic needs Chrome — type instead') // Composer's own hint for a browser without speech input
     this.active = t
     return t.start()
   }

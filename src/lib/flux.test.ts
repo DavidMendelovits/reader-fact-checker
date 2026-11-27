@@ -15,6 +15,7 @@ class FakeSocket {
   readyState = 0
   sent: (string | ArrayBuffer)[] = []
   binaryType = ''
+  onopen: (() => void) | null = null
   onmessage: ((e: { data: unknown }) => void) | null = null
   onclose: ((e: { code: number }) => void) | null = null
   closed = false
@@ -32,6 +33,7 @@ class FakeSocket {
   }
   open() {
     this.readyState = FakeSocket.OPEN
+    this.onopen?.()
     this.onmessage?.({ data: JSON.stringify({ type: 'Connected', request_id: 'r', sequence_id: 0 }) })
   }
   drop(code = 1011) {
@@ -119,9 +121,10 @@ describe('FluxListener turns', () => {
     l.handle(turn('Update', 'for a hundred years'))
     l.handle(turn('EndOfTurn', 'for a hundred years'))
     l.handle(turn('EndOfTurn', 'at war with one another wait go back'))
+    l.handle(turn('Update', 'stop', 0.2))
     l.handle(turn('EndOfTurn', 'um', 0.2))
     l.handle(turn('EndOfTurn', 'pause', 0.95))
-    assert.deepEqual(interims, [], 'an echo is not an interim either')
+    assert.deepEqual(interims, [], 'neither an echo nor an unsure "stop" is an interim')
     assert.deepEqual(heard, ['wait go back', 'pause'])
   })
 
@@ -158,10 +161,11 @@ describe('FluxListener stream', () => {
     assert.equal(ws.url, 'wss://flux?x')
     assert.deepEqual(ws.protocols, ['bearer', 'jwt'])
 
-    l.audio(new Float32Array(3840))
+    l.audio(new Float32Array(3840)) // 80ms at 48 kHz
     assert.equal(ws.sent.length, 0, 'nothing goes out before the socket opens')
     ws.open()
-    for (let i = 0; i < 2; i++) l.audio(new Float32Array(3840)) // 80ms each at 48 kHz
+    assert.equal(ws.sent.length, 1, 'what was said while it opened goes out on open')
+    l.audio(new Float32Array(3840))
     assert.deepEqual(ws.sent.map((f) => (f as ArrayBuffer).byteLength), [2560, 2560])
     l.setUserMuted(true)
     l.audio(new Float32Array(3840))
@@ -170,6 +174,32 @@ describe('FluxListener stream', () => {
     l.stop()
     assert.equal(ws.sent.at(-1), '{"type":"CloseStream"}')
     assert.ok(ws.closed)
+  })
+
+  it('keeps about a second while the stream reopens, not the whole wait', async () => {
+    const l = listener()
+    await l.start()
+    await tick()
+    for (let i = 0; i < 20; i++) l.audio(new Float32Array(3840))
+    const ws = FakeSocket.all[0]
+    ws.open()
+    assert.equal(ws.sent.length, 12)
+    l.stop()
+  })
+
+  it('never leaves a second socket open behind the one it uses', async () => {
+    const l = listener()
+    await l.start()
+    await tick()
+    l.setUserMuted(true)
+    FakeSocket.all[0].open()
+    l.setUserMuted(false)
+    ;(l as any).connect() // a second connect, as when unmuting lands during the mic prompt
+    await tick()
+    assert.equal(FakeSocket.all.length, 2)
+    assert.ok(FakeSocket.all[0].closed, 'the first is closed')
+    assert.equal(FakeSocket.all[0].sent.at(-1), '{"type":"CloseStream"}')
+    l.stop()
   })
 
   it('says unavailable on a 501, and on a server that fails', async () => {

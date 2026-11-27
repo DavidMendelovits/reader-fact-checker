@@ -35,12 +35,16 @@ export interface FluxMessage {
   words?: { confidence?: number }[]
 }
 
+const topConfidence = (words: { confidence?: number }[] = []) => words.reduce((m, w) => Math.max(m, w.confidence ?? 0), 0)
+
 const SAMPLE_RATE = 16_000 // what /api/listen's URL asks Flux for
 const FRAME_SAMPLES = 1280 // 80ms at 16 kHz, Flux's recommended chunk
 const LEVEL_INTERVAL_MS = 80
 const RETRY_MS = 500
 const MAX_BACKOFF_MS = 8000
 const MAX_FAILURES = 4
+/** Audio kept while the stream is (re)opening, so "pause" said on unmute isn't lost: about a second. */
+const MAX_HELD_FRAMES = 12
 /** A stream that ran this long was healthy; its close starts the failure count over. */
 const HEALTHY_MS = 10_000
 
@@ -86,6 +90,7 @@ export class FluxListener implements Transcriber {
   private resampler = new Resampler(48_000, SAMPLE_RATE)
   private framer = new Framer(FRAME_SAMPLES)
   private spare: { grant: ListenGrant; at: number } | null = null
+  private held: ArrayBuffer[] = []
 
   private barge = new BargeInGate({
     floor: SPEECH_FLOOR,
@@ -154,6 +159,7 @@ export class FluxListener implements Transcriber {
     if (this.retry !== null) clearTimeout(this.retry)
     this.retry = null
     this.endTurn() // a hold outliving the mic releases rather than stranding the book
+    this.held = []
     this.disconnect()
     this.closePipe()
   }
@@ -164,7 +170,11 @@ export class FluxListener implements Transcriber {
    */
   setUserMuted(muted: boolean) {
     this.userMuted = muted
-    if (muted) this.endTurn()
+    if (muted) {
+      this.held = []
+      this.framer.reset()
+      this.endTurn()
+    }
     else if (this.running && !this.ws && this.retry === null) void this.connect()
   }
 
@@ -185,7 +195,8 @@ export class FluxListener implements Transcriber {
     const text = (msg.transcript ?? '').trim()
     const recent = this.getRecentSpokenText()
     if (msg.event === 'EndOfTurn') return this.final(text, msg.words ?? [], recent)
-    if (!text || isEcho(text, recent)) return
+    // A partial sure of nothing could be the TV saying "stop": voice.ts drops those too.
+    if (!text || !confident(topConfidence(msg.words)) || isEcho(text, recent)) return
     // Same order as voice.ts: the words make the hold the caller's, the fallback
     // start comes before the interim, and the interim goes out every time.
     this.barge.words()
@@ -198,13 +209,18 @@ export class FluxListener implements Transcriber {
 
   /** Float samples from the capture; public so the check can feed audio without WebAudio. */
   audio(samples: Float32Array) {
+    if (!this.running || this.userMuted) return
     const ws = this.ws
-    if (!ws || ws.readyState !== WebSocket.OPEN || this.userMuted) return
-    this.framer.push(toInt16(this.resampler.push(samples)), (frame) => ws.send(frame))
+    const open = ws?.readyState === WebSocket.OPEN
+    this.framer.push(toInt16(this.resampler.push(samples)), (frame) => {
+      if (open) return ws!.send(frame)
+      this.held.push(frame)
+      if (this.held.length > MAX_HELD_FRAMES) this.held.shift()
+    })
   }
 
   private final(text: string, words: { confidence?: number }[], recent: string) {
-    const conf = words.reduce((m, w) => Math.max(m, w.confidence ?? 0), 0)
+    const conf = topConfidence(words)
     // A single low-confidence word is room noise the model guessed at; a final
     // that is part narration keeps its user half (echo.ts).
     const kept = !text || (countWords(text) <= 1 && !confident(conf)) ? '' : isEcho(text, recent) ? stripEcho(text, recent) : text
@@ -263,10 +279,16 @@ export class FluxListener implements Transcriber {
     }
     if (gen !== this.gen || !this.running) return
     if (!grant) return this.failed(gen, new Error('speech input is no longer configured'))
+    this.disconnect() // a connection opened meanwhile (unmuting during the mic prompt) would be left open
     const ws = new WebSocket(grant.url, grant.protocols)
     ws.binaryType = 'arraybuffer'
     this.ws = ws
-    this.framer.reset()
+    ws.onopen = () => {
+      if (this.ws !== ws) return
+      this.openedAt = Date.now()
+      for (const frame of this.held) ws.send(frame)
+      this.held = []
+    }
     ws.onmessage = (e) => {
       if (this.ws !== ws || typeof e.data !== 'string') return
       let msg: FluxMessage
@@ -275,7 +297,6 @@ export class FluxListener implements Transcriber {
       } catch {
         return
       }
-      if (msg.type === 'Connected') this.openedAt = Date.now()
       this.handle(msg)
     }
     ws.onclose = (e) => {
