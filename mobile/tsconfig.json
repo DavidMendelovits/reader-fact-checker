@@ -7,5 +7,7 @@
   },
   // expo/tsconfig.base has no include, so naming ../shared means naming the app's
   // own files as well. No path aliases: shared/ is reached by relative import.
-  "include": ["**/*.ts", "**/*.tsx", "../shared/**/*.ts"]
+  "include": ["**/*.ts", "**/*.tsx", "../shared/**/*.ts"],
+  // shared/'s tests run on Vitest from the repo root, which this app doesn't install
+  "exclude": ["node_modules", "../shared/**/*.test.ts"]
 }

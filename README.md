@@ -105,6 +105,23 @@ Optionally, `TYPESAFE_API_KEY` turns on the decision model for navigation (see "
 
 Restart `npm run dev` after editing `.env.local`.
 
+### Tests
+
+```bash
+npm run check   # typecheck, then every test once
+npm test        # watch mode
+```
+
+Tests run on [Vitest](https://vitest.dev). Every vendor is mocked at its port (`api/_lib/ports.ts`, swapped with `override()` in `api/_lib/providers.ts`) or with `vi.fn`, so the suite needs no keys and runs in a few seconds. A setup file (`test/no-network.ts`) fails any socket that leaves the machine, so a test that forgets a mock fails instead of calling a vendor. The phone app's checks run with `npm run check` in `mobile/`.
+
+### End-to-end test environment
+
+```bash
+npm run dev:e2e
+```
+
+Runs the app with every server port on a fake (`api/_lib/adapters/fake.ts`, chosen by `.env.e2e`): a rule-based agent, a fact check that answers after 4 seconds (`FAKE_SEARCH_MS`), and a silent voice that takes as long as the text would to say. It exists for browser and device tests, not as a product mode. Providers are always picked by environment variables on the server, never by a user setting, so a single port can be faked too, for example `FACTCHECK_PROVIDER=fake npm run dev`.
+
 Fact checks run on Perplexity rather than an agentic search-then-read loop because search *is* the product there — retrieval happens inside one inference pass, which is most of why a verdict lands in seconds instead of tens of seconds.
 
 ## Demo script

@@ -1,0 +1,50 @@
+name: check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# a new push to the same branch cancels the run it makes stale
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # cheapest first, so a type error fails in seconds
+      - run: npx tsc --noEmit -p .
+      - run: npx vitest run
+      # the smoke check: the app still bundles (tsc already ran above, so not npm run build)
+      - run: npx vite build
+
+  mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Expo's tree takes ~20s to install; restore it whole while the lockfile is unchanged
+      - id: modules
+        uses: actions/cache@v4
+        with:
+          path: mobile/node_modules
+          key: mobile-modules-${{ runner.os }}-node22-${{ hashFiles('mobile/package-lock.json') }}
+      - if: steps.modules.outputs.cache-hit != 'true'
+        run: npm ci
+      - run: npx tsc --noEmit -p .
+      - run: node ../scripts/test.mjs src

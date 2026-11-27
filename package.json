@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "check": "node --experimental-strip-types shared/voice/echo.check.ts && node --experimental-strip-types shared/voice/holdGate.check.ts && node --experimental-strip-types shared/voice/bargeIn.check.ts && node --experimental-strip-types shared/voice/restartPolicy.check.ts && node --experimental-strip-types shared/voice/line.check.ts && node --experimental-strip-types shared/voice/glyphs.check.ts && node --experimental-strip-types shared/voice/agent.check.ts && node --experimental-strip-types shared/voice/aurora.check.ts && node --experimental-strip-types src/lib/maplimit.check.ts && node --experimental-strip-types src/lib/sentences.check.ts && node --experimental-strip-types src/lib/tts.check.ts && node --experimental-strip-types src/lib/voice.check.ts && node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/tts.check.ts && node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/navigate.check.ts && node --experimental-strip-types --import ./scripts/resolve-ts.mjs api/_impl.check.ts && node --experimental-strip-types shared/voice/agent.errors.check.ts && node --experimental-strip-types src/store.check.ts && npx tsc --noEmit -p .",
+    "check": "tsc --noEmit -p . && vitest run",
+    "test": "vitest",
+    "dev:e2e": "vite --mode e2e",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -25,6 +27,7 @@
     "@vercel/node": "^5.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.6.3",
-    "vite": "^6.0.3"
+    "vite": "^6.0.3",
+    "vitest": "^5.1.2"
   }
 }
