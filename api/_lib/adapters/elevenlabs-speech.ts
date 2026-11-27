@@ -5,8 +5,6 @@ import type { AudioStream, SpeechSynthesizer } from '../ports.js'
 
 export interface ElevenLabsSpeechOptions {
   apiKey?: string
-  /** Overridable so the self-check can stand in a fake vendor. */
-  baseUrl?: string
   voiceId: string
   model: string
 }
@@ -24,8 +22,7 @@ export function elevenlabsSpeech(opts: ElevenLabsSpeechOptions): SpeechSynthesiz
       const apiKey = opts.apiKey ?? process.env.ELEVENLABS_API_KEY
       if (!apiKey) throw new Error('ELEVENLABS_API_KEY is not set on the server')
       if (!opts.voiceId) throw new Error('ELEVENLABS_VOICE_ID is not set on the server')
-      const base = opts.baseUrl ?? process.env.ELEVENLABS_BASE_URL ?? 'https://api.elevenlabs.io'
-      const res = await fetch(`${base}/v1/text-to-speech/${encodeURIComponent(opts.voiceId)}/stream?output_format=mp3_44100_128`, {
+      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(opts.voiceId)}/stream?output_format=mp3_44100_128`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'xi-api-key': apiKey },
         body: JSON.stringify({ text, model_id: opts.model }),

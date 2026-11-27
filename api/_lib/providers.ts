@@ -94,9 +94,8 @@ function pick<K extends keyof typeof registry>(port: K, name: string): ReturnTyp
 const env = (name: string) => process.env[name]?.trim().toLowerCase() || undefined
 
 function speechProvider(): string {
-  if (env('TTS_PROVIDER')) return env('TTS_PROVIDER')!
-  if (process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_VOICE_ID) return 'elevenlabs'
-  return process.env.UNREAL_SPEECH_API_KEY ? 'unreal' : 'openai'
+  const eleven = process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_VOICE_ID
+  return env('TTS_PROVIDER') ?? (eleven ? 'elevenlabs' : process.env.UNREAL_SPEECH_API_KEY ? 'unreal' : 'openai')
 }
 
 function deciderProvider(): string | null {

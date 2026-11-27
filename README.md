@@ -159,7 +159,8 @@ npx vercel env add PERPLEXITY_API_KEY
 npx vercel env add OPENAI_API_KEY
 npx vercel env add TYPESAFE_API_KEY        # optional, see Setup
 npx vercel env add UNREAL_SPEECH_API_KEY   # optional, see Setup
-npx vercel env add ELEVENLABS_API_KEY      # optional, with ELEVENLABS_VOICE_ID
+npx vercel env add ELEVENLABS_API_KEY      # optional; needs the voice id too
+npx vercel env add ELEVENLABS_VOICE_ID
 npx vercel env add APP_TOKEN               # recommended: the access code every /api route asks for
 npx vercel --prod
 ```

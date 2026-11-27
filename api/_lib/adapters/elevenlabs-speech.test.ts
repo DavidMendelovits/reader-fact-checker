@@ -1,14 +1,9 @@
 // The ElevenLabs adapter: what it sends the vendor, and when providers() picks it.
 // A stubbed fetch stands in for the vendor; no request leaves the process.
 import assert from 'node:assert/strict'
-import { afterEach, describe, it, vi } from 'vitest'
+import { describe, it, vi } from 'vitest'
 import { elevenlabsSpeech } from './elevenlabs-speech.ts'
 import { providers } from '../providers.ts'
-
-afterEach(() => {
-  vi.unstubAllEnvs()
-  vi.unstubAllGlobals()
-})
 
 describe('elevenlabsSpeech', () => {
   it('streams MP3 from the voice\'s stream endpoint with the key, text and model', async () => {
