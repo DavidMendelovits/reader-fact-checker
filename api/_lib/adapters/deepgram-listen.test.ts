@@ -39,7 +39,7 @@ describe('deepgramListen', () => {
     const g = await r.grant()
     assert.deepEqual(auth, ['Token k1'])
     assert.match(g.url, /model=flux-general-multi/)
-    assert.equal(g.expiresIn, 30, 'Deepgram\'s default when it says nothing')
+    assert.equal(g.expiresIn, 60, 'what was asked for, when Deepgram says nothing')
   })
 
   it('says the key is missing, and passes on what Deepgram said', async () => {

@@ -44,9 +44,16 @@ class FakeSocket {
 
 const node = () => ({ connect: (n: unknown) => n, disconnect() {}, gain: { value: 1 } })
 class FakeWorkletNode {
+  static all: FakeWorkletNode[] = []
   port = { onmessage: null as unknown }
   connect = (n: unknown) => n
-  disconnect() {}
+  disconnected = false
+  constructor() {
+    FakeWorkletNode.all.push(this)
+  }
+  disconnect() {
+    this.disconnected = true
+  }
 }
 const g = globalThis as any
 g.window = { WebSocket: FakeSocket, AudioWorkletNode: FakeWorkletNode }
@@ -202,9 +209,53 @@ describe('FluxListener stream', () => {
     l.stop()
   })
 
-  it('says unavailable on a 501, and on a server that fails', async () => {
+  it('says no on a 501, and "can\'t tell" on a server that fails', async () => {
     assert.equal(await listener(async () => null).available(), false)
-    assert.equal(await listener(async () => Promise.reject(new Error('500'))).available(), false)
+    assert.equal(await listener(async () => Promise.reject(new Error('500'))).available(), null)
+  })
+
+  it('a capture that opens after the mic went off and on again is closed, not fed in', async () => {
+    FakeWorkletNode.all = []
+    const l = listener()
+    const first = l.start()
+    l.stop()
+    const second = l.start()
+    await Promise.all([first, second])
+    await tick()
+    const fed = FakeWorkletNode.all.filter((n) => n.port.onmessage)
+    assert.equal(FakeWorkletNode.all.length, 2)
+    assert.equal(fed.length, 1, 'only the live session hears the mic')
+    assert.ok(FakeWorkletNode.all.find((n) => !n.port.onmessage)?.disconnected, 'the stale one is disconnected')
+    assert.equal(FakeSocket.all.length, 1)
+    l.stop()
+  })
+
+  it('does not retry while muted, and reconnects on unmute', async () => {
+    let fail = true
+    let asked = 0
+    const l = listener(async () => {
+      asked++
+      if (fail) throw new Error('offline')
+      return { url: 'wss://flux', protocols: ['bearer', 't'], expiresIn: 60 }
+    })
+    const errors: string[] = []
+    l.onError = (m) => errors.push(m)
+    l.setUserMuted(true)
+    await l.start()
+    await delay(1200)
+    assert.equal(asked, 0, 'muted from the start, nothing is asked')
+    l.setUserMuted(false)
+    await tick()
+    assert.equal(asked, 1)
+    l.setUserMuted(true)
+    await delay(1200)
+    assert.equal(asked, 1, 'the retry waits for unmute')
+    fail = false
+    l.setUserMuted(false)
+    await tick()
+    assert.equal(FakeSocket.all.length, 1)
+    assert.deepEqual(errors, [])
+    l.stop()
   })
 
   it('reconnects a dropped stream with a fresh grant, and gives up after a few', async () => {

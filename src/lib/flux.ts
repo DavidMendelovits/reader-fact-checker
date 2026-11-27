@@ -64,6 +64,15 @@ const TAP = `class Tap extends AudioWorkletProcessor {
 }
 registerProcessor('pcm-tap', Tap)`
 
+type Pipe = { src: AudioNode; tap: AudioWorkletNode; sink: AudioNode }
+
+function closePipe(pipe: Pipe) {
+  pipe.tap.port.onmessage = null
+  pipe.src.disconnect()
+  pipe.tap.disconnect()
+  pipe.sink.disconnect()
+}
+
 let tapLoaded: Promise<void> | null = null
 function loadTap(ctx: AudioContext): Promise<void> {
   tapLoaded ??= ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([TAP], { type: 'application/javascript' }))).catch((e) => {
@@ -86,7 +95,8 @@ export class FluxListener implements Transcriber {
   private retry: ReturnType<typeof setTimeout> | null = null
   private meter: ReturnType<typeof setInterval> | null = null
   private bars = new Float32Array(8)
-  private pipe: { src: AudioNode; tap: AudioWorkletNode; sink: AudioNode } | null = null
+  private pipe: Pipe | null = null
+  private session = 0 // one per start(), so a capture that opens late knows it is stale
   private resampler = new Resampler(48_000, SAMPLE_RATE)
   private framer = new Framer(FRAME_SAMPLES)
   private spare: { grant: ListenGrant; at: number } | null = null
@@ -119,18 +129,19 @@ export class FluxListener implements Transcriber {
   }
 
   /**
-   * Whether the server hands out grants, asked once when the mic first goes on.
-   * The grant that answers it is kept for the connection that follows.
+   * Whether the server hands out grants: true, false (no vendor configured), or
+   * null when it couldn't say (a network blip, a 5xx, the rate limit). The grant
+   * that answers it is kept for the connection that follows.
    */
-  async available(): Promise<boolean> {
+  async available(): Promise<boolean | null> {
     if (!this.supported) return false
     try {
       const grant = await this.grants()
       if (grant) this.spare = { grant, at: Date.now() }
       return grant !== null
     } catch (e) {
-      console.warn('streaming speech input unavailable; using the browser recognizer', e)
-      return false
+      console.warn('streaming speech input unreachable for now', e)
+      return null
     }
   }
 
@@ -138,21 +149,29 @@ export class FluxListener implements Transcriber {
     if (this.running || !this.supported) return
     this.running = true
     this.failures = 0
+    const session = ++this.session
     this.meter ??= setInterval(() => this.level(readLevels('mic', this.bars)), LEVEL_INTERVAL_MS)
+    let pipe: Pipe
     try {
-      await this.openPipe()
+      pipe = await this.openPipe()
     } catch (e) {
+      if (session !== this.session) return // a later start owns the listener now
       const denied = (e as { name?: string })?.name === 'NotAllowedError'
       this.stop()
       this.onError(denied ? 'Microphone access denied' : 'Microphone unavailable')
       return
     }
-    if (!this.running) return this.closePipe() // stop() landed while the capture was opening
+    // stop(), or stop() and a fresh start(), landed while the capture was opening:
+    // this pipe belongs to a session that is over.
+    if (session !== this.session || !this.running) return closePipe(pipe)
+    this.pipe = pipe
+    pipe.tap.port.onmessage = (e) => this.audio(e.data as Float32Array)
     void this.connect()
   }
 
   stop() {
     this.running = false
+    this.session++
     this.gen++
     if (this.meter !== null) clearInterval(this.meter)
     this.meter = null
@@ -160,8 +179,10 @@ export class FluxListener implements Transcriber {
     this.retry = null
     this.endTurn() // a hold outliving the mic releases rather than stranding the book
     this.held = []
+    this.framer.reset()
     this.disconnect()
-    this.closePipe()
+    if (this.pipe) closePipe(this.pipe)
+    this.pipe = null
   }
 
   /**
@@ -239,7 +260,7 @@ export class FluxListener implements Transcriber {
     if (wasTalking && !wasHeld) this.onFalseStart() // a hold the word path took has no other releaser
   }
 
-  private async openPipe() {
+  private async openPipe(): Promise<Pipe> {
     const ctx = audioContext()
     await ctx.resume()
     const stream = await getMicStream()
@@ -249,18 +270,8 @@ export class FluxListener implements Transcriber {
     const sink = ctx.createGain()
     sink.gain.value = 0 // the tap only runs while connected to the output; this keeps it silent
     src.connect(tap).connect(sink).connect(ctx.destination)
-    tap.port.onmessage = (e) => this.audio(e.data as Float32Array)
     this.resampler = new Resampler(ctx.sampleRate, SAMPLE_RATE)
-    this.pipe = { src, tap, sink }
-  }
-
-  private closePipe() {
-    if (!this.pipe) return
-    this.pipe.tap.port.onmessage = null
-    this.pipe.src.disconnect()
-    this.pipe.tap.disconnect()
-    this.pipe.sink.disconnect()
-    this.pipe = null
+    return { src, tap, sink }
   }
 
   private takeSpare(): ListenGrant | null {
@@ -270,6 +281,7 @@ export class FluxListener implements Transcriber {
   }
 
   private async connect() {
+    if (this.userMuted) return // unmuting reconnects
     const gen = ++this.gen
     let grant: ListenGrant | null
     try {
@@ -311,7 +323,7 @@ export class FluxListener implements Transcriber {
   }
 
   private failed(gen: number, e: unknown) {
-    if (gen !== this.gen || !this.running) return
+    if (gen !== this.gen || !this.running || this.userMuted) return // muted: unmuting reconnects
     this.failures++
     console.warn('speech input stream dropped', e)
     if (this.failures >= MAX_FAILURES) {

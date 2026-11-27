@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'vitest'
 import { FirstAvailable, type Preferred } from './firstAvailable.ts'
 
-function ear(name: string, opts: { available?: () => Promise<boolean>; supported?: boolean } = {}) {
+function ear(name: string, opts: { available?: () => Promise<boolean | null>; supported?: boolean } = {}) {
   const log: string[] = []
   const t = {
     supported: opts.supported ?? true,
@@ -65,11 +65,34 @@ describe('FirstAvailable', () => {
     assert.deepEqual(flux.log, [])
   })
 
-  it('says so when the browser can do neither', async () => {
+  it('says so when the browser can do neither, and stops offering the mic', async () => {
     const v = new FirstAvailable(ear('flux', { available: async () => false }) as Preferred, ear('chrome', { supported: false }))
     const errors: string[] = []
     v.onError = (m) => errors.push(m)
+    assert.equal(v.supported, true, 'before the first tap it might work')
     await v.start()
-    assert.equal(errors.length, 1)
+    assert.deepEqual(errors, ['Mic needs Chrome — type instead'])
+    assert.equal(v.supported, false, 'now the Composer shows its hint')
+  })
+
+  it('asks again on the next tap when the server could not answer', async () => {
+    const answers: (boolean | null)[] = [null, true]
+    const flux = ear('flux', { available: async () => answers.shift()! })
+    const chrome = ear('chrome')
+    const v = new FirstAvailable(flux as Preferred, chrome)
+    await v.start()
+    assert.deepEqual(chrome.log, ['chrome start'], 'Chrome covers the tap the server missed')
+    v.stop()
+    await v.start()
+    assert.deepEqual(flux.log, ['flux start'], 'and the next tap gets the vendor')
+  })
+
+  it('with nothing to fall back on, a server that could not answer says try again', async () => {
+    const v = new FirstAvailable(ear('flux', { available: async () => null }) as Preferred, ear('chrome', { supported: false }))
+    const errors: string[] = []
+    v.onError = (m) => errors.push(m)
+    await v.start()
+    assert.match(errors[0], /try again/)
+    assert.equal(v.supported, true, 'still worth offering the mic')
   })
 })
