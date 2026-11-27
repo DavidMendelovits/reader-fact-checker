@@ -1,50 +1,12 @@
-// Self-check for the player's hold/release and its start watchdog. Run it with:
-//
-//   node --experimental-strip-types src/tts.check.ts
-//
+// Tests for the player's hold/release and its start watchdog.
 // The barge-in lives in three places — HoldGate decides, the listener fires, the
 // player parks — and only the parking is here. What it has to get right: a held
 // range is still a live range (read_aloud keeps waiting), a release re-speaks the
 // paragraph from its start, a pause during a hold is the real interruption, and
 // an engine that swallows an utterance is retried once and then reported.
 import assert from 'node:assert/strict'
-import { registerHooks } from 'node:module'
-
-// tts.ts imports expo-speech at module top. The Player never touches it (it runs
-// on whatever engine setEngine() was given); SystemVoice does, and its stop
-// ordering is checked below through this stub.
-const SPEECH =
-  'data:text/javascript,' +
-  encodeURIComponent(`
-const calls = []
-let resolveStop = null
-globalThis.__speech = {
-  calls,
-  finishStop() {
-    const r = resolveStop
-    resolveStop = null
-    if (r) r()
-  },
-}
-export function speak(text, opts) {
-  calls.push('speak:' + text)
-  globalThis.__speech.opts = opts
-}
-export function stop() {
-  calls.push('stop')
-  return new Promise((r) => {
-    resolveStop = r
-  })
-}
-`)
-registerHooks({
-  resolve(spec, ctx, next) {
-    if (spec === 'expo-speech') return { url: SPEECH, shortCircuit: true }
-    return next(spec, ctx)
-  },
-})
-
-const { Player, SystemVoice, START_TIMEOUT_MS } = await import('./tts.ts')
+import { onTestFinished, test } from 'vitest'
+import { Player, SystemVoice, START_TIMEOUT_MS } from './tts.ts'
 
 /** hold()'s stop timeout, as tts.ts sets it. */
 const STOP_TIMEOUT_MS = 300
@@ -97,13 +59,13 @@ class FakeVoice implements VoiceEngine {
 
 function player(engine: VoiceEngine, paragraphs: string[]) {
   const p = new Player()
+  onTestFinished(() => p.pause()) // a failed test leaves no watchdog running
   p.setEngine(engine)
   p.setParagraphs(paragraphs)
   return p
 }
 
-// --- hold → release re-speaks the same paragraph -----------------------------
-{
+test('hold → release re-speaks the same paragraph', async () => {
   const engine = new FakeVoice()
   const p = player(engine, ['one', 'two'])
   const playing: boolean[] = []
@@ -130,10 +92,9 @@ function player(engine: VoiceEngine, paragraphs: string[]) {
   assert.deepEqual(engine.spoken, ['one', 'one', 'two'])
   engine.finish()
   assert.equal(await range, 'completed', 'the range survived the hold')
-}
+})
 
-// --- pause during a hold is the real interruption; release then does nothing --
-{
+test('pause during a hold is the real interruption; release then does nothing', async () => {
   const engine = new FakeVoice()
   const p = player(engine, ['a', 'b'])
   const range = p.playFrom(0)
@@ -148,10 +109,9 @@ function player(engine: VoiceEngine, paragraphs: string[]) {
   await tick()
   assert.equal(p.held, false)
   assert.deepEqual(engine.spoken, ['a'], 'release after pause resumes nothing')
-}
+})
 
-// --- an engine that never reports a stop still parks, within the timeout ------
-{
+test('an engine that never reports a stop still parks, within the timeout', async () => {
   const engine = new FakeVoice({ answersStop: false })
   const p = player(engine, ['a', 'b'])
   const range = p.playFrom(0)
@@ -170,10 +130,9 @@ function player(engine: VoiceEngine, paragraphs: string[]) {
   assert.deepEqual(engine.spoken, ['a', 'a'])
   p.pause()
   assert.equal(await range, 'stopped')
-}
+})
 
-// --- SystemVoice: an utterance waits for the stop it follows ------------------
-{
+test('SystemVoice: an utterance waits for the stop it follows', async () => {
   speech.calls.length = 0
   const voice = new SystemVoice()
   void voice.speak('one', 1)
@@ -188,10 +147,9 @@ function player(engine: VoiceEngine, paragraphs: string[]) {
   speech.finishStop()
   await tick()
   assert.deepEqual(speech.calls, ['speak:one', 'stop', 'speak:two'])
-}
+})
 
-// --- an utterance that never starts is retried once, then the range fails -----
-{
+test('an utterance that never starts is retried once, then the range fails', async () => {
   const engine = new FakeVoice({ starts: false, answersStop: false })
   const p = player(engine, ['a', 'b'])
   const started = Date.now()
@@ -214,10 +172,9 @@ function player(engine: VoiceEngine, paragraphs: string[]) {
   await tick()
   good.finish()
   assert.equal(await range, 'completed')
-}
+})
 
-// --- an attempt that settles late leaves the next utterance its stop guard ----
-{
+test('an attempt that settles late leaves the next utterance its stop guard', async () => {
   const engine = new FakeVoice({ answersStop: false })
   const p = player(engine, ['a', 'b'])
   const first = p.playFrom(0)
@@ -238,6 +195,5 @@ function player(engine: VoiceEngine, paragraphs: string[]) {
 
   p.pause()
   assert.equal(await range, 'stopped')
-}
+})
 
-console.log('tts.check: ok')

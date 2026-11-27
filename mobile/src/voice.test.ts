@@ -1,65 +1,13 @@
-// Self-check for the phone listener's wiring. Run it with:
-//
-//   node --experimental-strip-types src/voice.check.ts
-//
-// The decisions themselves are checked next to the policies (bargeIn.check.ts,
-// restartPolicy.check.ts, echo.check.ts). What is checked here is that this file
+// Tests for the phone listener's wiring.
+// The decisions themselves are checked next to the policies (shared/voice's
+// bargeIn, restartPolicy and echo tests). What is checked here is that this file
 // hands them the right things: levels only count while narration plays, a hold
 // released by the recognizer ending reports a false start, a final that is half
 // narration keeps its other half, and a recognizer dying on arrival three times
 // turns the mic off instead of respawning forever.
 import assert from 'node:assert/strict'
-import { registerHooks } from 'node:module'
-
-const REC =
-  'data:text/javascript,' +
-  encodeURIComponent(`
-const handlers = {}
-const calls = []
-globalThis.__rec = {
-  calls,
-  granted: true,
-  emit(name, ev) {
-    for (const h of handlers[name] || []) h(ev)
-  },
-  reset() {
-    for (const k of Object.keys(handlers)) delete handlers[k]
-    calls.length = 0
-    globalThis.__rec.granted = true
-  },
-  handler(name, i) {
-    return (handlers[name] || [])[i]
-  },
-}
-export const ExpoSpeechRecognitionModule = {
-  addListener(name, fn) {
-    handlers[name] = handlers[name] || []
-    handlers[name].push(fn)
-    return {
-      remove() {
-        handlers[name] = (handlers[name] || []).filter((h) => h !== fn)
-      },
-    }
-  },
-  start() {
-    calls.push('start')
-  },
-  stop() {
-    calls.push('stop')
-  },
-  async requestPermissionsAsync() {
-    return { granted: globalThis.__rec.granted }
-  },
-}
-`)
-registerHooks({
-  resolve(spec, ctx, next) {
-    if (spec === 'expo-speech-recognition') return { url: REC, shortCircuit: true }
-    return next(spec, ctx)
-  },
-})
-
-const { VoiceListener } = await import('./voice.ts')
+import { onTestFinished, test } from 'vitest'
+import { VoiceListener } from './voice.ts'
 
 type Rec = {
   calls: string[]
@@ -79,6 +27,7 @@ const tick = async () => {
 async function listener() {
   rec.reset()
   const l = new VoiceListener()
+  onTestFinished(() => l.stop()) // a failed test leaves no restart timer for the next one
   await l.start()
   await tick()
   assert.deepEqual(rec.calls, ['start'])
@@ -89,8 +38,7 @@ async function listener() {
 const LOUD = 4
 const QUIET = 0
 
-// --- the level gate holds only while narration is playing --------------------
-{
+test('the level gate holds only while narration is playing', async () => {
   const l = await listener()
   let starts = 0
   let falseStarts = 0
@@ -113,10 +61,9 @@ const QUIET = 0
   rec.emit('end')
   assert.equal(falseStarts, 1)
   l.stop()
-}
+})
 
-// --- a final that is half narration keeps the other half ----------------------
-{
+test('a final that is half narration keeps the other half', async () => {
   const l = await listener()
   const heard: string[] = []
   l.onUtterance = (t) => heard.push(t)
@@ -131,10 +78,9 @@ const QUIET = 0
   rec.emit('result', { results: [{ transcript: 'open the next chapter' }], isFinal: true })
   assert.deepEqual(heard, ['wait go back', 'open the next chapter'])
   l.stop()
-}
+})
 
-// --- the three-word interim stays as a fallback, and `talking` resets ---------
-{
+test('the three-word interim stays as a fallback, and `talking` resets', async () => {
   const l = await listener()
   let starts = 0
   const interim: string[] = []
@@ -154,10 +100,9 @@ const QUIET = 0
   rec.emit('result', { results: [{ transcript: 'wait go back' }], isFinal: false })
   assert.equal(starts, 2)
   l.stop()
-}
+})
 
-// --- a recognizer that dies on arrival three times turns the mic off ----------
-{
+test('a recognizer that dies on arrival three times turns the mic off', async () => {
   const l = await listener()
   const errors: string[] = []
   l.onError = (m) => errors.push(m)
@@ -175,10 +120,9 @@ const QUIET = 0
     'the pending restart was cancelled with the session',
   )
   l.stop()
-}
+})
 
-// --- a denied permission stops rather than spinning --------------------------
-{
+test('a denied permission stops rather than spinning', async () => {
   rec.reset()
   rec.granted = false
   const l = new VoiceListener()
@@ -189,10 +133,9 @@ const QUIET = 0
   assert.deepEqual(errors, ['Microphone access denied'])
   assert.equal(rec.calls.includes('start'), false)
   l.stop()
-}
+})
 
-// --- a hold taken by the word path is released when the recognizer ends -------
-{
+test('a hold taken by the word path is released when the recognizer ends', async () => {
   const l = await listener()
   let starts = 0
   let falseStarts = 0
@@ -206,10 +149,9 @@ const QUIET = 0
   rec.emit('end')
   assert.equal(falseStarts, 1, 'a hold the gate never took is still released when the ear dies')
   l.stop()
-}
+})
 
-// --- an end from a session that has been replaced does not spawn --------------
-{
+test('an end from a session that has been replaced does not spawn', async () => {
   const l = await listener()
   const starts = () => rec.calls.filter((c) => c === 'start').length
   const stale = rec.handler('end', 0) // this session's end handler
@@ -222,6 +164,5 @@ const QUIET = 0
   await delay(400)
   assert.equal(starts(), 2, 'a stale end does not start a second recognizer under the live one')
   l.stop()
-}
+})
 
-console.log('voice.check: ok')

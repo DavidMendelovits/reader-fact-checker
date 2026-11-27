@@ -52,7 +52,7 @@
 
 ## Tests
 
-### Extend `highlights.check.ts` and add a memo-props regression check
+### Extend `highlights.test.ts` and add a memo-props regression check
 
 **What:** Assert `NO_MARKS` identity and that `ParagraphRow` (mobile) / `Paragraph` (web) props stay referentially stable across unrelated store updates.
 
@@ -142,7 +142,7 @@
 
 ### React-native-free `tokens.ts` shared by the theme and the bookmark estimate
 
-**What:** Type sizes, weights, spacing, radii and the reader's paddings moved into `mobile/src/tokens.ts`, which imports nothing. `theme.ts` adds the serif and re-exports; `ui/layout.ts` reads it instead of re-declaring 17/27 and 22/30; the component-level literals (24/700 titles, 16/22 rows, 16 inputs, glyphs, every 44) became named roles. `src/tokens.check.ts` holds the table to what DESIGN.md publishes.
+**What:** Type sizes, weights, spacing, radii and the reader's paddings moved into `mobile/src/tokens.ts`, which imports nothing. `theme.ts` adds the serif and re-exports; `ui/layout.ts` reads it instead of re-declaring 17/27 and 22/30; the component-level literals (24/700 titles, 16/22 rows, 16 inputs, glyphs, every 44) became named roles. `mobile/src/tokens.test.ts` holds the table to what DESIGN.md publishes.
 
 **Completed:** v0.3 (2026-09-22)
 

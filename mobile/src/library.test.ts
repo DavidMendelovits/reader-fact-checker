@@ -1,7 +1,4 @@
-// Self-check for the on-phone library. Run it with:
-//
-//   node --experimental-strip-types src/library.check.ts
-//
+// Tests for the on-phone library.
 // The library is what the voice searches and what highlights are written
 // through, and it has to stay right across syncs: an incremental refresh that
 // forgets to send `updatedAfter` re-downloads everything; one that mishandles
@@ -9,6 +6,7 @@
 // back lies on the screen; a highlight write that fails and isn't marked
 // pending is lost. A fake Library and a Map stand in for Reader and the phone.
 import assert from 'node:assert/strict'
+import { afterAll, beforeAll, test } from 'vitest'
 import { LibraryService } from './library.ts'
 import type { KeyValueStore, Library, Page } from './ports.ts'
 import type { DocState, Highlight, LibraryDoc, Location, RemoteHighlight } from './types.ts'
@@ -91,110 +89,122 @@ class MemoryStore implements KeyValueStore {
 
 // the service warns (on purpose) when a write doesn't land; keep the check's output clean
 const realWarn = console.warn
-console.warn = () => {}
+beforeAll(() => {
+  console.warn = () => {}
+})
+afterAll(() => {
+  console.warn = realWarn
+})
 
+// ponytail: these tests share one service and run top to bottom, each from where
+// the last left off. Run the file, not one test with -t.
 const fake = new FakeLibrary()
 const store = new MemoryStore()
 const service = new LibraryService(fake, store)
 let changes = 0
 service.onChange = () => changes++
+let firstSync: string | null = null
 
-// ---- load() on an empty store ----
-await service.load()
-assert.equal(service.docs.length, 0)
-assert.equal(service.remoteHighlights.length, 0)
-assert.deepEqual(service.sync, { lastSync: null })
-assert.equal(changes, 1)
+test('load() on an empty store', async () => {
+  await service.load()
+  assert.equal(service.docs.length, 0)
+  assert.equal(service.remoteHighlights.length, 0)
+  assert.deepEqual(service.sync, { lastSync: null })
+  assert.equal(changes, 1)
+})
 
-// ---- first refresh: walks every page of every location, and the highlights, then persists ----
-fake.pages = {
-  new: [[doc('a', { updatedAt: at(1) }), doc('b', { updatedAt: at(2) })], [doc('c', { updatedAt: at(3) })]],
-  later: [[doc('d', { location: 'later', updatedAt: at(4) })]],
-  archive: [[doc('e', { location: 'archive', updatedAt: at(5) })]],
-}
-fake.highlightPages = [[remote('h1', 'a'), remote('h2', 'a')], [remote('h3', 'b')]]
-await service.refresh()
-assert.deepEqual(fake.listCalls, [
-  { location: 'new', updatedAfter: undefined, cursor: undefined },
-  { location: 'new', updatedAfter: undefined, cursor: '1' },
-  { location: 'later', updatedAfter: undefined, cursor: undefined },
-  { location: 'archive', updatedAfter: undefined, cursor: undefined },
-])
-assert.deepEqual(fake.highlightCalls, [
-  { updatedAfter: undefined, cursor: undefined },
-  { updatedAfter: undefined, cursor: '1' },
-])
-assert.deepEqual(service.docs.map((d) => d.id), ['e', 'd', 'c', 'b', 'a'], 'newest first')
-assert.deepEqual(service.remoteHighlights.map((h) => h.id), ['h1', 'h2', 'h3'])
-assert.deepEqual(service.inLocation('later').map((d) => d.id), ['d'])
-assert.equal(service.byId('c')?.title, 'Title c')
-const firstSync = service.sync.lastSync
-assert.ok(firstSync && !Number.isNaN(Date.parse(firstSync)), 'lastSync should be an ISO time')
-// persisted: a fresh service on the same store restores the same library
-{
+test('first refresh: walks every page of every location, and the highlights, then persists', async () => {
+  fake.pages = {
+    new: [[doc('a', { updatedAt: at(1) }), doc('b', { updatedAt: at(2) })], [doc('c', { updatedAt: at(3) })]],
+    later: [[doc('d', { location: 'later', updatedAt: at(4) })]],
+    archive: [[doc('e', { location: 'archive', updatedAt: at(5) })]],
+  }
+  fake.highlightPages = [[remote('h1', 'a'), remote('h2', 'a')], [remote('h3', 'b')]]
+  await service.refresh()
+  assert.deepEqual(fake.listCalls, [
+    { location: 'new', updatedAfter: undefined, cursor: undefined },
+    { location: 'new', updatedAfter: undefined, cursor: '1' },
+    { location: 'later', updatedAfter: undefined, cursor: undefined },
+    { location: 'archive', updatedAfter: undefined, cursor: undefined },
+  ])
+  assert.deepEqual(fake.highlightCalls, [
+    { updatedAfter: undefined, cursor: undefined },
+    { updatedAfter: undefined, cursor: '1' },
+  ])
+  assert.deepEqual(service.docs.map((d) => d.id), ['e', 'd', 'c', 'b', 'a'], 'newest first')
+  assert.deepEqual(service.remoteHighlights.map((h) => h.id), ['h1', 'h2', 'h3'])
+  assert.deepEqual(service.inLocation('later').map((d) => d.id), ['d'])
+  assert.equal(service.byId('c')?.title, 'Title c')
+  firstSync = service.sync.lastSync
+  assert.ok(firstSync && !Number.isNaN(Date.parse(firstSync)), 'lastSync should be an ISO time')
+})
+
+test('persisted: a fresh service on the same store restores the same library', async () => {
   const again = new LibraryService(new FakeLibrary(), store)
   await again.load()
   assert.deepEqual(again.docs, service.docs)
   assert.deepEqual(again.remoteHighlights, service.remoteHighlights)
   assert.deepEqual(again.sync, { lastSync: firstSync })
-}
+})
 
-// ---- second refresh: incremental, and a moved document merges instead of duplicating ----
-fake.listCalls = []
-fake.highlightCalls = []
-fake.pages = {
-  new: [[]],
-  later: [[]],
-  archive: [[doc('b', { location: 'archive', updatedAt: '2026-02-01T00:00:00Z' })]],
-}
-fake.highlightPages = [[{ ...remote('h2', 'a'), note: 'edited' }, remote('h4', 'b')]]
-await new Promise((r) => setTimeout(r, 5))
-await service.refresh()
-assert.equal(fake.listCalls.length, 3)
-assert.ok(fake.listCalls.every((c) => c.updatedAfter === firstSync), 'incremental sync must ask for changes since the last one')
-assert.deepEqual(fake.highlightCalls, [{ updatedAfter: firstSync, cursor: undefined }])
-assert.equal(service.docs.length, 5, 'a moved document was duplicated')
-assert.equal(service.docs.filter((d) => d.id === 'b').length, 1)
-assert.equal(service.byId('b')?.location, 'archive')
-assert.equal(service.docs[0].id, 'b', 'the updated document is now the newest')
-assert.deepEqual(service.inLocation('new').map((d) => d.id), ['c', 'a'])
-assert.deepEqual(service.remoteHighlights.map((h) => [h.id, h.note]), [['h1', null], ['h2', 'edited'], ['h3', null], ['h4', null]])
-assert.ok(service.sync.lastSync! > firstSync!)
+test('second refresh: incremental, and a moved document merges instead of duplicating', async () => {
+  fake.listCalls = []
+  fake.highlightCalls = []
+  fake.pages = {
+    new: [[]],
+    later: [[]],
+    archive: [[doc('b', { location: 'archive', updatedAt: '2026-02-01T00:00:00Z' })]],
+  }
+  fake.highlightPages = [[{ ...remote('h2', 'a'), note: 'edited' }, remote('h4', 'b')]]
+  await new Promise((r) => setTimeout(r, 5))
+  await service.refresh()
+  assert.equal(fake.listCalls.length, 3)
+  assert.ok(fake.listCalls.every((c) => c.updatedAfter === firstSync), 'incremental sync must ask for changes since the last one')
+  assert.deepEqual(fake.highlightCalls, [{ updatedAfter: firstSync, cursor: undefined }])
+  assert.equal(service.docs.length, 5, 'a moved document was duplicated')
+  assert.equal(service.docs.filter((d) => d.id === 'b').length, 1)
+  assert.equal(service.byId('b')?.location, 'archive')
+  assert.equal(service.docs[0].id, 'b', 'the updated document is now the newest')
+  assert.deepEqual(service.inLocation('new').map((d) => d.id), ['c', 'a'])
+  assert.deepEqual(service.remoteHighlights.map((h) => [h.id, h.note]), [['h1', null], ['h2', 'edited'], ['h3', null], ['h4', null]])
+  assert.ok(service.sync.lastSync! > firstSync!)
+})
 
-// ---- full refresh: forgets what the library no longer has ----
-fake.listCalls = []
-fake.pages = { new: [[doc('a', { updatedAt: at(1) })]], later: [[doc('d', { location: 'later', updatedAt: at(4) })]], archive: [[]] }
-fake.highlightPages = [[remote('h1', 'a')]]
-await service.refresh({ full: true })
-assert.ok(fake.listCalls.every((c) => c.updatedAfter === undefined), 'a full sync must not narrow by time')
-assert.deepEqual(service.docs.map((d) => d.id), ['d', 'a'])
-assert.deepEqual(service.remoteHighlights.map((h) => h.id), ['h1'])
-assert.deepEqual(JSON.parse(store.map.get('library:docs')!).map((d: LibraryDoc) => d.id), ['d', 'a'])
+test('full refresh: forgets what the library no longer has', async () => {
+  fake.listCalls = []
+  fake.pages = { new: [[doc('a', { updatedAt: at(1) })]], later: [[doc('d', { location: 'later', updatedAt: at(4) })]], archive: [[]] }
+  fake.highlightPages = [[remote('h1', 'a')]]
+  await service.refresh({ full: true })
+  assert.ok(fake.listCalls.every((c) => c.updatedAfter === undefined), 'a full sync must not narrow by time')
+  assert.deepEqual(service.docs.map((d) => d.id), ['d', 'a'])
+  assert.deepEqual(service.remoteHighlights.map((h) => h.id), ['h1'])
+  assert.deepEqual(JSON.parse(store.map.get('library:docs')!).map((d: LibraryDoc) => d.id), ['d', 'a'])
+})
 
-// ---- search ----
-service.docs = [
-  doc('oldman', { title: 'The Old Man and the Sea', author: 'Ernest Hemingway', updatedAt: '2026-01-01T00:00:00Z' }),
-  doc('seastories', { title: 'Sea Stories', author: 'William H. McRaven', updatedAt: '2026-01-05T00:00:00Z' }),
-  doc('sleep', { title: 'Why We Sleep', author: 'Matthew Walker', summary: 'The science of sleep and dreams.' }),
-  doc('garcia', { title: 'Cien años de soledad', author: 'Gabriel García Márquez' }),
-]
-const ids = (q: string, limit?: number) => service.search(q, limit).map((d) => d.id)
-assert.deepEqual(ids('hemingway sea'), ['oldman', 'seastories'], '"hemingway sea" should rank the Hemingway book first')
-assert.deepEqual(ids('sea'), ['seastories', 'oldman'], 'a tie on score falls back to newest first')
-assert.deepEqual(ids('hemingway'), ['oldman'], 'author match')
-assert.deepEqual(ids('the one by walker'), ['sleep'])
-assert.deepEqual(ids('that article about dreams'), ['sleep'], 'a word from the summary')
-assert.deepEqual(ids('the book'), [], 'stop words alone are no query')
-assert.deepEqual(ids(''), [])
-assert.deepEqual(ids('   '), [])
-assert.deepEqual(ids('nothing matches this'), [])
-assert.deepEqual(ids('heming'), ['oldman'], 'a prefix of the author')
-assert.deepEqual(ids('stor'), ['seastories'], 'a prefix of a title word')
-assert.deepEqual(ids('garcia marquez'), ['garcia'], 'accents are ignored')
-assert.deepEqual(ids('sea', 1), ['seastories'], 'limit')
+test('search', async () => {
+  service.docs = [
+    doc('oldman', { title: 'The Old Man and the Sea', author: 'Ernest Hemingway', updatedAt: '2026-01-01T00:00:00Z' }),
+    doc('seastories', { title: 'Sea Stories', author: 'William H. McRaven', updatedAt: '2026-01-05T00:00:00Z' }),
+    doc('sleep', { title: 'Why We Sleep', author: 'Matthew Walker', summary: 'The science of sleep and dreams.' }),
+    doc('garcia', { title: 'Cien años de soledad', author: 'Gabriel García Márquez' }),
+  ]
+  const ids = (q: string, limit?: number) => service.search(q, limit).map((d) => d.id)
+  assert.deepEqual(ids('hemingway sea'), ['oldman', 'seastories'], '"hemingway sea" should rank the Hemingway book first')
+  assert.deepEqual(ids('sea'), ['seastories', 'oldman'], 'a tie on score falls back to newest first')
+  assert.deepEqual(ids('hemingway'), ['oldman'], 'author match')
+  assert.deepEqual(ids('the one by walker'), ['sleep'])
+  assert.deepEqual(ids('that article about dreams'), ['sleep'], 'a word from the summary')
+  assert.deepEqual(ids('the book'), [], 'stop words alone are no query')
+  assert.deepEqual(ids(''), [])
+  assert.deepEqual(ids('   '), [])
+  assert.deepEqual(ids('nothing matches this'), [])
+  assert.deepEqual(ids('heming'), ['oldman'], 'a prefix of the author')
+  assert.deepEqual(ids('stor'), ['seastories'], 'a prefix of a title word')
+  assert.deepEqual(ids('garcia marquez'), ['garcia'], 'accents are ignored')
+  assert.deepEqual(ids('sea', 1), ['seastories'], 'limit')
+})
 
-// ---- move: optimistic, persisted on success, rolled back on failure ----
-{
+test('move: optimistic, persisted on success, rolled back on failure', async () => {
   await service.refresh({ full: true }) // back to the fake's docs: a (new), d (later)
   changes = 0
   await service.move('a', 'later')
@@ -212,10 +222,9 @@ assert.deepEqual(ids('sea', 1), ['seastories'], 'limit')
   fake.failMove = false
 
   await assert.rejects(service.move('nope', 'later'), /not in the library/)
-}
+})
 
-// ---- per-document state ----
-{
+test('per-document state', async () => {
   assert.deepEqual(await service.docState('x'), { position: 0, highlights: [], mergedRemote: [], checks: [], updatedAt: 0 })
   const state: DocState = { position: 12, highlights: [highlight('p1', { anchor: { paragraph: 3, start: 0, end: 5 } })], mergedRemote: ['h1'], checks: [], updatedAt: 0 }
   await service.saveDocState('x', state)
@@ -226,10 +235,9 @@ assert.deepEqual(ids('sea', 1), ['seastories'], 'limit')
   // a state written before checks were kept reads back with an empty list
   await store.set('doc:z', JSON.stringify({ position: 3, highlights: [], mergedRemote: [], updatedAt: 7 }))
   assert.deepEqual(await service.docState('z'), { position: 3, highlights: [], mergedRemote: [], checks: [], updatedAt: 7 })
-}
+})
 
-// ---- newRemoteHighlights: Reader's highlights the phone hasn't seen ----
-{
+test("newRemoteHighlights: Reader's highlights the phone hasn't seen", async () => {
   service.remoteHighlights = [remote('r1', 'A'), remote('r2', 'A'), remote('r3', 'A'), remote('r4', 'B')]
   const state: DocState = {
     position: 0,
@@ -240,10 +248,9 @@ assert.deepEqual(ids('sea', 1), ['seastories'], 'limit')
   assert.deepEqual(service.newRemoteHighlights('A', state).map((h) => h.id), ['r3'])
   assert.deepEqual(service.newRemoteHighlights('B', state).map((h) => h.id), ['r4'])
   assert.deepEqual(service.newRemoteHighlights('C', state), [])
-}
+})
 
-// ---- pushHighlight: pending on failure, linked on success ----
-{
+test('pushHighlight: pending on failure, linked on success', async () => {
   const target = doc('a')
   fake.failCreate = true
   const failed = await service.pushHighlight(target, highlight('p1', { note: 'n' }))
@@ -265,10 +272,9 @@ assert.deepEqual(ids('sea', 1), ['seastories'], 'limit')
   await joined.pushHighlight(target, highlight('c2', { concat: 2 }))
   assert.equal(first.note, 'opener')
   assert.deepEqual(own.created.map((c) => c.note), ['.c1 opener', '.c2'])
-}
+})
 
-// ---- removeHighlight ----
-{
+test('removeHighlight', async () => {
   assert.equal(await service.removeHighlight(highlight('local')), null, 'never written: nothing to delete')
   assert.deepEqual(fake.deleted, [])
 
@@ -280,10 +286,9 @@ assert.deepEqual(ids('sea', 1), ['seastories'], 'limit')
 
   assert.equal(await service.removeHighlight(stuck!), null)
   assert.deepEqual(fake.deleted, ['rem-2'])
-}
+})
 
-// ---- flush: retries pending creates and deletes, leaves the rest alone ----
-{
+test('flush: retries pending creates and deletes, leaves the rest alone', async () => {
   const target = doc('a')
   fake.created = []
   fake.deleted = []
@@ -316,10 +321,9 @@ assert.deepEqual(ids('sea', 1), ['seastories'], 'limit')
   assert.deepEqual(stillPending.highlights.map((h) => [h.id, h.pending]), [['c1', 'create'], ['d1', 'delete'], ['ok', undefined]])
   fake.failCreate = false
   fake.failDelete = false
-}
+})
 
-// ---- each page paints as it lands: the list fills in instead of appearing at the end ----
-{
+test('each page paints as it lands: the list fills in instead of appearing at the end', async () => {
   const paged = new FakeLibrary()
   paged.pages = {
     new: [[doc('p1', { updatedAt: at(1) })], [doc('p2', { updatedAt: at(2) })], [doc('p3', { updatedAt: at(3) })]],
@@ -332,7 +336,5 @@ assert.deepEqual(ids('sea', 1), ['seastories'], 'limit')
   // the other shelves' (empty) pages and the persist each repaint the full list; it never goes backwards
   assert.ok(seen.length > 3)
   for (const paint of seen.slice(3)) assert.deepEqual(paint, ['p3', 'p2', 'p1'])
-}
+})
 
-console.warn = realWarn
-console.log('library.check: ok')

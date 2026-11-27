@@ -1,11 +1,9 @@
-// Self-check for the phone store's reducers that feed the Composer line. Run it with:
-//
-//   node --experimental-strip-types src/store.check.ts
-//
+// Tests for the phone store's reducers that feed the Composer line.
 // Two things differ from the web store and are pinned here on purpose: the phone
 // never streams a reply, so updateChat does not move the line; and the
 // conversation outlives the document, so clearDoc keeps the chat.
 import assert from 'node:assert/strict'
+import { test } from 'vitest'
 import { useStore } from './store.ts'
 import type { Check, LibraryDoc } from './types.ts'
 
@@ -15,8 +13,7 @@ const libraryDoc: LibraryDoc = {
   wordCount: null, summary: null, tags: [], readingProgress: null, publishedDate: null, updatedAt: '2026-01-01T00:00:00Z',
 }
 
-// the line is the agent's last non-empty reply, set on push and only on push
-{
+test("the line is the agent's last non-empty reply, set on push and only on push", async () => {
   const s = useStore.getState()
   s.pushChat({ id: 'u1', role: 'user', text: 'hello' })
   assert.equal(useStore.getState().lastAgentLine, null)
@@ -34,11 +31,11 @@ const libraryDoc: LibraryDoc = {
   assert.equal(useStore.getState().chat[0].text, 'hello there', 'a partial\'s bubble is corrected in place')
   assert.equal(useStore.getState().lastAgentLine, 'Paused.')
   assert.equal(useStore.getState().chat.length, 3)
-}
+})
 
 // open clamps the saved position and shows the reader; close keeps the chat,
 // clears the line and goes back to the library
-{
+test('open clamps the saved position and shows the reader; close keeps the chat, clears the line and goes back...', async () => {
   const s = useStore.getState()
   s.setDoc(doc, libraryDoc, 99, [], [])
   assert.equal(useStore.getState().currentParagraph, 2, 'a bookmark past the end lands on the last paragraph')
@@ -58,11 +55,11 @@ const libraryDoc: LibraryDoc = {
   assert.equal(after.lastAgentLine, null, 'the stale line is cleared on close')
   assert.equal(after.lastAgentLineAt, null)
   assert.equal(after.chat.length, 4, 'the conversation outlives the document on the phone')
-}
+})
 
 // the hold on the line starts when the voice stops, not when the text was pushed:
 // a long reply would otherwise be stale the moment it finished being spoken
-{
+test('the hold on the line starts when the voice stops, not when the text was pushed: a long reply would...', async () => {
   const s = useStore.getState()
   s.pushChat({ id: 'a3', role: 'assistant', text: 'It was 1913.' })
   const pushedAt = useStore.getState().lastAgentLineAt!
@@ -88,7 +85,7 @@ const libraryDoc: LibraryDoc = {
   s.setAgentState('speaking')
   s.setAgentState('idle')
   assert.equal(useStore.getState().lastAgentLineAt, null, 'no line, no timestamp')
-}
+})
 
 // ---- the checks a document keeps ----
 const check = (id: string, over: Partial<Check> = {}): Check => ({
@@ -96,7 +93,7 @@ const check = (id: string, over: Partial<Check> = {}): Check => ({
   anchorText: 'He was an old man', anchor: 3, createdAt: 1, ...over,
 })
 
-{
+test('the checks a document keeps', async () => {
   const s = useStore.getState()
   s.setDoc(doc, libraryDoc, 0, [], [])
   assert.deepEqual(useStore.getState().checks, [], 'a fresh open has no checks')
@@ -123,10 +120,9 @@ const check = (id: string, over: Partial<Check> = {}): Check => ({
   s.setDoc(doc, libraryDoc, 0, [], [check('saved')])
   assert.deepEqual(useStore.getState().checks.map((c) => c.id), ['saved'], 'setDoc loads the saved checks')
   s.clearDoc()
-}
+})
 
-// ---- the jump a check's row asks for ----
-{
+test("the jump a check's row asks for", async () => {
   const s = useStore.getState()
   assert.equal(useStore.getState().pendingJump, null)
   s.requestJump(7)
@@ -141,6 +137,5 @@ const check = (id: string, over: Partial<Check> = {}): Check => ({
   s.requestJump(4)
   s.clearDoc()
   assert.equal(useStore.getState().pendingJump, null)
-}
+})
 
-console.log('store.check.ts: ok')

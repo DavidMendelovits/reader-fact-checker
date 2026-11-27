@@ -7,9 +7,9 @@
 // list on the bookmark straight away. As real rows report their heights they
 // replace the guesses, and one non-animated correction fixes the drift.
 //
-// No React, no react-native: layout.check.ts runs this file in plain node. The
-// sizes come from tokens.ts, which is free of both for the same reason, so this
-// guess and the type the reader actually draws cannot drift apart.
+// No React, no react-native, so the tests run it as is. The sizes come from
+// tokens.ts, which is free of both for the same reason, so this guess and the
+// type the reader actually draws cannot drift apart.
 import { reader, type } from '../tokens.ts'
 
 /**

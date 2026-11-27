@@ -25,7 +25,7 @@ Paper is the light theme, Ink the dark one; `useTheme()` follows the OS unless S
 | `auroraUser` | 7 warm hues: `#ffc915 #ffb07a #eb64a0 #ff8a3d #f26d4b #ffd9a0 #c2417a` | same | aurora while the user talks |
 | `auroraAgent` | 7 cool hues: `#7ec4ff #9aa0ff #7fd9ee #5fa8e8 #b3a6ff #6fe0c8 #4f7fd4` | same | aurora while the agent talks |
 
-`src/theme.check.ts` asserts the contrast floors in both themes: body text ≥ 4.5:1 on canvas, surface, surfaceSecondary, currentWash and highlightWash-over-canvas; meta text ≥ 3:1 on the same; `textOnAccent` on `accent` ≥ 4.5:1.
+`mobile/src/theme.test.ts` asserts the contrast floors in both themes: body text ≥ 4.5:1 on canvas, surface, surfaceSecondary, currentWash and highlightWash-over-canvas; meta text ≥ 3:1 on the same; `textOnAccent` on `accent` ≥ 4.5:1.
 
 ## Type
 
@@ -48,7 +48,7 @@ Web body is ≥ 16px so iOS does not zoom on focus; reader text respects Dynamic
 `mobile/src/tokens.ts` is where these numbers live. It imports nothing — not even
 react-native — so both `theme.ts` (which adds the serif and the colours) and the
 bookmark's height estimate in `ui/layout.ts` (which runs in plain node) read the
-same table. `src/tokens.check.ts` asserts the table against this document.
+same table. `mobile/src/tokens.test.ts` asserts the table against this document.
 
 ## Spacing
 

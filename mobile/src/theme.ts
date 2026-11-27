@@ -3,7 +3,6 @@
 // for both surfaces. Components read these names and never a literal.
 import { Platform, useColorScheme } from 'react-native'
 import { useSyncExternalStore } from 'react'
-// .ts extension: theme.check.ts loads this file in plain node, which needs it.
 import { saveTheme, type ThemePreference } from './settings.ts'
 import { radius, size, space, type as tokens, weight } from './tokens.ts'
 
