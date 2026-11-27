@@ -213,7 +213,7 @@ async function highlight(input: Record<string, unknown>): Promise<string> {
   // ponytail: the runs are separate highlights on the phone, so "remove that
   // highlight" removes one run. Group them if that comes up.
   const written: Highlight[] = []
-  for (const part of concatenated(parts, note)) written.push(await addHighlight({ text: part.text, note: part.note, near }))
+  for (const part of concatenated(parts, note)) written.push(await addHighlight({ ...part, near }))
   const lost = written.filter((h) => !h.anchor).length
   const where = lost === 0
     ? `anchored at paragraph ${written[0].anchor!.paragraph}`

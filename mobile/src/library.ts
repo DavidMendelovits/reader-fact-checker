@@ -4,6 +4,7 @@
 //
 // Takes its Library and its storage as ports, so the self-check runs it under
 // node with a fake Reader and a Map.
+import { readwiseNote } from '../../shared/library/concat.ts'
 import { searchDocs } from '../../shared/library/search.ts'
 import type { KeyValueStore, Library } from './ports'
 import type { DocState, Highlight, LibraryDoc, Location, RemoteHighlight } from './types'
@@ -159,7 +160,7 @@ export class LibraryService {
    */
   async pushHighlight(doc: LibraryDoc, h: Highlight): Promise<Highlight> {
     try {
-      const { remoteId } = await this.library.createHighlight({ doc, text: h.text, note: h.note })
+      const { remoteId } = await this.library.createHighlight({ doc, text: h.text, note: readwiseNote(h.note, h.concat) })
       return { ...h, remoteId, pending: undefined }
     } catch (e) {
       console.warn('highlight not written to Readwise yet', e)

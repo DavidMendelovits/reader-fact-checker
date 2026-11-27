@@ -6,7 +6,10 @@
 
 export interface HighlightPart {
   text: string
+  /** The reader's own note, untagged. */
   note?: string
+  /** Its place in a concatenated highlight (1, 2...), when words were skipped. */
+  concat?: number
 }
 
 /** The pieces of a highlight as the tool received it: `parts` when words are skipped, otherwise `text` whole. */
@@ -21,13 +24,22 @@ export function highlightParts(input: Record<string, unknown>): string[] {
 
 /**
  * The highlights to write for one thought. One part is one highlight with the
- * reader's note as is. Several parts each carry their concatenation tag, and
- * the reader's note rides on the first, after its tag.
+ * reader's note. Several parts are numbered in order, and the reader's note
+ * rides on the first.
  */
 export function concatenated(parts: string[], note?: string): HighlightPart[] {
   const clean = note?.trim() || undefined
   if (parts.length <= 1) return parts.map((text) => ({ text, note: clean }))
-  return parts.map((text, i) => ({ text, note: i === 0 && clean ? `.c1 ${clean}` : `.c${i + 1}` }))
+  return parts.map((text, i) => ({ text, note: i === 0 ? clean : undefined, concat: i + 1 }))
+}
+
+/**
+ * The note Readwise is sent: the concatenation tag first, then the reader's
+ * note. The tag lives only here, so the app never shows ".c2" as a note.
+ */
+export function readwiseNote(note: string | undefined, concat: number | undefined): string | undefined {
+  const tag = concat ? `.c${concat}` : ''
+  return [tag, note?.trim()].filter(Boolean).join(' ') || undefined
 }
 
 /** How a thought with skipped words reads as one string: the parts joined by an ellipsis. */

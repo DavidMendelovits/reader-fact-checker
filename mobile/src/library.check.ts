@@ -257,6 +257,14 @@ assert.deepEqual(ids('sea', 1), ['seastories'], 'limit')
   assert.equal(ok.remoteId, 'rem-1')
   assert.equal(ok.pending, undefined)
   assert.deepEqual(fake.created, [{ docId: 'a', text: 'passage p1', note: 'n' }])
+
+  // skipped words: the concatenation tag reaches Readwise, the phone's note stays the reader's
+  const own = new FakeLibrary() // its own ids, so the checks below keep theirs
+  const joined = new LibraryService(own, store)
+  const first = await joined.pushHighlight(target, highlight('c1', { note: 'opener', concat: 1 }))
+  await joined.pushHighlight(target, highlight('c2', { concat: 2 }))
+  assert.equal(first.note, 'opener')
+  assert.deepEqual(own.created.map((c) => c.note), ['.c1 opener', '.c2'])
 }
 
 // ---- removeHighlight ----

@@ -207,7 +207,7 @@ export function recordCheck(docId: string, check: Check): void {
  * Highlight a passage of the open document. Painted at once; written to
  * Readwise in the background and retried later if that fails.
  */
-export async function addHighlight(input: { text: string; note?: string; near?: number }): Promise<Highlight> {
+export async function addHighlight(input: { text: string; note?: string; near?: number; concat?: number }): Promise<Highlight> {
   const st = useStore.getState()
   if (!openId || !st.libraryDoc) throw new Error('No document is open.')
   const paragraphs = st.paragraphs.map((p) => p.text)
@@ -216,6 +216,7 @@ export async function addHighlight(input: { text: string; note?: string; near?: 
     id: newId(),
     text: anchor ? paragraphs[anchor.paragraph].slice(anchor.start, anchor.end) : input.text.trim(),
     note: input.note?.trim() || undefined,
+    concat: input.concat,
     anchor,
     createdAt: Date.now(),
     pending: 'create',

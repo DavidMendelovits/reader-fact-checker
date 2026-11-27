@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'vitest'
 import { searchDocs, searchHighlights } from './search.ts'
 import { findChapter, startParagraph } from './start.ts'
-import { concatenated, highlightParts } from './concat.ts'
+import { concatenated, highlightParts, readwiseNote } from './concat.ts'
 import { candidateLine, recommend, type Candidate } from './recommend.ts'
 import type { Chapter } from './types.ts'
 
@@ -133,11 +133,14 @@ describe('highlight concatenation', () => {
     expect(concatenated(['Setup. Punchline.'])).toEqual([{ text: 'Setup. Punchline.', note: undefined }])
   })
   test('skipped words: each part tagged in order, the note on the first', () => {
-    expect(concatenated(['A man walks in.', 'The bartender says no.'], 'opener')).toEqual([
-      { text: 'A man walks in.', note: '.c1 opener' },
-      { text: 'The bartender says no.', note: '.c2' },
+    const parts = concatenated(['A man walks in.', 'The bartender says no.'], 'opener')
+    expect(parts).toEqual([
+      { text: 'A man walks in.', note: 'opener', concat: 1 },
+      { text: 'The bartender says no.', note: undefined, concat: 2 },
     ])
-    expect(concatenated(['a', 'b', 'c']).map((p) => p.note)).toEqual(['.c1', '.c2', '.c3'])
+    expect(parts.map((p) => readwiseNote(p.note, p.concat))).toEqual(['.c1 opener', '.c2'])
+    expect(readwiseNote(' plain ', undefined)).toBe('plain')
+    expect(readwiseNote(undefined, undefined)).toBeUndefined()
   })
   test('parts win over text only when there are two or more', () => {
     expect(highlightParts({ text: 'whole', parts: ['x', ' y '] })).toEqual(['x', 'y'])

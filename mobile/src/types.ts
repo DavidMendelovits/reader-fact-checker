@@ -36,6 +36,8 @@ export interface Highlight {
   remoteId?: string
   text: string
   note?: string
+  /** Its place in a Readwise-concatenated highlight (skipped words); sent as the .cN tag, never shown. */
+  concat?: number
   anchor: Anchor | null
   createdAt: number
   pending?: 'create' | 'delete'
