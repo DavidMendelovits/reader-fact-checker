@@ -93,7 +93,7 @@ const check = (id: string, over: Partial<Check> = {}): Check => ({
   anchorText: 'He was an old man', anchor: 3, createdAt: 1, ...over,
 })
 
-test('check', async () => {
+test('the checks a document keeps', async () => {
   const s = useStore.getState()
   s.setDoc(doc, libraryDoc, 0, [], [])
   assert.deepEqual(useStore.getState().checks, [], 'a fresh open has no checks')

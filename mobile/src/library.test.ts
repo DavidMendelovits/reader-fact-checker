@@ -96,6 +96,8 @@ afterAll(() => {
   console.warn = realWarn
 })
 
+// ponytail: these tests share one service and run top to bottom, each from where
+// the last left off. Run the file, not one test with -t.
 const fake = new FakeLibrary()
 const store = new MemoryStore()
 const service = new LibraryService(fake, store)

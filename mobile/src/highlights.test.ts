@@ -29,7 +29,8 @@ test('case and smart-quote/dash differences still match, and the offsets index t
   assert.equal(a.paragraph, 2)
   assert.equal(paragraphs[2].slice(a.start, a.end), original)
 })
-test('check', async () => {
+
+test('a hyphen matches an em or en dash', async () => {
   const original = 'ago—never mind how long precisely—having'
   const a = anchorText(paragraphs, 'ago - never mind how long precisely - having'.replace(/ - /g, '-'))
   assert.ok(a, 'a hyphen should match an em dash')
