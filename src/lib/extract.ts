@@ -17,7 +17,7 @@ function htmlToParagraphs(container: Element | Document): string[] {
 export async function extractFromUrl(url: string): Promise<Doc> {
   const res = await apiFetch(`/api/fetch?url=${encodeURIComponent(url)}`)
   if (!res.ok) throw new Error(`Could not fetch page (${res.status}): ${await res.text()}`)
-  const html = await res.text()
+  const { html } = (await res.json()) as { html: string; finalUrl: string }
   const dom = new DOMParser().parseFromString(html, 'text/html')
   // Readability needs a base URI for relative links to resolve; harmless if absent
   const article = new Readability(dom).parse()

@@ -28,11 +28,9 @@ function apiRoutes(): Plugin {
       server.middlewares.use('/api/fetch', async (req, res) => {
         const url = new URL(req.url ?? '', 'http://localhost').searchParams.get('url')
         if (!url) return json(res, 400, { error: 'url param required' })
+        res.setHeader('X-Content-Type-Options', 'nosniff')
         try {
-          const { html, finalUrl } = await impl.fetchArticle(url)
-          res.setHeader('Content-Type', 'text/html; charset=utf-8')
-          res.setHeader('X-Final-Url', finalUrl)
-          res.end(html)
+          json(res, 200, await impl.fetchArticle(url))
         } catch (e) {
           json(res, 502, { error: e instanceof Error ? e.message : String(e) })
         }

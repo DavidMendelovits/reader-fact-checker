@@ -143,7 +143,7 @@ Best in **Chrome** (speech recognition is Chrome-only) with **headphones**, so t
 
 - Speech input is the browser's `webkitSpeechRecognition` — **Chrome only**. The mic stays live during narration so you can talk over it, and a word-overlap heuristic drops the recognizer's transcription of the narration itself; headphones make that reliable
 - **No access control.** Every `/api/*` route is open, so a deployed URL lets anyone spend your API credits. Set spend limits on all three keys before sharing a link
-- `/api/fetch` is an open HTML proxy (needed to dodge CORS on article import)
+- `/api/fetch` fetches any public page for article import (needed to dodge CORS). It answers in JSON, never as HTML from this origin, refuses private and loopback hosts (IPv4 and IPv6, every redirect hop), and doesn't pin DNS, so a name that resolves to a private address still gets through
 - Library and position live in `localStorage` — per-browser, no account, no sync
 - No PDF import yet (pdf.js would slot into `src/lib/extract.ts`)
 - iOS suspends a locked page's JS, so narration stops with the screen; a wake lock covers read-along but true lock-screen playback needs a native wrapper
