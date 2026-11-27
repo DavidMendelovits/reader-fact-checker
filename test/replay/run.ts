@@ -82,11 +82,12 @@ export async function runReplay(opts: Options): Promise<{ row: Row; misses: Miss
       }
     }
     const count = opts.readingParagraphs ?? CHAPTERS[1].startsAt
-    for (const text of PARAGRAPHS.slice(0, count)) {
+    for (const [i, text] of PARAGRAPHS.slice(0, count).entries()) {
       try {
         reading.push(await firstAudioMs(text))
-      } catch {
+      } catch (e) {
         errors++
+        misses.push({ say: `(reading paragraph ${i})`, verdict: { tool: false, args: false }, got: '', error: e instanceof Error ? e.message : String(e) })
       }
     }
   } finally {
@@ -110,7 +111,7 @@ export async function runReplay(opts: Options): Promise<{ row: Row; misses: Miss
     reply_text_p95_ms: round(percentile(replyText, 95)),
     turn_p50_ms: round(percentile(turns, 50)),
     reading_start_p50_ms: round(percentile(reading, 50)),
-    reading_start_p95_ms: round(percentile(reading, 95)),
+    reading_start_max_ms: reading.length ? round(Math.max(...reading)) : undefined,
     speech_chars: events.filter((e) => e.port === 'speech').reduce((s, e) => s + (e.units?.chars ?? 0), 0),
     // only when every turn's model is in the price table; a partial sum would read as cheap
     conversation_usd: costs.length && costs.every((c) => c !== undefined) ? round(costs.reduce((s, c) => s! + c!, 0), 4) : undefined,

@@ -6,7 +6,7 @@
 //   REPLAY_LABEL      a name for the row, like "sonnet-5 + elevenlabs"
 //   REPLAY_LIMIT      only the first N commands
 //   REPLAY_READING    paragraphs for reading start (default 5, 0 skips speech)
-//   REPLAY_OUT        another CSV file
+//   REPLAY_OUT        another CSV file (default out/results.csv, out/dry-run.csv on fakes)
 //
 // Keys and provider choices come from .env.local and the environment, as for `npm run dev`.
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
@@ -20,13 +20,14 @@ import { csvHeader, csvRow, type Command } from './score.ts'
 it('replay', async () => {
   const p = providers()
   const used = [p.conversation.name, ...(process.env.REPLAY_READING === '0' ? [] : [p.speech.name])]
-  if (used.some((n) => n !== 'fake') && process.env.REPLAY_LIVE !== '1') {
+  const live = used.some((n) => n !== 'fake')
+  if (live && process.env.REPLAY_LIVE !== '1') {
     throw new Error(
       `This run would call ${used.filter((n) => n !== 'fake').join(' and ')}, which costs money. ` +
         'Set REPLAY_LIVE=1 to go ahead, or AGENT_PROVIDER=fake TTS_PROVIDER=fake for a free dry run.',
     )
   }
-  const limit = Number(process.env.REPLAY_LIMIT) || undefined
+  const limit = process.env.REPLAY_LIMIT ? Number(process.env.REPLAY_LIMIT) : undefined
   const reading = process.env.REPLAY_READING === undefined ? undefined : Number(process.env.REPLAY_READING)
   const { row, misses } = await runReplay({
     commands: (commands as Command[]).slice(0, limit),
@@ -34,7 +35,8 @@ it('replay', async () => {
     readingParagraphs: reading,
   })
 
-  const out = process.env.REPLAY_OUT ?? 'test/replay/out/results.csv'
+  // a dry run's row would sit among the real ones and drag a comparison down
+  const out = process.env.REPLAY_OUT ?? `test/replay/out/${live ? 'results' : 'dry-run'}.csv`
   mkdirSync(dirname(out), { recursive: true })
   if (!existsSync(out)) appendFileSync(out, `${csvHeader()}\n`)
   appendFileSync(out, `${csvRow(row)}\n`)

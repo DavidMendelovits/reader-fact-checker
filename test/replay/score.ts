@@ -85,7 +85,8 @@ export interface Row {
   reply_text_p95_ms?: number
   turn_p50_ms?: number
   reading_start_p50_ms?: number
-  reading_start_p95_ms?: number
+  /** The slowest of a handful, usually the cold first connection; too few samples for a p95. */
+  reading_start_max_ms?: number
   speech_chars: number
   conversation_usd?: number
   errors: number
@@ -93,7 +94,7 @@ export interface Row {
 
 export const COLUMNS: (keyof Row)[] = [
   'when', 'label', 'conversation', 'model', 'speech', 'commands', 'tool_accuracy', 'args_accuracy',
-  'reply_text_p50_ms', 'reply_text_p95_ms', 'turn_p50_ms', 'reading_start_p50_ms', 'reading_start_p95_ms',
+  'reply_text_p50_ms', 'reply_text_p95_ms', 'turn_p50_ms', 'reading_start_p50_ms', 'reading_start_max_ms',
   'speech_chars', 'conversation_usd', 'errors',
 ]
 

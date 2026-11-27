@@ -4,6 +4,8 @@ import { afterEach, describe, it } from 'vitest'
 import type { Block, ConversationModel } from '../../api/_lib/ports.ts'
 import { override } from '../../api/_lib/providers.ts'
 import { fakeSpeech } from '../../api/_lib/adapters/fake.ts'
+import { AGENT_TOOLS } from '../../api/_lib/agent.ts'
+import { clientKit } from '../../shared/agent/clients.ts'
 import commands from './commands.json' with { type: 'json' }
 import { CONTEXT, PARAGRAPHS } from './book.ts'
 import { runReplay } from './run.ts'
@@ -50,13 +52,16 @@ describe('score', () => {
     assert.ok(!score(stop, [use('read_aloud')]).tool)
   })
 
-  it('has a corpus of 50 commands whose paragraph numbers exist in the book', () => {
+  it('has a corpus of 50 commands naming real tools and paragraphs that exist in the book', () => {
+    // a typo here would read as the model's mistake on every run
+    const tools = new Set([...AGENT_TOOLS, ...clientKit('web')!.tools].map((t) => t.name))
     assert.equal(commands.length, 50)
     assert.equal(new Set(commands.map((c) => c.say)).size, 50, 'no command twice')
     for (const c of commands as Command[]) {
       assert.ok(c.expect.length > 0, c.say)
       for (const e of c.expect) {
         if (!('tool' in e)) continue
+        assert.ok(tools.has(e.tool), `${c.say}: no tool ${e.tool}`)
         for (const k of ['from', 'to'] as const) {
           const v = e.args?.[k]
           if (typeof v === 'number') assert.ok(v >= 0 && v < PARAGRAPHS.length, `${c.say}: ${k} ${v}`)
@@ -129,5 +134,14 @@ describe('a run', () => {
     assert.deepEqual(misses.map((m) => m.say), ['faster', 'explode'])
     assert.match(misses[0].got, /set_speed\(\{"rate":0.5\}\)/)
     assert.equal(misses[1].error, 'vendor down')
+  })
+
+  it('says why the voice failed instead of only counting it', async () => {
+    override('conversation', { name: 'scripted', turn: async () => ({ content: [] }) })
+    override('speech', { name: 'broken', mimeType: 'audio/mpeg', maxChars: null, synthesize: async () => Promise.reject(new Error('bad key')) })
+    const { row, misses } = await runReplay({ commands: [], readingParagraphs: 1 })
+    assert.equal(row.errors, 1)
+    assert.equal(row.reading_start_p50_ms, undefined)
+    assert.deepEqual(misses, [{ say: '(reading paragraph 0)', verdict: { tool: false, args: false }, got: '', error: 'bad key' }])
   })
 })
