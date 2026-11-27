@@ -9,22 +9,25 @@
 //                                      are set, else unreal if UNREAL_SPEECH_API_KEY is, else openai
 //   DECIDER_PROVIDER    decider        typesafe if TYPESAFE_API_KEY is set, else none (no fast navigation)
 //   LIBRARY_PROVIDER    library        readwise (default), with the caller's own token
+//   LISTEN_PROVIDER     listen         deepgram if DEEPGRAM_API_KEY is set, else none (the browser
+//                                      keeps Chrome's own recognizer)
 //
-// Every port but the decider also has `fake` (./adapters/fake.ts), for the
+// Every port but the decider and listen also has `fake` (./adapters/fake.ts), for the
 // end-to-end test environment: `npm run dev:e2e` sets all of them (.env.e2e).
 // Unit and integration tests don't use it; they mock a port with override().
 //
 // Instances are built lazily and memoized per name, so a request never pays for
 // a client it doesn't use, and a test can point env at a fake before first use.
-import type { ConversationModel, Decider, JsonCompletion, SearchModel, SpeechSynthesizer } from './ports.js'
+import type { ConversationModel, Decider, JsonCompletion, SearchModel, SpeechRecognizer, SpeechSynthesizer } from './ports.js'
 import { anthropicAdapter } from './adapters/anthropic.js'
 import { perplexityAdapter } from './adapters/perplexity.js'
 import { openaiSpeech } from './adapters/openai-speech.js'
 import { unrealSpeech } from './adapters/unreal-speech.js'
 import { elevenlabsSpeech } from './adapters/elevenlabs-speech.js'
 import { typesafeDecider } from './adapters/typesafe.js'
+import { deepgramListen } from './adapters/deepgram-listen.js'
 import { fakeConversation, fakeJson, fakeLibrary, fakeSearch, fakeSpeech } from './adapters/fake.js'
-import { meteredConversation, meteredDecider, meteredJson, meteredSearch, meteredSpeech } from './meter.js'
+import { meteredConversation, meteredDecider, meteredJson, meteredListen, meteredSearch, meteredSpeech } from './meter.js'
 import { readwiseLibrary } from '../../shared/library/readwise.js'
 import type { Library } from '../../shared/library/types.js'
 
@@ -41,6 +44,8 @@ export interface Providers {
    * library behind a server-held token would be anyone's to read.
    */
   library: (token: string | null) => Library
+  /** Null when no streaming speech-to-text is configured: the browser uses its own. */
+  listen: SpeechRecognizer | null
 }
 
 /** A library call with no token where the provider needs one. */
@@ -69,6 +74,9 @@ const registry = {
   decider: {
     typesafe: () => typesafeDecider({ model: process.env.TYPESAFE_MODEL ?? 'jev-latest' }),
   } as Record<string, Factory<Decider>>,
+  listen: {
+    deepgram: () => deepgramListen({}),
+  } as Record<string, Factory<SpeechRecognizer>>,
   library: {
     readwise: () => (token: string | null) => {
       if (!token) throw new NoLibraryToken('No Readwise token. Add yours in the app to use your library.')
@@ -109,6 +117,11 @@ function deciderProvider(): string | null {
   return name === 'none' ? null : name
 }
 
+function listenProvider(): string | null {
+  const name = env('LISTEN_PROVIDER') ?? (isSet('DEEPGRAM_API_KEY') ? 'deepgram' : 'none')
+  return name === 'none' ? null : name
+}
+
 const overrides: Partial<Providers> = {}
 
 // Each port is handed out metered (./meter.ts), fakes and overrides included, so a
@@ -134,6 +147,11 @@ export function providers(): Providers {
       const name = deciderProvider()
       const d = 'decider' in overrides ? overrides.decider : name ? pick('decider', name) : null
       return d ? meteredDecider(d) : null
+    },
+    get listen() {
+      const name = listenProvider()
+      const r = 'listen' in overrides ? overrides.listen : name ? pick('listen', name) : null
+      return r ? meteredListen(r) : null
     },
     get library() {
       return overrides.library ?? pick('library', env('LIBRARY_PROVIDER') ?? 'readwise')

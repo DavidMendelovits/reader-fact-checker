@@ -28,7 +28,7 @@ const SpeechRecognitionCtor =
 export const speechSupported = Boolean(SpeechRecognitionCtor)
 
 const words = (s: string) => s.toLowerCase().match(/[a-z0-9']+/g) ?? []
-const countWords = (s: string) => words(s).length
+export const countWords = (s: string) => words(s).length
 
 /**
  * ponytail: false-positive guard for the barge-in path. Chrome reports confidence
@@ -37,9 +37,9 @@ const countWords = (s: string) => words(s).length
  * The real fix is owning the mic: getUserMedia with echoCancellation/noiseSuppression
  * plus an RMS gate, and feeding recognition from that stream.
  */
-const MIN_INTERIM_WORDS = 3
+export const MIN_INTERIM_WORDS = 3
 const MIN_CONFIDENCE = 0.5
-const confident = (c: number) => c <= 0 || c >= MIN_CONFIDENCE
+export const confident = (c: number) => c <= 0 || c >= MIN_CONFIDENCE
 
 /** How often the mic level is read for the barge-in gate, matching the phone's. */
 const LEVEL_INTERVAL_MS = 80

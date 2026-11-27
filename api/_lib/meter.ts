@@ -6,7 +6,7 @@
 // Each event is one log line, `[meter] {...}`, so Vercel's logs are the record
 // until there is somewhere better. A replay run swaps in its own Meter to write
 // rows instead; a sink that can fail guards itself.
-import type { ConversationModel, Decider, JsonCompletion, Meter, MeterEvent, SearchModel, SpeechSynthesizer, TurnUsage } from './ports.js'
+import type { ConversationModel, Decider, JsonCompletion, Meter, MeterEvent, SearchModel, SpeechRecognizer, SpeechSynthesizer, TurnUsage } from './ports.js'
 
 interface Rates {
   input: number
@@ -120,4 +120,11 @@ export function meteredSpeech(m: SpeechSynthesizer): SpeechSynthesizer {
 
 export function meteredDecider(m: Decider): Decider {
   return { name: m.name, decide: (state, questions) => timed({ port: 'decider', provider: m.name }, () => m.decide(state, questions)) }
+}
+
+// ponytail: this times the grant only. The audio itself streams from the browser
+// to the vendor, so its minutes never pass the server; a client meter event is
+// the way to count them.
+export function meteredListen(m: SpeechRecognizer): SpeechRecognizer {
+  return { name: m.name, grant: () => timed({ port: 'listen', provider: m.name }, () => m.grant()) }
 }
