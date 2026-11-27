@@ -339,7 +339,11 @@ const agent = createAgent<NavAction>({
   client: 'web',
   buildContext,
   blip,
-  handedOff: () => firstAudio.handedOff(),
+  // only from silence: with the book still sounding, the next clip to start is
+  // just its next paragraph, not the answer
+  handedOff: () => {
+    if (!tts.sounding) firstAudio.handedOff()
+  },
   newId,
   now: () => Date.now(),
   setTimeout: (fn, ms) => setTimeout(fn, ms),

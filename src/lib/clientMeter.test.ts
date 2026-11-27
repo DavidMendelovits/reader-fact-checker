@@ -36,6 +36,16 @@ describe('ClientMeter', () => {
   })
 })
 
+describe('ClientMeter spans', () => {
+  it('sends a span the clock made negative as zero, so it cannot sink the batch', () => {
+    const sent: ClientEvent[][] = []
+    const m = new ClientMeter((events) => sent.push(events))
+    m.record({ port: 'first_audio', provider: 'reply', ms: -1500, ok: true })
+    m.flush()
+    assert.equal(sent[0][0].ms, 0)
+  })
+})
+
 describe('FirstAudio', () => {
   it('times the first sound after a hand-off and no other', () => {
     let now = 0

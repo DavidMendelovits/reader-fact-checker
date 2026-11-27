@@ -281,8 +281,9 @@ minute and when the tab closes, each marked `client: "web"`:
   false for a false start (a cough, a door).
 - `first_audio`: `ms` from a turn going to the model to the first sound back,
   `provider` `reply` or `narration`.
-- `listen`: one per Deepgram stream, `ms` it was open and `units.seconds` of audio
-  sent, which is what Flux bills.
+- `listen_audio`: `units.seconds` of audio sent to Deepgram, which is what Flux
+  bills, reported each minute of audio and when a stream ends, with `ms` the span
+  it covers. (The server's own `listen` line times the token grant.)
 
 One caveat on the conversation port: the transcript is persisted in the app's block
 vocabulary (`text`, `tool_use`, `tool_result`) plus any vendor-specific blocks the

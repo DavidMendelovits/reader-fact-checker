@@ -310,12 +310,12 @@ describe('FluxListener stream', () => {
     FakeSocket.all[0].open()
     for (let i = 0; i < 9; i++) l.audio(new Float32Array(3840))
     FakeSocket.all[0].drop(1011)
-    assert.deepEqual(seen.map((e) => [e.port, e.ok, e.units?.seconds]), [['listen', false, 0.8]])
+    assert.deepEqual(seen.map((e) => [e.port, e.ok, e.units?.seconds]), [['listen_audio', true, 0.8]])
     await delay(600) // reconnects
     FakeSocket.all[1].open()
     l.audio(new Float32Array(3840))
     l.stop()
-    assert.deepEqual(seen.map((e) => [e.ok, e.units?.seconds]), [[false, 0.8], [true, 0.08]])
+    assert.deepEqual(seen.map((e) => [e.ok, e.units?.seconds]), [[true, 0.8], [true, 0.08]])
     l.stop()
     assert.equal(seen.length, 2, 'a stream is reported once')
   })
@@ -325,7 +325,7 @@ describe('FluxListener per-minute listen reports', () => {
   it('reports each minute of audio as it goes, so a tab closed mid-stream still counts most of it', async () => {
     const l = listener()
     const seconds: number[] = []
-    l.onMeasure = (e) => e.port === 'listen' && seconds.push(e.units.seconds)
+    l.onMeasure = (e) => e.port === 'listen_audio' && seconds.push(e.units.seconds)
     await l.start()
     await tick()
     FakeSocket.all[0].open()

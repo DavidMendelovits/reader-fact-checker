@@ -178,9 +178,10 @@ export interface MeterEvent {
   /**
    * The server's ports, plus what only the browser sees (clientMeter.ts):
    * bargein, how long the narration played over the reader before it ducked;
-   * first_audio, from handing a turn to the model to the first sound back.
+   * first_audio, from handing a turn to the model to the first sound back;
+   * listen_audio, seconds of mic audio sent to the speech-input vendor.
    */
-  port: 'conversation' | 'json' | 'search' | 'speech' | 'decider' | 'listen' | 'bargein' | 'first_audio'
+  port: 'conversation' | 'json' | 'search' | 'speech' | 'decider' | 'listen' | 'bargein' | 'first_audio' | 'listen_audio'
   provider: string
   /** Set on events the browser reported: which app sent them. */
   client?: 'web' | 'phone'

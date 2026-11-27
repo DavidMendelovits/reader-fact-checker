@@ -4,7 +4,9 @@
 //   bargein      how long the narration played over the reader before it ducked,
 //                and whether words followed (shared/voice/bargeIn.ts)
 //   first_audio  from handing a turn to the model to the first sound back
-//   listen       seconds of mic audio streamed to the speech-input vendor
+//   listen_audio seconds of mic audio streamed to the speech-input vendor, a
+//                report per minute of it (apart from the server's listen port,
+//                which times the grant)
 //
 // Losing a batch costs nothing but a number, so nothing here retries or asks
 // for the access code: a refused send is dropped.
@@ -15,7 +17,7 @@ import type { BargeIn } from '../../shared/voice/bargeIn.ts'
 export type ClientEvent =
   | { port: 'bargein'; provider: BargeIn['path']; ms: number; ok: boolean }
   | { port: 'first_audio'; provider: 'reply' | 'narration'; ms: number; ok: true }
-  | { port: 'listen'; provider: 'deepgram'; ms: number; ok: boolean; units: { seconds: number } }
+  | { port: 'listen_audio'; provider: 'deepgram'; ms: number; ok: true; units: { seconds: number } }
 
 const BATCH = 20 // the server takes 50
 const FLUSH_MS = 30_000
@@ -27,7 +29,8 @@ export class ClientMeter {
   constructor(private send: (events: ClientEvent[]) => void = (events) => sendQuietly('/api/meter', { client: 'web', events })) {}
 
   record(e: ClientEvent) {
-    this.queue.push(e)
+    // a wall clock stepped back makes a negative span, and one bad event costs the batch
+    this.queue.push({ ...e, ms: Math.max(0, Math.round(e.ms)) })
     if (this.queue.length >= BATCH) this.flush()
     else this.timer ??= setTimeout(() => this.flush(), FLUSH_MS)
   }

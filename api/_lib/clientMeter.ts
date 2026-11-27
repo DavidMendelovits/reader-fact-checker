@@ -2,7 +2,7 @@
 // ports: how long the narration played over the reader before it ducked
 // (bargein), how long a turn handed to the model took to make a sound
 // (first_audio), and how many seconds of mic audio went to the speech-input
-// vendor (listen), which bills by the second and never passes this server.
+// vendor (listen_audio), which bills by the second and never passes this server.
 //
 // The body comes from anyone with the URL, so nothing in it is passed through:
 // each event is rebuilt from fields checked against a short list, and a body
@@ -14,7 +14,7 @@ import { record } from './meter.js'
 const PROVIDERS: Record<string, readonly string[]> = {
   bargein: ['level', 'words'],
   first_audio: ['reply', 'narration'],
-  listen: ['deepgram'],
+  listen_audio: ['deepgram'],
 }
 
 export const MAX_EVENTS = 50
@@ -31,7 +31,7 @@ function event(raw: unknown, client: 'web' | 'phone'): MeterEvent | null {
   const e: MeterEvent = { port: port as MeterEvent['port'], provider, client, ms: Math.round(ms), ok }
   if (units === undefined) return e
   const seconds = (units as { seconds?: unknown } | null)?.seconds
-  if (port !== 'listen' || !whole(seconds, MAX_SECONDS) || Object.keys(units as object).length !== 1) return null
+  if (port !== 'listen_audio' || !whole(seconds, MAX_SECONDS) || Object.keys(units as object).length !== 1) return null
   return { ...e, units: { seconds: Math.round(seconds * 10) / 10 } }
 }
 

@@ -23,14 +23,14 @@ describe('client meter events', () => {
       events: [
         { port: 'bargein', provider: 'level', ms: 162.4, ok: false },
         { port: 'first_audio', provider: 'reply', ms: 1400, ok: true },
-        { port: 'listen', provider: 'deepgram', ms: 61_000, ok: true, units: { seconds: 58.08 } },
+        { port: 'listen_audio', provider: 'deepgram', ms: 61_000, ok: true, units: { seconds: 58.08 } },
       ],
     })
     assert.equal(problem, null)
     assert.deepEqual(events, [
       { port: 'bargein', provider: 'level', client: 'web', ms: 162, ok: false },
       { port: 'first_audio', provider: 'reply', client: 'web', ms: 1400, ok: true },
-      { port: 'listen', provider: 'deepgram', client: 'web', ms: 61_000, ok: true, units: { seconds: 58.1 } },
+      { port: 'listen_audio', provider: 'deepgram', client: 'web', ms: 61_000, ok: true, units: { seconds: 58.1 } },
     ])
   })
 
@@ -51,8 +51,8 @@ describe('client meter events', () => {
       { ...ok, ms: '300' },
       { ...ok, ok: 'yes' },
       { ...ok, units: { seconds: 3 } }, // seconds only on listen
-      { port: 'listen', provider: 'deepgram', ms: 1000, ok: true, units: { seconds: 1, chars: 5 } },
-      { port: 'listen', provider: 'deepgram', ms: 1000, ok: true, units: { seconds: 99_999 } },
+      { port: 'listen_audio', provider: 'deepgram', ms: 1000, ok: true, units: { seconds: 1, chars: 5 } },
+      { port: 'listen_audio', provider: 'deepgram', ms: 1000, ok: true, units: { seconds: 99_999 } },
       null,
     ]
     for (const e of bad) assert.equal(recordClientEvents({ events: [ok, e] })?.status, 400, JSON.stringify(e))

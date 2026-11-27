@@ -94,7 +94,8 @@ export class BargeInGate {
         this._held = true
         this.heldAt = now
         this.sawWords = false
-        this.pending = { path: 'level', ms: now - (this.runStart ?? now), real: true }
+        // a words-path stop already reported this utterance; the level catching up is the same barge-in
+        this.pending = this.measured ? null : { path: 'level', ms: now - (this.runStart ?? now), real: true }
         this.onHold()
       } else {
         return

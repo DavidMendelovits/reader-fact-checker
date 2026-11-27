@@ -267,5 +267,18 @@ describe('BargeInGate measurements', () => {
     g.wordsHold()
     assert.deepEqual(seen.map((m) => [m.path, m.real]), [['level', false], ['words', true]])
   })
+
+  it('a words-path stop the level then catches up with is one barge-in', () => {
+    const { c, g, seen } = measured()
+    g.level(0.4, true)
+    g.level(0.1, true)
+    c.advance(300)
+    g.wordsHold() // stopped on the transcript; narration stays "playing" through the hold
+    g.level(0.5, true)
+    g.level(0.5, true) // louder now: the level fires too
+    g.words()
+    g.utteranceDone()
+    assert.deepEqual(seen.map((m) => m.path), ['words'])
+  })
 })
 

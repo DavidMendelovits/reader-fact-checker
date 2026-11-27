@@ -102,7 +102,7 @@ export interface AgentDeps<A extends { kind: string }> {
   client?: 'web' | 'phone'
   /** The web's earcon: going to the model costs a round-trip of silence. */
   blip?(): void
-  /** What the user said went to the model: the web times its first sound from here. */
+  /** What the user said went to the model, after any interruption it made: the web times its first sound from here. */
   handedOff?(): void
   newId(): string
   now(): number
@@ -766,15 +766,16 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
     // knows they were heard — but not over the agent's own reply, where the voice
     // stopping mid-word is already the acknowledgment.
     if (state.agentState() !== 'speaking') deps.blip?.()
-    deps.handedOff?.()
 
     if (running) {
       // the interruption itself: instant, before anything is decided; resolves any
       // in-flight read_aloud as 'stopped'. convertHold() may already have done it.
       if (!paused) player.pause()
+      deps.handedOff?.()
       void decideWhileRunning(trimmed)
       return chatId
     }
+    deps.handedOff?.()
     void decideThenLoop(trimmed)
     return chatId
   }

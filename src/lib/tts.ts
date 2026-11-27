@@ -399,6 +399,11 @@ export class TtsPlayer {
     for (const aside of this.asides.splice(0)) aside.done('missed')
   }
 
+  /** Audio is coming out of the speaker right now. */
+  get sounding(): boolean {
+    return !this.audio.paused
+  }
+
   pause() {
     this.dropAsides()
     this.session++ // cancels the loop
