@@ -14,6 +14,7 @@ import { startParagraph } from '../../shared/library/start.ts'
 import { candidateLine, recommend, type Candidate } from '../../shared/library/recommend.ts'
 import type { LibraryDoc } from '../../shared/library/types.ts'
 import { fetchChapters, library } from './library'
+import { READWISE } from './readwiseHighlights'
 import { loadLibrary, switchTo, type LibraryEntry } from './persist'
 
 /** One thing the reader could open: a Readwise document or a document saved in this browser. */
@@ -24,7 +25,6 @@ interface Item extends Candidate {
   entry?: LibraryEntry
 }
 
-const READWISE = 'readwise:'
 const paragraphCount = (doc: Doc) => doc.chapters.reduce((n, c) => n + c.paragraphs.length, 0)
 
 /** A short stable handle for a saved document: its own id is a URL or a file name. */

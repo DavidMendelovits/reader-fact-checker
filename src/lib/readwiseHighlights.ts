@@ -17,10 +17,14 @@ export const READWISE = 'readwise:'
 const DELETES_KEY = 'rfc-readwise-deletes'
 /** A removal queue longer than this means something is stuck; the oldest go. */
 const MAX_QUEUED = 200
+/** Readwise's longest highlight; /api/library refuses more. */
+const MAX_TEXT = 8191
 
 /** Mark a new highlight for Readwise: only on a Reader document, and only with a token saved. */
 export function forReadwise(h: Highlight, parts: string[], docId: string | undefined, hasToken: boolean): Highlight {
   if (!docId?.startsWith(READWISE) || !hasToken) return h
+  // ponytail: past Readwise's cap a highlight could never land, so it stays here rather than retrying forever
+  if ((parts.length ? parts : [h.text]).some((p) => p.length > MAX_TEXT)) return h
   return { ...h, pending: true, parts: parts.length > 1 ? parts : undefined }
 }
 
@@ -36,8 +40,8 @@ export interface SyncDeps {
   getState(): Snapshot
   subscribe(listener: (s: Snapshot, prev: Snapshot) => void): void
   setHighlights(hs: Highlight[]): void
-  /** Change a saved, closed document's highlights. */
-  patchSaved(docId: string, change: (hs: Highlight[]) => Highlight[]): void
+  /** Change a saved, closed document's highlights. False when no entry is saved for it. */
+  patchSaved(docId: string, change: (hs: Highlight[]) => Highlight[]): boolean
   hasToken(): boolean
   libraryDoc(readerId: string): LibraryDoc | undefined
   create(doc: LibraryDoc, h: { text: string; note?: string; location: number }): Promise<string>
@@ -111,10 +115,13 @@ export class HighlightSync {
         return { ...h, ...fields }
       })
     const { doc, highlights } = this.deps.getState()
-    if (doc?.id === docId) this.deps.setHighlights(change(highlights))
-    else this.deps.patchSaved(docId, change)
-    // a saved entry evicted for space counts as removed, but its runs stay: there's no record left to undo them by
-    return found || doc?.id !== docId
+    if (doc?.id === docId) {
+      this.deps.setHighlights(change(highlights))
+      return found
+    }
+    // a saved entry evicted for space keeps its runs: there's no record left to undo them by
+    const saved = this.deps.patchSaved(docId, change) // runs `change`, which sets `found`
+    return found || !saved
   }
 
   private readQueue(): string[] {

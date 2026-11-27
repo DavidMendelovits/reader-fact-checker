@@ -30,7 +30,11 @@ function setup(opts: { fail?: (text: string) => boolean; removeFails?: boolean; 
     getState: () => state,
     subscribe: (l) => void listeners.push(l),
     setHighlights: (highlights) => set({ highlights }),
-    patchSaved: (id, change) => saved.set(id, change(saved.get(id) ?? [])),
+    patchSaved: (id, change) => {
+      if (!saved.has(id)) return false
+      saved.set(id, change(saved.get(id)!))
+      return true
+    },
     hasToken: () => true,
     libraryDoc: (id) => (opts.inLibrary === false || id !== 'r1' ? undefined : reader),
     create: vi.fn(async (_d, h) => {
@@ -72,6 +76,7 @@ describe('forReadwise', () => {
     expect(forReadwise(h, ['a', 'b'], 'readwise:r1', true).parts).toEqual(['a', 'b'])
     expect(forReadwise(h, ['a'], 'url:https://x', true)).toBe(h)
     expect(forReadwise(h, ['a'], 'readwise:r1', false)).toBe(h)
+    expect(forReadwise(h, ['x'.repeat(8192)], 'readwise:r1', true)).toBe(h) // could never land
   })
 })
 
@@ -161,6 +166,20 @@ describe('HighlightSync', () => {
     await running
     expect(t.saved.get('readwise:r1')?.[0]).toMatchObject({ remoteIds: ['1'], pending: undefined })
     expect(t.removed).toEqual([])
+  })
+
+  it('a highlight removed mid-write, then a switch to another book, still comes back out', async () => {
+    const t = setup()
+    const { started, release } = hold(t.deps)
+    t.add(hl('a', { pending: true }))
+    const running = t.sync.sync()
+    await started
+    t.drop('a')
+    t.saved.set('readwise:r1', []) // what saveNow wrote on the switch
+    t.set({ doc: doc('url:https://elsewhere'), highlights: [] })
+    release()
+    await running
+    expect(t.removed).toEqual(['1'])
   })
 
   it('a document missing from the cached library keeps its highlights pending', async () => {

@@ -95,7 +95,7 @@ export async function libraryRequest(body: unknown, token: string | null): Promi
         if (location !== undefined && !(Number.isSafeInteger(location) && (location as number) >= 0)) throw new LibraryError('bad location', 400)
         return await lib.createHighlight({
           // the adapter reads only these four; the rest of LibraryDoc is the phone's
-          doc: { ...highlightDoc(req.doc) } as LibraryDoc,
+          doc: highlightDoc(req.doc) as LibraryDoc,
           text: text(req.text, 8191, 'text'),
           note: req.note == null || req.note === '' ? undefined : text(req.note, 8191, 'note'),
           location: location as number | undefined,
