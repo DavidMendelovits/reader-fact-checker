@@ -1,8 +1,8 @@
 // What each client adds to the shared agent: the library tools it runs on the
 // device, and the guidance for them. The server picks the kit by the client's
 // name, so no request can add its own instructions or tools to the prompt.
-// Both clients import their kit from here too, so the tools a client runs and
-// the tools the model is offered can't drift apart.
+// Each client keeps its own handlers for these tools; clients.test.ts checks
+// that every tool offered here has one.
 //
 // Data only, no imports: the server function loads this file on its own.
 

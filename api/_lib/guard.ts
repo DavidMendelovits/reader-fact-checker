@@ -18,7 +18,7 @@ export const LIMITS: Record<Route, { perMinute: number; maxChars: number }> = {
   claims: { perMinute: 60, maxChars: 80_000 }, // one ~2,000-word section
   tts: { perMinute: 180, maxChars: 16_000 }, // one paragraph; speech.ts cuts the text at 12k itself
   fetch: { perMinute: 30, maxChars: 4_000 }, // the URL
-  navigate: { perMinute: 240, maxChars: 20_000 }, // asked on partial transcripts
+  navigate: { perMinute: 240, maxChars: 100_000 }, // asked on partial transcripts; carries every chapter title
   library: { perMinute: 120, maxChars: 100_000 },
 }
 

@@ -174,9 +174,8 @@ describe('/api/fetch', () => {
 
 // transient = retry; anything else fails the same way twice
 describe('isTransient', () => {
-  it('retries overload, rate limits, server errors and requests that never left', () => {
+  it('retries overload, server errors and requests that never left', () => {
     assert.equal(isTransient(new ApiError('overloaded', 529)), true)
-    assert.equal(isTransient(new ApiError('rate limited', 429)), true)
     assert.equal(isTransient(new ApiError('server error', 500)), true)
     assert.equal(isTransient(new TypeError('fetch failed')), true) // request never left
   })
@@ -184,6 +183,7 @@ describe('isTransient', () => {
   it('does not retry anything that would fail the same way twice', () => {
     assert.equal(isTransient(new ApiError('bad request', 400)), false)
     assert.equal(isTransient(new ApiError('not found', 404)), false)
+    assert.equal(isTransient(new ApiError('our own per-minute limit', 429)), false) // a retry only counts against it again
     assert.equal(isTransient(new Error('anything else')), false)
   })
 })

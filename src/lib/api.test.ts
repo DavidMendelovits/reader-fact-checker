@@ -77,4 +77,15 @@ describe('apiFetch and the access code', () => {
     await apiFetch('/api/tts', { method: 'POST' })
     assert.deepEqual(sent, [null])
   })
+
+  it('still works, and asks again next time, when the browser blocks storage', async () => {
+    server('sesame')
+    const blocked = () => { throw new Error('storage blocked') }
+    vi.stubGlobal('localStorage', { getItem: blocked, setItem: blocked, removeItem: blocked })
+    const prompt = vi.fn(() => 'sesame')
+    vi.stubGlobal('window', { prompt })
+    assert.equal((await apiFetch('/api/agent')).status, 200)
+    assert.equal((await apiFetch('/api/agent')).status, 200, 'not stuck on the first prompt')
+    assert.equal(prompt.mock.calls.length, 2)
+  })
 })

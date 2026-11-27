@@ -259,7 +259,7 @@ async function speakTurn(messages: Msg[], context: unknown, extras: Record<strin
   }
 
   try {
-    // Retried on transient failures (429/5xx/network): one 529 must not end the
+    // Retried on transient failures (5xx/network): one 529 must not end the
     // conversation. Only while nothing has been spoken yet — a stream that dies
     // mid-sentence has already been heard, and a replay would say it twice.
     for (let attempt = 0; ; attempt++) {
@@ -346,6 +346,7 @@ const agent = createAgent<NavAction>({
   // the last, until the server's size cap refused it (api/_lib/guard.ts).
   trimAbove: 60,
   trimTo: 40,
+  trimChars: 300_000, // the agent route takes 400k with the context beside it
 })
 
 // The next document change keeps the conversation: a switch the agent made

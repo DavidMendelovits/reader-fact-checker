@@ -86,12 +86,13 @@ function vetted(url: string, base?: string): URL {
 
 export async function fetchArticle(url: string): Promise<{ html: string; finalUrl: string }> {
   let target = vetted(url)
+  const signal = AbortSignal.timeout(20_000) // the whole chain, under the route's 30 s limit
   // Follow redirects by hand, so each hop is vetted before a request goes to it.
   for (let hop = 0; ; hop++) {
     const upstream = await fetch(target, {
       headers: { 'User-Agent': 'Mozilla/5.0 (reader-fact-checker POC)' },
       redirect: 'manual',
-      signal: AbortSignal.timeout(20_000), // a hung origin must not hold the function open
+      signal, // a hung origin must not hold the function open
     })
     const location = upstream.headers.get('location')
     if (upstream.status >= 300 && upstream.status < 400 && location) {

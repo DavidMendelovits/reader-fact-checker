@@ -422,6 +422,7 @@ const agent = createAgent<NavAction>({
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
   trimAbove: TRIM_ABOVE,
   trimTo: TRIM_TO,
+  trimChars: 300_000, // the agent route takes 400k with the context beside it
 })
 
 // Every utterance — spoken or typed — enters the loop here, so this is where a
