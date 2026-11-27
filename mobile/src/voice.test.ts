@@ -6,7 +6,7 @@
 // narration keeps its other half, and a recognizer dying on arrival three times
 // turns the mic off instead of respawning forever.
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
+import { onTestFinished, test } from 'vitest'
 import { VoiceListener } from './voice.ts'
 
 type Rec = {
@@ -27,6 +27,7 @@ const tick = async () => {
 async function listener() {
   rec.reset()
   const l = new VoiceListener()
+  onTestFinished(() => l.stop()) // a failed test leaves no restart timer for the next one
   await l.start()
   await tick()
   assert.deepEqual(rec.calls, ['start'])

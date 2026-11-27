@@ -5,7 +5,7 @@
 // AsyncStorage and the keychain are in-memory maps (test/stubs), read here
 // through globalThis.
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
+import { onTestFinished, test } from 'vitest'
 import { loadSettings, saveToken, clearToken, shouldSayHello } from './settings.ts'
 const async = (globalThis as any).__async as Map<string, string>
 const secure = (globalThis as any).__secure as Map<string, string>
@@ -66,8 +66,10 @@ test('a keychain that throws signs nobody out: the old token still loads, and st
   async.set('readwise-token', 'tok-kept')
   secure.clear()
   ;(globalThis as any).__secureFails = true
+  onTestFinished(() => {
+    ;(globalThis as any).__secureFails = false
+  })
   const loaded = await loadSettings()
-  ;(globalThis as any).__secureFails = false
   assert.equal(loaded.token, 'tok-kept', 'the reader is signed in from the store that still works')
   assert.equal(async.get('readwise-token'), 'tok-kept', 'and nothing was removed')
   assert.equal(secure.has('readwise-token'), false)

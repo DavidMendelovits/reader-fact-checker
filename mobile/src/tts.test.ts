@@ -5,7 +5,7 @@
 // paragraph from its start, a pause during a hold is the real interruption, and
 // an engine that swallows an utterance is retried once and then reported.
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
+import { onTestFinished, test } from 'vitest'
 import { Player, SystemVoice, START_TIMEOUT_MS } from './tts.ts'
 
 /** hold()'s stop timeout, as tts.ts sets it. */
@@ -59,6 +59,7 @@ class FakeVoice implements VoiceEngine {
 
 function player(engine: VoiceEngine, paragraphs: string[]) {
   const p = new Player()
+  onTestFinished(() => p.pause()) // a failed test leaves no watchdog running
   p.setEngine(engine)
   p.setParagraphs(paragraphs)
   return p
