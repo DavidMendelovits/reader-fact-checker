@@ -31,14 +31,16 @@
   "devDependencies": {
     "@types/react": "~19.2.2",
     "playwright-core": "^1.52.0",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vitest": "^5.1.2"
   },
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "check": "node ../scripts/test.mjs src && npx tsc --noEmit -p .",
+    "check": "tsc --noEmit -p . && vitest run",
+    "test": "vitest",
     "smoke:web": "node smoke/run.mjs"
   },
   "private": true

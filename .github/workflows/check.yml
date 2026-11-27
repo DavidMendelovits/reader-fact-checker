@@ -47,4 +47,4 @@ jobs:
       - if: steps.modules.outputs.cache-hit != 'true'
         run: npm ci
       - run: npx tsc --noEmit -p .
-      - run: node ../scripts/test.mjs src
+      - run: npx vitest run

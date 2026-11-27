@@ -51,7 +51,7 @@ The voice is a choice. The OS voice (`expo-speech`) works out of the box. In set
 ```bash
 cd mobile
 npm install
-npm run check      # shared voice, data layer, layout, tts, voice, theme, under node + tsc
+npm run check      # tsc, then the phone's Vitest tests (data layer, layout, tts, voice, theme, settings)
 npm run smoke:web  # the whole app in a headless browser, against a fake Reader and a scripted model
 npx expo run:ios   # dev build — speech recognition and Kokoro are native modules, so Expo Go won't do
 ```
@@ -66,7 +66,7 @@ Known gaps, in the order they'll matter: no lock-screen controls yet (background
 
 ```bash
 npm run check                    # root: shared/voice, web, api checks + tsc
-cd mobile && npm run check       # shared voice, data layer, theme, layout, tts, voice, settings + tsc
+cd mobile && npm run check       # tsc, then the phone's Vitest tests
 cd mobile && npm run smoke:web   # the whole app in a headless browser
 ```
 
@@ -113,7 +113,7 @@ npm run check   # typecheck, then every test once
 npm test        # watch mode
 ```
 
-Tests run on [Vitest](https://vitest.dev). Every vendor is mocked at its port (`api/_lib/ports.ts`, swapped with `override()` in `api/_lib/providers.ts`) or with `vi.fn`, so the suite needs no keys and runs in a few seconds. A setup file (`test/no-network.ts`) fails any socket that leaves the machine, so a test that forgets a mock fails instead of calling a vendor. The phone app's checks run with `npm run check` in `mobile/`.
+Tests run on [Vitest](https://vitest.dev). Every vendor is mocked at its port (`api/_lib/ports.ts`, swapped with `override()` in `api/_lib/providers.ts`) or with `vi.fn`, so the suite needs no keys and runs in a few seconds. A setup file (`test/no-network.ts`) fails any socket that leaves the machine, so a test that forgets a mock fails instead of calling a vendor. The phone app's tests run the same way from `mobile/` (`npm run check`, `npm test`), with native modules swapped for the small stubs in `mobile/test/stubs` and the same no-network guard.
 
 ### End-to-end test environment
 

@@ -1,27 +1,10 @@
-// Self-check for the design tokens. Run it with:
-//
-//   node --experimental-strip-types src/theme.check.ts
-//
+// Tests for the two themes' contrast.
 // A theme is only a theme if its text is readable on every surface it lands on,
 // in both palettes. WCAG 2.1: 4.5:1 for body text, 3:1 for meta text. The washes
 // are translucent, so each is composited over the canvas before it is measured.
 import assert from 'node:assert/strict'
-import { registerHooks } from 'node:module'
-
-// theme.ts imports react-native (and, through settings.ts, AsyncStorage), whose
-// Flow sources node cannot parse. Only the token values matter here.
-const RN = 'data:text/javascript,export const Platform={OS:"ios",select:(o)=>o.ios??o.default};export const useColorScheme=()=>"light";'
-const EMPTY = 'data:text/javascript,export default {};'
-registerHooks({
-  resolve(spec, ctx, next) {
-    if (spec === 'react-native') return { url: RN, shortCircuit: true }
-    if (spec.includes('async-storage')) return { url: EMPTY, shortCircuit: true }
-    if (spec === 'expo-secure-store') return { url: EMPTY, shortCircuit: true }
-    return next(spec, ctx)
-  },
-})
-
-const { Ink, Paper } = await import('./theme.ts')
+import { test } from 'vitest'
+import { Ink, Paper } from './theme.ts'
 type Theme = typeof Paper
 
 /** #rgb, #rrggbb or #rrggbbaa → [r, g, b, alpha 0..1]. */
@@ -53,10 +36,11 @@ function contrast(fg: string, bg: string): number {
   return (a + 0.05) / (b + 0.05)
 }
 
-// sanity: the two ends of the scale
-assert.equal(Math.round(contrast('#ffffff', '#000000')), 21)
-assert.equal(contrast('#888888', '#888888'), 1)
-assert.equal(over('#ffffff80', '#000000'), '#808080')
+test('the contrast maths: the two ends of the scale', () => {
+  assert.equal(Math.round(contrast('#ffffff', '#000000')), 21)
+  assert.equal(contrast('#888888', '#888888'), 1)
+  assert.equal(over('#ffffff80', '#000000'), '#808080')
+})
 
 function check(theme: Theme) {
   const on: [string, string][] = [
@@ -83,6 +67,5 @@ function check(theme: Theme) {
   for (const c of [...theme.auroraUser, ...theme.auroraAgent]) assert.match(c, /^#[0-9a-f]{6}$/)
 }
 
-check(Paper)
-check(Ink)
-console.log('theme: contrast ok (Paper, Ink)')
+test('Paper is readable on every surface', () => check(Paper))
+test('Ink is readable on every surface', () => check(Ink))

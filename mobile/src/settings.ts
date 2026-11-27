@@ -3,8 +3,6 @@
 // nothing secret ever ships in this bundle.
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Platform } from 'react-native'
-// Namespace import, not named: theme.check.ts stubs this module in plain node,
-// and a named import of a stub with no such export is a link-time error.
 import * as SecureStore from 'expo-secure-store'
 
 export const DEFAULT_API_BASE = process.env.EXPO_PUBLIC_API_BASE ?? 'https://reader-fact-checker.vercel.app'
