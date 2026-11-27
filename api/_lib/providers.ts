@@ -63,8 +63,7 @@ const registry = {
   speech: {
     openai: () => openaiSpeech({ model: 'gpt-4o-mini-tts', voice: process.env.OPENAI_TTS_VOICE ?? 'nova' }),
     unreal: () => unrealSpeech({ voice: process.env.UNREAL_SPEECH_VOICE ?? 'Sierra' }),
-    elevenlabs: () =>
-      elevenlabsSpeech({ voiceId: process.env.ELEVENLABS_VOICE_ID ?? '', model: process.env.ELEVENLABS_MODEL ?? 'eleven_v4_turbo' }),
+    elevenlabs: () => elevenlabsSpeech({}),
     fake: fakeSpeech,
   } as Record<string, Factory<SpeechSynthesizer>>,
   decider: {
@@ -93,9 +92,16 @@ function pick<K extends keyof typeof registry>(port: K, name: string): ReturnTyp
 
 const env = (name: string) => process.env[name]?.trim().toLowerCase() || undefined
 
+const isSet = (name: string) => Boolean(process.env[name]?.trim())
+let warnedHalfEleven = false
+
 function speechProvider(): string {
-  const eleven = process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_VOICE_ID
-  return env('TTS_PROVIDER') ?? (eleven ? 'elevenlabs' : process.env.UNREAL_SPEECH_API_KEY ? 'unreal' : 'openai')
+  const [key, voice] = [isSet('ELEVENLABS_API_KEY'), isSet('ELEVENLABS_VOICE_ID')]
+  if (key !== voice && !warnedHalfEleven) {
+    warnedHalfEleven = true
+    console.warn(`[speech] ElevenLabs needs both ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID; ${key ? 'the voice id' : 'the key'} is missing, so speech stays on the next vendor`)
+  }
+  return env('TTS_PROVIDER') ?? (key && voice ? 'elevenlabs' : isSet('UNREAL_SPEECH_API_KEY') ? 'unreal' : 'openai')
 }
 
 function deciderProvider(): string | null {
