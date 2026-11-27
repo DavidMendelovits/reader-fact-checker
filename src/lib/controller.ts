@@ -9,6 +9,7 @@ import { announce, beginUtterance, falseStart, openingTurn, say, sayInterim } fr
 import { startMicMeter, stopMicMeter } from './audio-levels'
 import { checkPassage, completeField, extractClaims } from './factcheck'
 import { mapLimit } from './maplimit'
+import { clientMeter, firstAudio } from './clientMeter'
 import type { FactCheckJob, Highlight } from '../types'
 
 let jobCounter = 0
@@ -62,6 +63,11 @@ tts.onPlayingChange = (playing) => {
   voice.setPlaying(playing) // the level gate only fires during narration (3.2A)
 }
 tts.onEnded = () => useStore.setState({ playing: false })
+// the first sound after a turn went to the model, timed for the meter
+tts.onAudioStart = (kind) => {
+  const e = firstAudio.audio(kind)
+  if (e) clientMeter.record(e)
+}
 // The agent's replies used to mute the mic outright, plus a 1200ms tail to cover the
 // late final. Both are gone: the mute made barging in over a reply impossible, and
 // the tail ate the first words of anyone who answered the moment it stopped. The
@@ -82,6 +88,7 @@ voice.onSpeechStart = () => beginUtterance()
 voice.onFalseStart = () => falseStart()
 voice.getSpokenText = () => tts.speaking
 voice.getRecentSpokenText = () => tts.recentlySpoken
+voice.onMeasure = (e) => clientMeter.record(e)
 voice.onError = (msg) => {
   useStore.setState({ micEnabled: false, notice: msg })
 }

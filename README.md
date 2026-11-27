@@ -197,6 +197,8 @@ api/_lib/providers.ts      composition root: env → adapter, memoized; override
                            for tests
 api/_lib/meter.ts          wraps every port: time, first text, billed units and
                            cost per call, one `[meter] {...}` log line each
+api/_lib/clientMeter.ts    /api/meter: the browser's own timings, checked and
+                           logged as `[meter]` lines with `client: "web"`
 api/_lib/agent.ts          the companion's prompt, tools, and turn use-case
 api/_lib/factcheck.ts      verdict prompt, schema, parsing
 api/_lib/claims.ts         claim extraction for the whole-document scan
@@ -270,6 +272,17 @@ provider, model, `ms`, `firstMs` (time to first text), units (tokens, or charact
 speech) and `cost` in dollars where `PRICES` in `meter.ts` knows the model. Tokens
 and cost come from conversation turns only for now; claims and fact checks log time.
 For speech, `ok` means the audio started, not that the stream finished.
+
+The web app adds three lines of its own, sent to `/api/meter` about every half
+minute and when the tab closes, each marked `client: "web"`:
+
+- `bargein`: `ms` from the first loud mic report to the narration stopping, with
+  `provider` `level` (the mic level fired) or `words` (the transcript did), and `ok`
+  false for a false start (a cough, a door).
+- `first_audio`: `ms` from a turn going to the model to the first sound back,
+  `provider` `reply` or `narration`.
+- `listen`: one per Deepgram stream, `ms` it was open and `units.seconds` of audio
+  sent, which is what Flux bills.
 
 One caveat on the conversation port: the transcript is persisted in the app's block
 vocabulary (`text`, `tool_use`, `tool_result`) plus any vendor-specific blocks the

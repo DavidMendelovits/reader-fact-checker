@@ -146,6 +146,22 @@ function apiRoutes(): Plugin {
         }
       })
 
+      server.middlewares.use('/api/meter', async (req, res) => {
+        if (req.method !== 'POST') return json(res, 405, { error: 'POST only' })
+        let body: unknown
+        try {
+          const raw = await readBody(req)
+          if (!admitted('meter', req, res, raw.length)) return
+          body = JSON.parse(raw)
+        } catch {
+          return json(res, 400, { error: 'JSON body required' })
+        }
+        const problem = impl.recordClientEvents(body)
+        if (problem) return json(res, problem.status, { error: problem.error })
+        res.statusCode = 204
+        res.end()
+      })
+
       server.middlewares.use('/api/tts', async (req, res) => {
         try {
           const raw = await readBody(req)

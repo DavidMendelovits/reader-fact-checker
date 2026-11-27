@@ -20,6 +20,7 @@ function ear(name: string, opts: { available?: () => Promise<boolean | null>; su
     onSpeechStart: () => {},
     onFalseStart: () => {},
     onError: (_: string) => {},
+    onMeasure: (_: unknown) => {},
     getSpokenText: () => '',
     getRecentSpokenText: () => '',
   }

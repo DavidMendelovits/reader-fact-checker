@@ -15,6 +15,7 @@
 
 import { apiFetch } from './api.ts'
 import { audioContext, getMicStream, readLevels, SPEECH_FLOOR } from './audio-levels.ts'
+import type { ClientEvent } from './clientMeter.ts'
 import type { Transcriber } from './ports.ts'
 import { confident, countWords, MIN_INTERIM_WORDS } from './voice.ts'
 import { BargeInGate } from '../../shared/voice/bargeIn.ts'
@@ -91,6 +92,7 @@ export class FluxListener implements Transcriber {
   private gen = 0
   private failures = 0
   private openedAt = 0
+  private sentFrames = 0 // on the open stream, for the meter: Flux bills the audio by the second
   private ws: WebSocket | null = null
   private retry: ReturnType<typeof setTimeout> | null = null
   private meter: ReturnType<typeof setInterval> | null = null
@@ -114,6 +116,7 @@ export class FluxListener implements Transcriber {
   onSpeechStart: () => void = () => {}
   onFalseStart: () => void = () => {}
   onError: (msg: string) => void = () => {}
+  onMeasure: (e: ClientEvent) => void = () => {}
   getSpokenText: () => string = () => ''
   getRecentSpokenText: () => string = () => ''
 
@@ -126,6 +129,7 @@ export class FluxListener implements Transcriber {
       this.talking = false
       this.onFalseStart()
     }
+    this.barge.onMeasure = (m) => this.onMeasure({ port: 'bargein', provider: m.path, ms: m.ms, ok: m.real })
   }
 
   /**
@@ -223,6 +227,7 @@ export class FluxListener implements Transcriber {
     this.barge.words()
     if (!this.talking && countWords(text) >= MIN_INTERIM_WORDS) {
       this.talking = true
+      this.barge.wordsHold()
       this.onSpeechStart()
     }
     this.onInterim(text)
@@ -234,7 +239,10 @@ export class FluxListener implements Transcriber {
     const ws = this.ws
     const open = ws?.readyState === WebSocket.OPEN
     this.framer.push(toInt16(this.resampler.push(samples)), (frame) => {
-      if (open) return ws!.send(frame)
+      if (open) {
+        this.sentFrames++
+        return ws!.send(frame)
+      }
       this.held.push(frame)
       if (this.held.length > MAX_HELD_FRAMES) this.held.shift()
     })
@@ -298,6 +306,7 @@ export class FluxListener implements Transcriber {
     ws.onopen = () => {
       if (this.ws !== ws) return
       this.openedAt = Date.now()
+      this.sentFrames = this.held.length
       for (const frame of this.held) ws.send(frame)
       this.held = []
     }
@@ -316,10 +325,20 @@ export class FluxListener implements Transcriber {
       this.ws = null
       this.endTurn()
       if (this.openedAt && Date.now() - this.openedAt >= HEALTHY_MS) this.failures = 0
-      this.openedAt = 0
+      this.streamed(e.code === 1000)
       if (!this.running || this.userMuted) return // unmuting reconnects
       this.failed(gen, new Error(`stream closed (${e.code})`))
     }
+  }
+
+  /** The open stream is over: report how long it ran and the audio it carried. */
+  private streamed(ok: boolean) {
+    if (this.openedAt) {
+      const seconds = (this.sentFrames * FRAME_SAMPLES) / SAMPLE_RATE
+      this.onMeasure({ port: 'listen', provider: 'deepgram', ms: Date.now() - this.openedAt, ok, units: { seconds } })
+    }
+    this.openedAt = 0
+    this.sentFrames = 0
   }
 
   private failed(gen: number, e: unknown) {
@@ -344,6 +363,7 @@ export class FluxListener implements Transcriber {
     const ws = this.ws
     this.ws = null
     if (!ws) return
+    this.streamed(true)
     // CloseStream has Flux finish the audio it holds; this listener is done with it either way.
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'CloseStream' }))
     ws.close()

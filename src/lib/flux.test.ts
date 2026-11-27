@@ -299,4 +299,44 @@ describe('FluxListener stream', () => {
     assert.equal(FakeSocket.all.length, 2)
     l.stop()
   })
+
+  it('reports each stream\'s seconds of audio when it ends, cleanly or not', async () => {
+    const l = listener()
+    const seen: { port: string; ok: boolean; units?: { seconds: number } }[] = []
+    l.onMeasure = (e) => seen.push(e as never)
+    await l.start()
+    await tick()
+    l.audio(new Float32Array(3840)) // held while opening, sent on open
+    FakeSocket.all[0].open()
+    for (let i = 0; i < 9; i++) l.audio(new Float32Array(3840))
+    FakeSocket.all[0].drop(1011)
+    assert.deepEqual(seen.map((e) => [e.port, e.ok, e.units?.seconds]), [['listen', false, 0.8]])
+    await delay(600) // reconnects
+    FakeSocket.all[1].open()
+    l.audio(new Float32Array(3840))
+    l.stop()
+    assert.deepEqual(seen.map((e) => [e.ok, e.units?.seconds]), [[false, 0.8], [true, 0.08]])
+    l.stop()
+    assert.equal(seen.length, 2, 'a stream is reported once')
+  })
+})
+
+describe('FluxListener barge-in measurements', () => {
+  it('reports a level hold that words followed, and a words-path stop timed from the loud run', () => {
+    const l = listener()
+    const seen: unknown[] = []
+    l.onMeasure = (e) => seen.push({ port: e.port, provider: e.provider, ok: e.ok })
+    l.setPlaying(true)
+    l.level(0.4)
+    l.level(0.4)
+    l.handle(turn('Update', 'hold on'))
+    l.handle(turn('EndOfTurn', 'hold on'))
+    l.level(0.4) // one loud report: no hold
+    l.level(0.01)
+    l.handle(turn('Update', 'go back a bit'))
+    assert.deepEqual(seen, [
+      { port: 'bargein', provider: 'level', ok: true },
+      { port: 'bargein', provider: 'words', ok: true },
+    ])
+  })
 })

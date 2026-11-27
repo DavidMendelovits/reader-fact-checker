@@ -5,6 +5,7 @@
 //
 // The app sets its handlers on this object once (controller.ts); both ears call
 // back through it, so the choice can be made late.
+import type { ClientEvent } from './clientMeter.ts'
 import type { Transcriber } from './ports.ts'
 
 /** A Transcriber that can say whether it is usable here: yes, no, or null for couldn't tell just now. */
@@ -21,6 +22,7 @@ export class FirstAvailable implements Transcriber {
   onSpeechStart: () => void = () => {}
   onFalseStart: () => void = () => {}
   onError: (msg: string) => void = () => {}
+  onMeasure: (e: ClientEvent) => void = () => {}
   getSpokenText: () => string = () => ''
   getRecentSpokenText: () => string = () => ''
 
@@ -34,6 +36,7 @@ export class FirstAvailable implements Transcriber {
       t.onSpeechStart = () => this.onSpeechStart()
       t.onFalseStart = () => this.onFalseStart()
       t.onError = (m) => this.onError(m)
+      t.onMeasure = (e) => this.onMeasure(e)
       t.getSpokenText = () => this.getSpokenText()
       t.getRecentSpokenText = () => this.getRecentSpokenText()
     }

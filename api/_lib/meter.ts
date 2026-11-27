@@ -59,6 +59,11 @@ export function useMeter(m: Meter | null) {
   sink = m ?? logMeter
 }
 
+/** One event straight to the sink, for what isn't a call through a port (clientMeter.ts). */
+export function record(e: MeterEvent) {
+  sink.record(e)
+}
+
 /**
  * Time a call and record it once, whether it lands or throws. The record is made
  * outside the try, so the meter never turns a call that worked into a failure.
@@ -122,9 +127,8 @@ export function meteredDecider(m: Decider): Decider {
   return { name: m.name, decide: (state, questions) => timed({ port: 'decider', provider: m.name }, () => m.decide(state, questions)) }
 }
 
-// ponytail: this times the grant only. The audio itself streams from the browser
-// to the vendor, so its minutes never pass the server; a client meter event is
-// the way to count them.
+// This times the grant only. The audio itself streams from the browser to the
+// vendor, so the browser reports its seconds (clientMeter.ts).
 export function meteredListen(m: SpeechRecognizer): SpeechRecognizer {
   return { name: m.name, grant: () => timed({ port: 'listen', provider: m.name }, () => m.grant()) }
 }

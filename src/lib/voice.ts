@@ -13,6 +13,7 @@
 
 // extension-explicit so this file can run under node --experimental-strip-types
 import { getMicStream, readLevels, SPEECH_FLOOR } from './audio-levels.ts'
+import type { ClientEvent } from './clientMeter.ts'
 import type { Transcriber } from './ports.ts'
 import { BargeInGate } from '../../shared/voice/bargeIn.ts'
 import { isEcho, stripEcho } from '../../shared/voice/echo.ts'
@@ -100,6 +101,7 @@ export class VoiceListener implements Transcriber {
   /** It was a cough: the hold ran its silence out with no words. Resume. */
   onFalseStart: () => void = () => {}
   onError: (msg: string) => void = () => {}
+  onMeasure: (e: ClientEvent) => void = () => {}
   /** Text currently playing through the speakers, for echo rejection. */
   getSpokenText: () => string = () => ''
   /**
@@ -117,6 +119,7 @@ export class VoiceListener implements Transcriber {
       this.talking = false
       this.onFalseStart()
     }
+    this.barge.onMeasure = (m) => this.onMeasure({ port: 'bargein', provider: m.path, ms: m.ms, ok: m.real })
   }
 
   /**
@@ -232,6 +235,7 @@ export class VoiceListener implements Transcriber {
         // real interruption, and there is nothing to convert until the hold is taken.
         if (!this.talking && countWords(partial) >= MIN_INTERIM_WORDS) {
           this.talking = true
+          this.barge.wordsHold()
           this.onSpeechStart()
         }
         this.onInterim(partial)
