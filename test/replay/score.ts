@@ -14,10 +14,12 @@ export type Matcher = number | boolean | string | { re: string } | { gt?: number
  * One acceptable answer to a command. Several in a list mean any one will do,
  * since "jump to the storm" is right as a search or as a read from paragraph 7.
  *   tool    that tool was called, with these arguments
- *   words   the agent answered in words, calling nothing but read_aloud
+ *   words   the agent answered in words, calling nothing but read_aloud; with
+ *           mentions, the words must also hold the answer, so an echo or a
+ *           bare "sure" doesn't count
  *   stop    the agent called nothing, so playback stays stopped
  */
-export type Expectation = { tool: string; args?: Record<string, Matcher> } | { words: true } | { stop: true }
+export type Expectation = { tool: string; args?: Record<string, Matcher> } | { words: true; mentions?: Matcher } | { stop: true }
 
 export interface Command {
   say: string
@@ -45,13 +47,17 @@ const toolUses = (content: Block[]) => content.filter((b): b is ToolUse => b.typ
 /** The best of the command's expectations against what the agent sent back. */
 export function score(command: Command, content: Block[]): Verdict {
   const uses = toolUses(content)
-  const spoke = content.some((b) => b.type === 'text' && typeof b.text === 'string' && b.text.trim() !== '')
+  const words = content
+    .filter((b): b is Extract<Block, { type: 'text' }> => b.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text)
+    .join(' ')
+    .trim()
   let best: Verdict = { tool: false, args: false }
   for (const e of command.expect) {
     let v: Verdict
     if ('words' in e) {
-      const ok = spoke && uses.every((u) => u.name === 'read_aloud')
-      v = { tool: ok, args: ok }
+      const answered = words !== '' && uses.every((u) => u.name === 'read_aloud')
+      v = { tool: answered, args: answered && (e.mentions === undefined || matches(e.mentions, words)) }
     } else if ('stop' in e) {
       v = { tool: uses.length === 0, args: uses.length === 0 }
     } else {

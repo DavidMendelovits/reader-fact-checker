@@ -47,6 +47,9 @@ describe('score', () => {
     assert.ok(score(words, [said('Paragraph 4.'), use('read_aloud')]).args)
     assert.ok(!score(words, [said('Checking.'), use('fact_check', { claim: 'x' })]).args)
     assert.ok(!score(words, [said('  ')]).args)
+    const answer: Command = { say: 'what does paraffin mean', expect: [{ words: true, mentions: { re: 'fuel|oil' } }] }
+    assert.deepEqual(score(answer, [said('It is a lamp oil.'), use('read_aloud')]), { tool: true, args: true })
+    assert.deepEqual(score(answer, [said('You said: what does paraffin mean.')]), { tool: true, args: false }, 'an echo is not an answer')
     const stop: Command = { say: 'stop', expect: [{ stop: true }] }
     assert.ok(score(stop, []).args && score(stop, [said('Okay.')]).args)
     assert.ok(!score(stop, [use('read_aloud')]).tool)

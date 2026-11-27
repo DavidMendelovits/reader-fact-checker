@@ -56,6 +56,7 @@ export async function runReplay(opts: Options): Promise<{ row: Row; misses: Miss
   const replyText: number[] = []
   const turns: number[] = []
   const reading: number[] = []
+  const count = opts.readingParagraphs ?? CHAPTERS[1].startsAt
   try {
     // one at a time, so one call's latency isn't another's queue
     for (const command of opts.commands) {
@@ -81,7 +82,6 @@ export async function runReplay(opts: Options): Promise<{ row: Row; misses: Miss
         if (turn.firstMs !== undefined) replyText.push(turn.firstMs)
       }
     }
-    const count = opts.readingParagraphs ?? CHAPTERS[1].startsAt
     for (const [i, text] of PARAGRAPHS.slice(0, count).entries()) {
       try {
         reading.push(await firstAudioMs(text))
@@ -103,7 +103,7 @@ export async function runReplay(opts: Options): Promise<{ row: Row; misses: Miss
     label: opts.label ?? '',
     conversation: p.conversation.name,
     model: conv.find((e) => e.model)?.model ?? process.env.AGENT_MODEL ?? '',
-    speech: p.speech.name,
+    speech: count > 0 ? p.speech.name : '', // a vendor never called isn't part of the combination
     commands: n,
     tool_accuracy: round(n ? toolOk / n : 0, 3)!,
     args_accuracy: round(n ? argsOk / n : 0, 3)!,
@@ -112,7 +112,7 @@ export async function runReplay(opts: Options): Promise<{ row: Row; misses: Miss
     turn_p50_ms: round(percentile(turns, 50)),
     reading_start_p50_ms: round(percentile(reading, 50)),
     reading_start_max_ms: reading.length ? round(Math.max(...reading)) : undefined,
-    speech_chars: events.filter((e) => e.port === 'speech').reduce((s, e) => s + (e.units?.chars ?? 0), 0),
+    speech_chars: events.filter((e) => e.port === 'speech' && e.ok).reduce((s, e) => s + (e.units?.chars ?? 0), 0),
     // only when every turn's model is in the price table; a partial sum would read as cheap
     conversation_usd: costs.length && costs.every((c) => c !== undefined) ? round(costs.reduce((s, c) => s! + c!, 0), 4) : undefined,
     errors,
