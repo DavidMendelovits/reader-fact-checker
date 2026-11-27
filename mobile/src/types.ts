@@ -38,6 +38,8 @@ export interface Highlight {
   note?: string
   /** Its place in a Readwise-concatenated highlight (skipped words); sent as the .cN tag, never shown. */
   concat?: number
+  /** Shared by the runs of one concatenated highlight, so they are listed and removed together. */
+  group?: string
   anchor: Anchor | null
   createdAt: number
   pending?: 'create' | 'delete'

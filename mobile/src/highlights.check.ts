@@ -71,6 +71,8 @@ const paragraphs = [
   assert.equal(a.paragraph, 0)
   assert.equal(a.start, 17)
   assert.equal(a.end, paragraphs[0].length)
+  assert.equal(a.partial, true, 'so the saved text keeps the part in the next paragraph')
+  assert.equal(anchorText(paragraphs, 'Some years ago')?.partial, undefined)
 }
 
 // too short to anchor by opening, or simply not there: null

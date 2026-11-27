@@ -15,10 +15,11 @@ export interface HighlightPart {
 /** The pieces of a highlight as the tool received it: `parts` when words are skipped, otherwise `text` whole. */
 export function highlightParts(input: Record<string, unknown>): string[] {
   const parts = Array.isArray(input.parts)
-    ? input.parts.map((p) => String(p ?? '').trim()).filter(Boolean)
+    ? input.parts.filter((p): p is string => typeof p === 'string').map((p) => p.trim()).filter(Boolean)
     : []
-  if (parts.length > 1) return parts
-  const text = String(input.text ?? parts[0] ?? '').trim()
+  // one run left of several means the skipped words are skipped: keep it, not the whole text
+  if (parts.length > 0) return parts
+  const text = typeof input.text === 'string' ? input.text.trim() : ''
   return text ? [text] : []
 }
 

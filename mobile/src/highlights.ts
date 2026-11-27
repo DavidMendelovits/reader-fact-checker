@@ -11,6 +11,8 @@ export interface Anchor {
   /** Character offsets into the paragraph text. */
   start: number
   end: number
+  /** Only the opening was found: painted to the paragraph's end, and the saved text is the one asked for. */
+  partial?: boolean
 }
 
 // Length-preserving normalization: every replacement is one char for one char,
@@ -48,7 +50,7 @@ export function anchorText(paragraphs: string[], text: string, hint?: number): A
   const opening = needle.slice(0, Math.min(needle.length, Math.max(40, Math.floor(needle.length / 3))))
   if (opening.length < 12) return null
   const head = tryFind(opening)
-  return head ? { ...head, end: paragraphs[head.paragraph].length } : null
+  return head ? { ...head, end: paragraphs[head.paragraph].length, partial: true } : null
 }
 
 function searchOrder(n: number, hint?: number): number[] {

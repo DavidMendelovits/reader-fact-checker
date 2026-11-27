@@ -14,7 +14,7 @@
 // What the phone adds: the library. The shared tools only know the open document;
 // the ones declared here browse, open, file and close documents, and are sent to
 // the server with every request alongside the guidance for using them.
-import { concatenated, highlightParts } from '../../shared/library/concat.ts'
+import { concatenated, highlightParts, joinParts } from '../../shared/library/concat.ts'
 import { useStore } from './store'
 import { tts, voice } from './providers'
 import { apiJson, apiBase, shouldSayHello } from './settings'
@@ -209,15 +209,24 @@ async function highlight(input: Record<string, unknown>): Promise<string> {
     : Math.min(last, s.currentParagraph)
   const note = typeof input.note === 'string' ? input.note : undefined
   // One thought; with skipped words, one Readwise highlight per kept run, tagged
-  // .c1, .c2... so Readwise joins them back into one.
-  // ponytail: the runs are separate highlights on the phone, so "remove that
-  // highlight" removes one run. Group them if that comes up.
+  // .c1, .c2... so Readwise joins them back into one. The runs share a group, so
+  // they are listed and removed as one highlight.
+  const group = parts.length > 1 ? `g-${Date.now().toString(36)}` : undefined
   const written: Highlight[] = []
-  for (const part of concatenated(parts, note)) written.push(await addHighlight({ ...part, near }))
-  const lost = written.filter((h) => !h.anchor).length
-  const where = lost === 0
-    ? `anchored at paragraph ${written[0].anchor!.paragraph}`
-    : 'the exact passage could not be located in the text, so it was saved as text'
+  let hint = near
+  for (const part of concatenated(parts, note)) {
+    const h = await addHighlight({ ...part, near: hint, group })
+    written.push(h)
+    if (h.anchor) hint = h.anchor.paragraph // each run comes after the one before
+  }
+  const placed = written.filter((h) => h.anchor).map((h) => h.anchor!.paragraph)
+  const unique = [...new Set(placed)]
+  const paras = unique.join(', ')
+  const where = placed.length === written.length
+    ? `anchored at paragraph${unique.length > 1 ? 's' : ''} ${paras}`
+    : placed.length === 0
+      ? 'the exact passage could not be located in the text, so it was saved as text'
+      : `${placed.length} of ${written.length} runs anchored (paragraph ${paras}); the rest were saved as text`
   const joined = written.length > 1 ? ` as ${written.length} runs Readwise will join into one` : ''
   return `Highlighted in the book and being saved to Readwise${joined}; ${where}.`
 }
@@ -371,9 +380,12 @@ function listHighlights(): string {
   if (!s.doc) return 'No document is open.'
   const live = s.highlights.filter((h) => h.pending !== 'delete')
   if (live.length === 0) return 'No highlights yet.'
-  return live
+  // the runs of a concatenated highlight read as one, under the first run's id
+  const firsts = live.filter((h, i) => !h.group || live.findIndex((x) => x.group === h.group) === i)
+  return firsts
     .map((h: Highlight) => {
-      const text = h.text.length > 160 ? `${h.text.slice(0, 160)}…` : h.text
+      const whole = h.group ? joinParts(live.filter((x) => x.group === h.group).map((x) => x.text)) : h.text
+      const text = whole.length > 160 ? `${whole.slice(0, 160)}…` : whole
       const where = h.anchor ? `paragraph ${h.anchor.paragraph}` : 'not located in the text'
       return `[${h.id}] "${text}" (${where})${h.note ? ` — ${h.note}` : ''}`
     })

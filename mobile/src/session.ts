@@ -132,6 +132,7 @@ export async function openDocument(id: string): Promise<{ doc: Doc; libraryDoc: 
     remoteId: r.id,
     text: r.text,
     note: r.note ?? undefined,
+    concat: r.concat,
     anchor: anchorText(paragraphs, r.text),
     createdAt: Date.parse(r.updatedAt) || Date.now(),
   }))
@@ -207,16 +208,29 @@ export function recordCheck(docId: string, check: Check): void {
  * Highlight a passage of the open document. Painted at once; written to
  * Readwise in the background and retried later if that fails.
  */
-export async function addHighlight(input: { text: string; note?: string; near?: number; concat?: number }): Promise<Highlight> {
+// Highlights go to Readwise one at a time, in the order they were made, so the
+// runs of a concatenated highlight arrive in order.
+let pushes: Promise<unknown> = Promise.resolve()
+
+export async function addHighlight(input: {
+  text: string
+  note?: string
+  near?: number
+  concat?: number
+  group?: string
+}): Promise<Highlight> {
   const st = useStore.getState()
   if (!openId || !st.libraryDoc) throw new Error('No document is open.')
   const paragraphs = st.paragraphs.map((p) => p.text)
   const anchor = anchorText(paragraphs, input.text, input.near)
   const h: Highlight = {
     id: newId(),
-    text: anchor ? paragraphs[anchor.paragraph].slice(anchor.start, anchor.end) : input.text.trim(),
+    // the paragraph's own wording when the whole passage was found in it; a
+    // passage that runs on into the next paragraph keeps all of its text
+    text: anchor && !anchor.partial ? paragraphs[anchor.paragraph].slice(anchor.start, anchor.end) : input.text.trim(),
     note: input.note?.trim() || undefined,
     concat: input.concat,
+    group: input.group,
     anchor,
     createdAt: Date.now(),
     pending: 'create',
@@ -225,14 +239,15 @@ export async function addHighlight(input: { text: string; note?: string; near?: 
   scheduleSave()
   const id = openId
   const libraryDoc = st.libraryDoc
-  void library()
-    .pushHighlight(libraryDoc, h)
+  pushes = pushes
+    .then(() => library().pushHighlight(libraryDoc, h))
     .then((written) => {
       if (openId !== id) return
       const s = useStore.getState()
       s.setHighlights(s.highlights.map((x) => (x.id === h.id ? written : x)))
       scheduleSave()
     })
+    .catch((e) => console.warn('highlight push failed', e))
   return h
 }
 
@@ -247,14 +262,18 @@ export async function removeHighlight(id: string): Promise<void> {
   const st = useStore.getState()
   const h = st.highlights.find((x) => x.id === id)
   if (!h) return
-  st.setHighlights(st.highlights.filter((x) => x.id !== id))
+  // the runs of a concatenated highlight go together
+  const gone = h.group ? st.highlights.filter((x) => x.group === h.group) : [h]
+  st.setHighlights(st.highlights.filter((x) => !gone.includes(x)))
   scheduleSave()
-  const left = await library().removeHighlight(h)
-  if (left) {
-    // couldn't reach Readwise: keep a tombstone so flush() retries the delete
-    const s = useStore.getState()
-    s.setHighlights([...s.highlights, { ...left, anchor: null }])
-    scheduleSave()
+  for (const run of gone) {
+    const left = await library().removeHighlight(run)
+    if (left) {
+      // couldn't reach Readwise: keep a tombstone so flush() retries the delete
+      const s = useStore.getState()
+      s.setHighlights([...s.highlights, { ...left, anchor: null }])
+      scheduleSave()
+    }
   }
 }
 

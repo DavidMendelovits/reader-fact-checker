@@ -142,9 +142,10 @@ describe('highlight concatenation', () => {
     expect(readwiseNote(' plain ', undefined)).toBe('plain')
     expect(readwiseNote(undefined, undefined)).toBeUndefined()
   })
-  test('parts win over text only when there are two or more', () => {
+  test('parts win over text: the words left out stay out', () => {
     expect(highlightParts({ text: 'whole', parts: ['x', ' y '] })).toEqual(['x', 'y'])
-    expect(highlightParts({ text: 'whole', parts: ['only'] })).toEqual(['whole'])
+    expect(highlightParts({ text: 'whole', parts: ['only', ''] })).toEqual(['only'])
+    expect(highlightParts({ text: 'whole', parts: [{}, 3] })).toEqual(['whole'])
     expect(highlightParts({ parts: ['only'] })).toEqual(['only'])
     expect(highlightParts({ text: '  ' })).toEqual([])
   })
