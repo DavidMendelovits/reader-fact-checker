@@ -5,7 +5,8 @@
 //   AGENT_PROVIDER      conversation   anthropic (default)
 //   CLAIMS_PROVIDER     json           anthropic (default)
 //   FACTCHECK_PROVIDER  search         perplexity (default)
-//   TTS_PROVIDER        speech         unreal if UNREAL_SPEECH_API_KEY is set, else openai
+//   TTS_PROVIDER        speech         elevenlabs if ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID
+//                                      are set, else unreal if UNREAL_SPEECH_API_KEY is, else openai
 //   DECIDER_PROVIDER    decider        typesafe if TYPESAFE_API_KEY is set, else none (no fast navigation)
 //   LIBRARY_PROVIDER    library        readwise (default), with the caller's own token
 //
@@ -20,6 +21,7 @@ import { anthropicAdapter } from './adapters/anthropic.js'
 import { perplexityAdapter } from './adapters/perplexity.js'
 import { openaiSpeech } from './adapters/openai-speech.js'
 import { unrealSpeech } from './adapters/unreal-speech.js'
+import { elevenlabsSpeech } from './adapters/elevenlabs-speech.js'
 import { typesafeDecider } from './adapters/typesafe.js'
 import { fakeConversation, fakeJson, fakeLibrary, fakeSearch, fakeSpeech } from './adapters/fake.js'
 import { meteredConversation, meteredDecider, meteredJson, meteredSearch, meteredSpeech } from './meter.js'
@@ -61,6 +63,8 @@ const registry = {
   speech: {
     openai: () => openaiSpeech({ model: 'gpt-4o-mini-tts', voice: process.env.OPENAI_TTS_VOICE ?? 'nova' }),
     unreal: () => unrealSpeech({ voice: process.env.UNREAL_SPEECH_VOICE ?? 'Sierra' }),
+    elevenlabs: () =>
+      elevenlabsSpeech({ voiceId: process.env.ELEVENLABS_VOICE_ID ?? '', model: process.env.ELEVENLABS_MODEL ?? 'eleven_v4_turbo' }),
     fake: fakeSpeech,
   } as Record<string, Factory<SpeechSynthesizer>>,
   decider: {
@@ -90,7 +94,9 @@ function pick<K extends keyof typeof registry>(port: K, name: string): ReturnTyp
 const env = (name: string) => process.env[name]?.trim().toLowerCase() || undefined
 
 function speechProvider(): string {
-  return env('TTS_PROVIDER') ?? (process.env.UNREAL_SPEECH_API_KEY ? 'unreal' : 'openai')
+  if (env('TTS_PROVIDER')) return env('TTS_PROVIDER')!
+  if (process.env.ELEVENLABS_API_KEY && process.env.ELEVENLABS_VOICE_ID) return 'elevenlabs'
+  return process.env.UNREAL_SPEECH_API_KEY ? 'unreal' : 'openai'
 }
 
 function deciderProvider(): string | null {

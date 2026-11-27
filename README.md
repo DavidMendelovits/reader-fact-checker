@@ -102,7 +102,7 @@ npm run dev
 - `PERPLEXITY_API_KEY` — fact checking (`sonar`)
 - `OPENAI_API_KEY` — text-to-speech (`gpt-4o-mini-tts`)
 
-Optionally, `TYPESAFE_API_KEY` turns on the decision model for navigation (see "Navigation is decided" above); without it every command goes through the conversation. And optionally, `UNREAL_SPEECH_API_KEY` switches text-to-speech to [Unreal Speech](https://unrealspeech.com) — hosted Kokoro, about a third the price per hour of narration and ~300ms to first audio against ~1.2s. Their streaming endpoint takes 1,000 characters a call, so the server splits paragraphs at sentence boundaries and pipes the pieces back as one MP3; the client never knows. `TTS_PROVIDER=openai` forces OpenAI even with the key set; `UNREAL_SPEECH_VOICE` picks the voice.
+Optionally, `TYPESAFE_API_KEY` turns on the decision model for navigation (see "Navigation is decided" above); without it every command goes through the conversation. And optionally, `UNREAL_SPEECH_API_KEY` switches text-to-speech to [Unreal Speech](https://unrealspeech.com) — hosted Kokoro, about a third the price per hour of narration and ~300ms to first audio against ~1.2s. Their streaming endpoint takes 1,000 characters a call, so the server splits paragraphs at sentence boundaries and pipes the pieces back as one MP3; the client never knows. `TTS_PROVIDER=openai` forces OpenAI even with the key set; `UNREAL_SPEECH_VOICE` picks the voice. With `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` both set, speech goes to [ElevenLabs](https://elevenlabs.io) on Eleven v4 Turbo (~100ms to first audio by their figures) ahead of either.
 
 Restart `npm run dev` after editing `.env.local`.
 
@@ -159,6 +159,7 @@ npx vercel env add PERPLEXITY_API_KEY
 npx vercel env add OPENAI_API_KEY
 npx vercel env add TYPESAFE_API_KEY        # optional, see Setup
 npx vercel env add UNREAL_SPEECH_API_KEY   # optional, see Setup
+npx vercel env add ELEVENLABS_API_KEY      # optional, with ELEVENLABS_VOICE_ID
 npx vercel env add APP_TOKEN               # recommended: the access code every /api route asks for
 npx vercel --prod
 ```
@@ -243,7 +244,7 @@ Provider selection on the server:
 | `CLAIMS_PROVIDER` | json | `anthropic` |
 | `FACTCHECK_PROVIDER` | search | `perplexity` |
 | `DECIDER_PROVIDER` | decider | `typesafe` if `TYPESAFE_API_KEY` is set, else `none` |
-| `TTS_PROVIDER` | speech | `unreal` if `UNREAL_SPEECH_API_KEY` is set, else `openai` |
+| `TTS_PROVIDER` | speech | `elevenlabs` if `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` are set, else `unreal` if `UNREAL_SPEECH_API_KEY` is, else `openai` |
 | `LIBRARY_PROVIDER` | library | `readwise`, with the caller's own token |
 
 To add a text-to-speech vendor, say: write `api/_lib/adapters/<vendor>.ts` returning a
