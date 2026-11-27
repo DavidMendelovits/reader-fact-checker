@@ -15,6 +15,8 @@
 // the ones declared here browse, open, file and close documents, and are sent to
 // the server with every request alongside the guidance for using them.
 import { concatenated, highlightParts, joinParts } from '../../shared/library/concat.ts'
+import { parseStartAt, positionLine, startParagraph } from '../../shared/library/start.ts'
+import { findHighlights, recommendNext } from './libraryTools'
 import { useStore } from './store'
 import { tts, voice } from './providers'
 import { apiHeaders, apiJson, apiBase, shouldSayHello } from './settings'
@@ -255,18 +257,36 @@ function searchLibrary(input: Record<string, unknown>): string {
 async function openDoc(input: Record<string, unknown>): Promise<string> {
   const id = String(input.id ?? '').trim()
   if (!id) return 'No document id given.'
+  const start = parseStartAt(input)
+  const s = useStore.getState()
+  if (s.doc && s.libraryDoc?.id === id) {
+    // "go to chapter three" in the book that's open: move, don't reopen
+    const at = startParagraph(s.doc.chapters, start, s.currentParagraph)
+    if ('error' in at) return at.error
+    s.setCurrentParagraph(at.paragraph)
+    s.requestJump(at.paragraph) // the list scrolls there even when the reader had scrolled away
+    positionChanged()
+    return `"${s.doc.title}" is already open. ${positionLine(at.paragraph, at.chapter)}`
+  }
   try {
-    const { doc, libraryDoc, position } = await openDocument(id)
+    const { doc, libraryDoc, position: at } = await openDocument(id, start)
     const total = doc.chapters.reduce((n, ch) => n + ch.paragraphs.length, 0)
-    const chapter = chapterTitleAt(position)
     return (
       `Opened "${doc.title}"${libraryDoc.author ? ` by ${libraryDoc.author}` : ''}. ` +
-      `${total} paragraphs in ${doc.chapters.length} chapters. ` +
-      `Position: paragraph ${position}${chapter ? ` (chapter "${chapter}")` : ''}. Call read_aloud to continue from there.`
+      `${total} paragraphs in ${doc.chapters.length} chapters. ${positionLine(at, chapterTitleAt(at))}`
     )
   } catch (e) {
     return e instanceof Error ? e.message : String(e)
   }
+}
+
+function recommendDoc(input: Record<string, unknown>): string {
+  return recommendNext(library(), useStore.getState().libraryDoc?.id ?? null, input)
+}
+
+function searchHighlightsTool(input: Record<string, unknown>): string {
+  const s = useStore.getState()
+  return findHighlights(input, library(), s.doc ? { title: s.doc.title, highlights: s.highlights } : null)
 }
 
 async function closeDoc(): Promise<string> {
@@ -408,7 +428,9 @@ const agent = createAgent<NavAction>({
     highlight,
     list_library: listLibrary,
     search_library: searchLibrary,
+    search_highlights: searchHighlightsTool,
     open_document: openDoc,
+    recommend: recommendDoc,
     close_document: closeDoc,
     move_document: moveDoc,
     list_highlights: listHighlights,

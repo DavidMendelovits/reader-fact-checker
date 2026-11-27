@@ -13,6 +13,9 @@ export interface StartAt {
   chapter?: string
 }
 
+/** Read this far (as recommend.ts counts it), a document is finished. */
+const FINISHED = 0.95
+
 export type StartResult = { paragraph: number; chapter: string | null } | { error: string }
 
 const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty']
@@ -93,3 +96,28 @@ export function startParagraph(chapters: Chapter[], at: StartAt, saved: number |
   const p = at.from === 'beginning' || saved == null ? 0 : Math.min(total - 1, Math.max(0, saved))
   return { paragraph: p, chapter: chapterAt(p) }
 }
+
+/** open_document's start options off the wire: anything malformed is dropped, not refused. */
+export function parseStartAt(input: Record<string, unknown>): StartAt {
+  return {
+    from: input.from === 'beginning' ? 'beginning' : 'resume',
+    percent: typeof input.percent === 'number' && Number.isFinite(input.percent) ? input.percent : undefined,
+    chapter: typeof input.chapter === 'string' && input.chapter.trim() ? input.chapter : undefined,
+  }
+}
+
+/**
+ * Where to start a document opened by voice. With no position kept on this
+ * device, resuming picks up Reader's own progress, so a book read on the other
+ * app or in Reader carries on from there rather than from the top.
+ */
+export function startFor(chapters: Chapter[], at: StartAt, saved: number | null, readerProgress: number | null | undefined): StartResult {
+  // a book finished there starts again from the top, not on its last paragraph
+  const progress = readerProgress ?? 0
+  const elsewhere = saved == null && at.from !== 'beginning' && at.percent == null && !at.chapter?.trim() && progress > 0 && progress < FINISHED
+  return startParagraph(chapters, elsewhere ? { ...at, percent: readerProgress! * 100 } : at, saved)
+}
+
+/** What open_document tells the model about where the reader now is. */
+export const positionLine = (paragraph: number, chapter: string | null) =>
+  `Position: paragraph ${paragraph}${chapter ? ` (chapter "${chapter}")` : ''}. Call read_aloud with no \`from\` to start reading there.`

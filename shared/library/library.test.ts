@@ -1,8 +1,8 @@
 // The pure parts of the hands-free library: finding a document or a highlight
 // by voice, picking where to start reading, and choosing what to suggest next.
 import { describe, expect, test } from 'vitest'
-import { searchDocs, searchHighlights } from './search.ts'
-import { findChapter, startParagraph } from './start.ts'
+import { highlightLine, searchDocs, searchHighlights } from './search.ts'
+import { findChapter, parseStartAt, startFor, startParagraph } from './start.ts'
 import { concatenated, highlightParts, readwiseNote } from './concat.ts'
 import { candidateLine, recommend, type Candidate } from './recommend.ts'
 import type { Chapter } from './types.ts'
@@ -106,6 +106,32 @@ describe('startParagraph', () => {
   })
 })
 
+describe('startFor', () => {
+  test('never read on this device: resuming picks up Reader\'s progress', () => {
+    expect(startFor(chapters, {}, null, 0.5)).toEqual({ paragraph: 5, chapter: 'Chapter 2: Landfall' })
+  })
+  test('a position kept here, the beginning, a percentage or a chapter all win over Reader\'s progress', () => {
+    expect(startFor(chapters, {}, 1, 0.5)).toMatchObject({ paragraph: 1 })
+    expect(startFor(chapters, { from: 'beginning' }, null, 0.5)).toMatchObject({ paragraph: 0 })
+    expect(startFor(chapters, { percent: 20 }, null, 0.9)).toMatchObject({ paragraph: 2 })
+    expect(startFor(chapters, { chapter: 'the storm' }, null, 0.9)).toMatchObject({ paragraph: 2 })
+  })
+  test('a book finished in Reader starts again from the top', () => {
+    expect(startFor(chapters, {}, null, 1)).toMatchObject({ paragraph: 0 })
+  })
+  test('no progress anywhere starts at the top', () => {
+    expect(startFor(chapters, {}, null, null)).toMatchObject({ paragraph: 0 })
+  })
+})
+
+describe('parseStartAt', () => {
+  test('keeps what is well formed and drops the rest', () => {
+    expect(parseStartAt({ from: 'beginning', percent: 50, chapter: 'three' })).toEqual({ from: 'beginning', percent: 50, chapter: 'three' })
+    expect(parseStartAt({ from: 'sideways', percent: '50', chapter: '  ' })).toEqual({ from: 'resume', percent: undefined, chapter: undefined })
+    expect(parseStartAt({ percent: Number.NaN }).percent).toBeUndefined()
+  })
+})
+
 describe('recommend', () => {
   const lib: Candidate[] = [
     { id: 'inbox', title: 'Inbox piece', location: 'new', wordCount: 1500, updatedAt: '2026-01-05' },
@@ -124,6 +150,13 @@ describe('recommend', () => {
   test('a line says how long, how far and where', () => {
     expect(candidateLine(lib[2])).toBe('[half] Half read (200 min left, 50% read, later)')
     expect(candidateLine({ id: 'x', title: 'T', author: 'A', location: 'new', wordCount: 300, summary: 'S.' })).toBe('[x] T by A (2 min, inbox): S.')
+  })
+})
+
+describe('highlightLine', () => {
+  test('the passage, its document and the note; a long passage is cut', () => {
+    expect(highlightLine({ text: 'Naps help.', note: 'try it', title: 'Why We Sleep' })).toBe('"Naps help." (Why We Sleep) note: try it')
+    expect(highlightLine({ text: 'x'.repeat(300), title: 'T' })).toBe(`"${'x'.repeat(240)}..." (T)`)
   })
 })
 

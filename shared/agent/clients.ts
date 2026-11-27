@@ -14,6 +14,43 @@ export interface ToolSpec {
 
 export type ClientId = 'web' | 'phone'
 
+// ---- shared by both kits ----
+
+/** open_document's start options; shared/library/start.ts reads them. */
+const START_PROPS = {
+  from: { type: 'string', enum: ['resume', 'beginning'], description: 'Where the reader left off (default), or the top.' },
+  percent: { type: 'number', description: '0 to 100: how far in to start. "Halfway" is 50.' },
+  chapter: { type: 'string', description: 'A chapter by number or by words from its title, as the reader said it.' },
+}
+
+const SEARCH_HIGHLIGHTS: ToolSpec = {
+  name: 'search_highlights',
+  description:
+    'Search the reader\'s highlights across every document by words in the passage or their note: "what did I ' +
+    'highlight about naps", "find that line about the sea". Returns each passage with the document it is from.',
+  inputSchema: {
+    type: 'object',
+    properties: { query: { type: 'string', description: 'Words from the passage or the note.' } },
+    required: ['query'],
+  },
+}
+
+const RECOMMEND: ToolSpec = {
+  name: 'recommend',
+  description:
+    'Suggest what to read next: unfinished documents first, then the reader\'s saved-for-later shelf, then the ' +
+    'inbox. Pass `minutes` when the reader says how long they have. Returns candidates in order with length, ' +
+    'progress and a summary.',
+  inputSchema: {
+    type: 'object',
+    properties: { minutes: { type: 'number', description: 'How long the reader has, if they said.' } },
+  },
+}
+
+const START_GUIDANCE = '- "From the beginning", "halfway", "the last chapter" are open_document\'s from, percent and chapter, for the open document too. With none of them, reading picks up where the reader left off.'
+const NEXT_GUIDANCE = `- "What should I read next?" is recommend: offer one pick in a sentence, with why (unfinished, short enough, on their later shelf), and open it if they agree.
+- "What did I highlight about X?" is search_highlights. Read the passage, not a summary of it.`
+
 // ---- the web (src/lib/libraryTools.ts) ----
 
 const WEB_TOOLS: ToolSpec[] = [
@@ -29,17 +66,7 @@ const WEB_TOOLS: ToolSpec[] = [
       required: ['query'],
     },
   },
-  {
-    name: 'search_highlights',
-    description:
-      'Search the reader\'s highlights across every document by words in the passage or their note: "what did I ' +
-      'highlight about naps", "find that line about the sea". Returns each passage with the document it is from.',
-    inputSchema: {
-      type: 'object',
-      properties: { query: { type: 'string', description: 'Words from the passage or the note.' } },
-      required: ['query'],
-    },
-  },
+  SEARCH_HIGHLIGHTS,
   {
     name: 'open_document',
     description:
@@ -51,35 +78,26 @@ const WEB_TOOLS: ToolSpec[] = [
       type: 'object',
       properties: {
         id: { type: 'string', description: 'The id from search_library or recommend.' },
-        from: { type: 'string', enum: ['resume', 'beginning'], description: 'Where the reader left off (default), or the top.' },
-        percent: { type: 'number', description: '0 to 100: how far in to start. "Halfway" is 50.' },
-        chapter: { type: 'string', description: 'A chapter by number or by words from its title, as the reader said it.' },
+        ...START_PROPS,
       },
       required: ['id'],
     },
   },
-  {
-    name: 'recommend',
-    description:
-      'Suggest what to read next: unfinished documents first, then the reader\'s saved-for-later shelf, then the ' +
-      'inbox. Pass `minutes` when the reader says how long they have. Returns candidates in order with length, ' +
-      'progress and a summary.',
-    inputSchema: {
-      type: 'object',
-      properties: { minutes: { type: 'number', description: 'How long the reader has, if they said.' } },
-    },
-  },
+  RECOMMEND,
 ]
 
 const WEB_SYSTEM = `The library:
 - The reader can switch documents by voice: "switch to the Hemingway one", "start that article about sleep", "go to chapter three of the storm book". Find it with search_library, then open_document, then read_aloud with no \`from\`: open_document has already put the reader where reading should start.
 - If one document clearly matches, open it. If several do, say the top two or three titles in one breath and ask which.
-- "From the beginning", "halfway", "the last chapter" are open_document's from, percent and chapter. With none of them, reading picks up where the reader left off.
-- "What should I read next?" is recommend: offer one pick in a sentence, with why (unfinished, short enough, on their later shelf), and open it if they agree.
-- "What did I highlight about X?" is search_highlights. Read the passage, not a summary of it.
+${START_GUIDANCE}
+${NEXT_GUIDANCE}
 - Never read ids aloud. Titles and authors only. If the library is not available, say so in a few words and offer what is saved in this browser.`
 
 // ---- the phone (mobile/src/agent.ts) ----
+//
+// ponytail: the server owns the kit, so a phone build older than its handlers
+// is offered tools it can't run (it answers "Unknown tool"). Rebuild the phone
+// app when this list changes; a version handshake can come with app releases.
 
 const locationSchema = {
   type: 'string',
@@ -111,15 +129,21 @@ const PHONE_TOOLS: ToolSpec[] = [
   {
     name: 'open_document',
     description:
-      'Open a document from the library by id and pick up where the reader left off. Closes whatever ' +
-      'was open. The result gives the position; call read_aloud in the same turn to start reading ' +
-      'from there. Fails with a spoken-ready reason when the document has no readable text.',
+      'Open a document from the library by id and pick up where the reader left off, unless they asked for the ' +
+      'beginning, a percentage ("halfway", "the last quarter") or a chapter ("chapter three", "the part about the ' +
+      'storm"). Closes whatever was open; given the open document\'s id, moves within it instead. It puts the ' +
+      'reader at the starting paragraph, so call read_aloud right after it with no `from`. Fails with a ' +
+      'spoken-ready reason when the document has no readable text.',
     inputSchema: {
       type: 'object',
-      properties: { id: { type: 'string', description: 'The id from list_library or search_library.' } },
+      properties: {
+        id: { type: 'string', description: 'The id from list_library, search_library or recommend.' },
+        ...START_PROPS,
+      },
       required: ['id'],
     },
   },
+  RECOMMEND,
   {
     name: 'close_document',
     description:
@@ -157,15 +181,18 @@ const PHONE_TOOLS: ToolSpec[] = [
       required: ['id'],
     },
   },
+  SEARCH_HIGHLIGHTS,
 ]
 
 const PHONE_SYSTEM = `The library:
-- When no document is open, the reader is browsing their library by voice. Find what they ask for with search_library (or list_library for "what's new", "what have I saved"), then open it with open_document; reading picks up where they left off, so call read_aloud right after.
+- When no document is open, the reader is browsing their library by voice. Find what they ask for with search_library (or list_library for "what's new", "what have I saved"), then open it with open_document, then read_aloud with no \`from\`: open_document has already put the reader where reading should start.
 - If several documents match, say the top two or three titles in one breath and ask which. If one clearly matches, just open it.
+${START_GUIDANCE}
+${NEXT_GUIDANCE}
 - Never read ids aloud. Titles and authors only.
 - "Archive that", "save it for later", "put it back in the inbox" are move_document. "Go back to the library", "close this", "I'm done" are close_document.
 - When a document has no readable text — a PDF, a video — say so in a few words and offer the next match.
-- Highlights are painted in the book and synced to Readwise; a short confirmation is enough. "What have I highlighted" is list_highlights.`
+- Highlights are painted in the book and synced to Readwise; a short confirmation is enough. "What have I highlighted" in the open document is list_highlights.`
 
 export const CLIENT_KITS: Record<ClientId, { tools: ToolSpec[]; system: string }> = {
   web: { tools: WEB_TOOLS, system: WEB_SYSTEM },

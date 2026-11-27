@@ -6,6 +6,7 @@ import { AppState } from 'react-native'
 import { LibraryService } from './library'
 import { anchorText } from './highlights'
 import { htmlToChapters } from '../../shared/library/html.ts'
+import { startFor, startParagraph, type StartAt } from '../../shared/library/start.ts'
 import { readwiseLibrary } from '../../shared/library/readwise.ts'
 import { asyncStore } from './storage'
 import { useStore } from './store'
@@ -80,6 +81,7 @@ async function persist(): Promise<void> {
   state.checks = st.checks
   try {
     await library().saveDocState(openId, state)
+    await library().noteProgress(openId, st.currentParagraph / Math.max(1, st.paragraphs.length))
   } catch {
     // The reader keeps everything they can see — the write is what failed, not
     // the highlight or the check — and is told once that this session may not
@@ -108,11 +110,12 @@ AppState.addEventListener('change', (next) => {
 
 /**
  * Open a document from the library: fetch its text, split it into chapters,
- * restore where the reader left off, and paint the highlights — the phone's own
+ * start where the reader left off (or at the top, a percentage or a chapter
+ * they asked for), and paint the highlights — the phone's own
  * plus any Reader has that the phone hasn't seen. Resolves with the position so
  * the caller can say "picking up at chapter three".
  */
-export async function openDocument(id: string): Promise<{ doc: Doc; libraryDoc: LibraryDoc; position: number }> {
+export async function openDocument(id: string, start: StartAt = {}): Promise<{ doc: Doc; libraryDoc: LibraryDoc; position: number }> {
   const lib = library()
   // fetch and check first: "open the report" must not put the book away when
   // the report turns out to be a PDF with no text
@@ -122,9 +125,15 @@ export async function openDocument(id: string): Promise<{ doc: Doc; libraryDoc: 
   const paragraphs = chapters.flatMap((c) => c.paragraphs)
   if (paragraphs.length === 0) throw new Error(`"${libraryDoc.title}" has no readable text.`)
   const doc: Doc = { id, title: libraryDoc.title, source: libraryDoc.sourceUrl ?? 'Readwise Reader', chapters }
+  // a chapter that isn't there is said before anything closes, like missing text
+  const check = startParagraph(chapters, start, null)
+  if ('error' in check) throw new Error(check.error)
   await closeDocument()
 
   const saved = await lib.docState(id)
+  // never opened on the phone: Reader's own progress says where to resume
+  const at = startFor(chapters, start, saved.updatedAt ? saved.position : null, libraryDoc.readingProgress)
+  const position = 'error' in at ? saved.position : at.paragraph
   // Reader-side highlights the phone hasn't folded in: anchor and adopt them
   const fresh = lib.newRemoteHighlights(id, saved)
   const adopted: Highlight[] = fresh.map((r) => ({
@@ -146,13 +155,14 @@ export async function openDocument(id: string): Promise<{ doc: Doc; libraryDoc: 
   }))
   state = {
     ...saved,
+    position,
     highlights: [...own, ...adopted],
     checks,
     mergedRemote: [...saved.mergedRemote, ...fresh.map((r) => r.id)],
   }
   openId = id
   saveFailureTold = false
-  useStore.getState().setDoc(doc, libraryDoc, saved.position, state.highlights, checks)
+  useStore.getState().setDoc(doc, libraryDoc, position, state.highlights, checks)
   tts.setParagraphs(paragraphs)
   await lib.saveDocState(id, state)
   // anything that didn't reach Readwise last time

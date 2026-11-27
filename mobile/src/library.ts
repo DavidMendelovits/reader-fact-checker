@@ -12,6 +12,7 @@ import type { DocState, Highlight, LibraryDoc, Location, RemoteHighlight } from 
 const DOCS_KEY = 'library:docs'
 const HIGHLIGHTS_KEY = 'library:highlights'
 const SYNC_KEY = 'library:sync'
+const PROGRESS_KEY = 'library:progress'
 const docKey = (id: string) => `doc:${id}`
 
 // Pages per location on a full sync: 100 docs a page, so the first 300 of each.
@@ -27,6 +28,8 @@ export interface SyncState {
 export class LibraryService {
   docs: LibraryDoc[] = []
   remoteHighlights: RemoteHighlight[] = []
+  /** How far the reader got on the phone, 0..1 by document id. Reader never hears of it, so recommend reads it here. */
+  progress: Record<string, number> = {}
   sync: SyncState = { lastSync: null }
   onChange: () => void = () => {}
 
@@ -41,14 +44,16 @@ export class LibraryService {
 
   /** Restore the cached library. Instant; the sync that follows fills in changes. */
   async load(): Promise<void> {
-    const [docs, highlights, sync] = await Promise.all([
+    const [docs, highlights, sync, progress] = await Promise.all([
       this.store.get(DOCS_KEY),
       this.store.get(HIGHLIGHTS_KEY),
       this.store.get(SYNC_KEY),
+      this.store.get(PROGRESS_KEY),
     ])
     this.docs = docs ? (JSON.parse(docs) as LibraryDoc[]) : []
     this.remoteHighlights = highlights ? (JSON.parse(highlights) as RemoteHighlight[]) : []
     this.sync = sync ? (JSON.parse(sync) as SyncState) : { lastSync: null }
+    this.progress = progress ? (JSON.parse(progress) as Record<string, number>) : {}
     this.onChange()
   }
 
@@ -147,6 +152,13 @@ export class LibraryService {
     await this.store.set(docKey(id), JSON.stringify(state))
   }
 
+  /** Remember how far into a document the phone got, for recommend. */
+  async noteProgress(id: string, fraction: number): Promise<void> {
+    if (this.progress[id] === fraction) return
+    this.progress = { ...this.progress, [id]: fraction }
+    await this.store.set(PROGRESS_KEY, JSON.stringify(this.progress))
+  }
+
   /** Reader's highlights for a document that the phone hasn't folded in yet. */
   newRemoteHighlights(docId: string, state: DocState): RemoteHighlight[] {
     const seen = new Set(state.mergedRemote)
@@ -163,6 +175,8 @@ export class LibraryService {
       // the reading order, so concatenated runs join in order even when a retry sends one late
       const location = h.anchor ? h.anchor.paragraph * 10000 + Math.min(h.anchor.start, 9999) : undefined
       const { remoteId } = await this.library.createHighlight({ doc, text: h.text, note: readwiseNote(h.note, h.concat), location })
+      // known to Reader now, so a search finds it before the next sync brings it back
+      this.cacheRemote([...this.remoteHighlights, { id: remoteId, docId: doc.id, text: h.text, note: h.note ?? null, concat: h.concat, updatedAt: new Date().toISOString() }])
       return { ...h, remoteId, pending: undefined }
     } catch (e) {
       console.warn('highlight not written to Readwise yet', e)
@@ -174,11 +188,20 @@ export class LibraryService {
     if (!h.remoteId) return null // never left the phone
     try {
       await this.library.deleteHighlight(h.remoteId)
+      // an incremental sync never reports a deletion, so the cached copy goes here
+      this.cacheRemote(this.remoteHighlights.filter((r) => r.id !== h.remoteId))
       return null
     } catch (e) {
       console.warn('highlight not removed from Readwise yet', e)
       return { ...h, pending: 'delete' }
     }
+  }
+
+  private cacheRemote(highlights: RemoteHighlight[]) {
+    this.remoteHighlights = highlights
+    this.store.set(HIGHLIGHTS_KEY, JSON.stringify(highlights)).catch(() => {
+      /* kept in memory; the next sync writes it */
+    })
   }
 
   /** Retry whatever didn't land. Returns the state with the results folded in. */
