@@ -80,6 +80,14 @@ describe('the meter', () => {
     assert.equal(typeof events[0].firstMs, 'number')
   })
 
+  it('records a call that worked once, even when the sink then throws', async () => {
+    const events: MeterEvent[] = []
+    useMeter({ record: (e) => { events.push(e); throw new Error('sink broke') } })
+    override('search', { name: 'mock', answer: async () => ({ text: '{}', sources: [] }) } as SearchModel)
+    await assert.rejects(providers().search.answer({ system: '', user: '', schema: {} }), /sink broke/)
+    assert.deepEqual(events.map((e) => e.ok), [true], 'not a second event saying it failed')
+  })
+
   it('prices only the models it knows', () => {
     const u = { input: 1e6, output: 0, cacheRead: 0, cacheWrite: 0 }
     assert.equal(tokenCost('claude-opus-5-5', u), PRICES['claude-opus-5-5'].input)

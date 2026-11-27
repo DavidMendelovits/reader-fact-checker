@@ -17,10 +17,12 @@ interface Rates {
 
 /**
  * US dollars per million tokens, Anthropic's first-party prices as of Nov 2026.
- * Cache writes are the 5-minute kind, 1.25x input.
+ * Cache writes are the 5-minute kind, 1.25x input. Cache reads are 0.05x input
+ * on the 5.5 models and 0.1x on the rest, as the price list has them.
  *
- * ponytail: tokens only. Speech is metered in characters and search and claims
- * in time, with no cost yet; their prices go here once their ports report usage
+ * ponytail: tokens only, and only for conversation turns. Speech is metered in
+ * characters and search and claims in time, with no cost yet (the json port
+ * returns bare text, so claims' tokens aren't seen); their prices go here once their ports report usage
  * and the vendors' price pages have been read.
  */
 export const PRICES: Record<string, Rates> = {
@@ -57,20 +59,29 @@ export function useMeter(m: Meter | null) {
   sink = m ?? logMeter
 }
 
-/** Time a call and record it whether it lands or throws. */
+/**
+ * Time a call and record it once, whether it lands or throws. The record is made
+ * outside the try, so the meter never turns a call that worked into a failure.
+ */
 async function timed<T>(base: Omit<MeterEvent, 'ms' | 'ok'>, call: (mark: () => void) => Promise<T>, after?: (r: T) => Partial<MeterEvent>): Promise<T> {
   const t0 = Date.now()
   let first = 0
   const mark = () => void (first ||= Date.now())
-  const firstMs = () => (first ? { firstMs: first - t0 } : {})
+  let outcome: { ok: true; r: T } | { ok: false; e: unknown }
   try {
-    const r = await call(mark)
-    sink.record({ ...base, ms: Date.now() - t0, ...firstMs(), ok: true, ...after?.(r) })
-    return r
+    outcome = { ok: true, r: await call(mark) }
   } catch (e) {
-    sink.record({ ...base, ms: Date.now() - t0, ...firstMs(), ok: false })
-    throw e
+    outcome = { ok: false, e }
   }
+  sink.record({
+    ...base,
+    ms: Date.now() - t0,
+    ...(first ? { firstMs: first - t0 } : {}),
+    ok: outcome.ok,
+    ...(outcome.ok ? after?.(outcome.r) : {}),
+  })
+  if (!outcome.ok) throw outcome.e
+  return outcome.r
 }
 
 export function meteredConversation(m: ConversationModel): ConversationModel {
@@ -97,6 +108,7 @@ export function meteredSearch(m: SearchModel): SearchModel {
   }
 }
 
+/** ok means the vendor accepted the request and the audio began; a stream that breaks later isn't seen. */
 export function meteredSpeech(m: SpeechSynthesizer): SpeechSynthesizer {
   return {
     name: m.name,

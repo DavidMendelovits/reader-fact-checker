@@ -254,7 +254,9 @@ metered like the others.
 
 To compare vendors, read the `[meter]` lines in the function logs: each call's port,
 provider, model, `ms`, `firstMs` (time to first text), units (tokens, or characters of
-speech) and `cost` in dollars where `PRICES` in `meter.ts` knows the model.
+speech) and `cost` in dollars where `PRICES` in `meter.ts` knows the model. Tokens
+and cost come from conversation turns only for now; claims and fact checks log time.
+For speech, `ok` means the audio started, not that the stream finished.
 
 One caveat on the conversation port: the transcript is persisted in the app's block
 vocabulary (`text`, `tool_use`, `tool_result`) plus any vendor-specific blocks the
