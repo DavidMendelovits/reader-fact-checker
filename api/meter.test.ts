@@ -80,15 +80,13 @@ describe('the meter', () => {
     assert.equal(typeof events[0].firstMs, 'number')
   })
 
-  it('never lets a broken meter break the call', async () => {
-    useMeter({ record: () => { throw new Error('disk full') } })
-    override('search', { name: 'mock', answer: async () => ({ text: '{}', sources: [] }) } as SearchModel)
-    assert.deepEqual(await providers().search.answer({ system: '', user: '', schema: {} }), { text: '{}', sources: [] })
-  })
-
   it('prices only the models it knows', () => {
     const u = { input: 1e6, output: 0, cacheRead: 0, cacheWrite: 0 }
     assert.equal(tokenCost('claude-opus-5-5', u), PRICES['claude-opus-5-5'].input)
+    assert.equal(tokenCost('claude-opus-5-5-20261101', u), PRICES['claude-opus-5-5'].input, 'a dated id')
+    assert.equal(tokenCost('claude-sonnet-5-5', u), PRICES['claude-sonnet-5-5'].input)
+    assert.equal(tokenCost('claude-sonnet-5-20261001', { ...u, input: 0, cacheRead: 1e6 }), PRICES['claude-sonnet-5'].cacheRead)
+    assert.equal(tokenCost('claude-sonnet-50', u), undefined)
     assert.equal(tokenCost('someone-elses-model', u), undefined)
     assert.equal(tokenCost(undefined, u), undefined)
   })

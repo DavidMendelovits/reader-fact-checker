@@ -5,7 +5,7 @@
 //
 // Each event is one log line, `[meter] {...}`, so Vercel's logs are the record
 // until there is somewhere better. A replay run swaps in its own Meter to write
-// rows instead.
+// rows instead; a sink that can fail guards itself.
 import type { ConversationModel, Decider, JsonCompletion, Meter, MeterEvent, SearchModel, SpeechSynthesizer, TurnUsage } from './ports.js'
 
 interface Rates {
@@ -30,9 +30,21 @@ export const PRICES: Record<string, Rates> = {
   'claude-haiku-5-5': { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
 }
 
+/**
+ * The table's entry for a model id, matched by the longest key it starts with,
+ * so a dated id the API may answer with (claude-sonnet-5-20261001) still finds
+ * claude-sonnet-5, and claude-sonnet-5-5 finds its own row, not that one.
+ */
+function ratesFor(model: string): Rates | undefined {
+  const key = Object.keys(PRICES)
+    .filter((k) => model === k || model.startsWith(`${k}-`))
+    .sort((a, b) => b.length - a.length)[0]
+  return key ? PRICES[key] : undefined
+}
+
 /** What a turn cost, or undefined when the model isn't in the table. */
 export function tokenCost(model: string | undefined, u: TurnUsage | undefined): number | undefined {
-  const r = model ? PRICES[model] : undefined
+  const r = model ? ratesFor(model) : undefined
   if (!r || !u) return undefined
   return (u.input * r.input + u.output * r.output + u.cacheRead * r.cacheRead + u.cacheWrite * r.cacheWrite) / 1e6
 }
@@ -45,14 +57,6 @@ export function useMeter(m: Meter | null) {
   sink = m ?? logMeter
 }
 
-function record(e: MeterEvent) {
-  try {
-    sink.record(e)
-  } catch {
-    // a broken meter must never break the call it measures
-  }
-}
-
 /** Time a call and record it whether it lands or throws. */
 async function timed<T>(base: Omit<MeterEvent, 'ms' | 'ok'>, call: (mark: () => void) => Promise<T>, after?: (r: T) => Partial<MeterEvent>): Promise<T> {
   const t0 = Date.now()
@@ -61,10 +65,10 @@ async function timed<T>(base: Omit<MeterEvent, 'ms' | 'ok'>, call: (mark: () => 
   const firstMs = () => (first ? { firstMs: first - t0 } : {})
   try {
     const r = await call(mark)
-    record({ ...base, ms: Date.now() - t0, ...firstMs(), ok: true, ...after?.(r) })
+    sink.record({ ...base, ms: Date.now() - t0, ...firstMs(), ok: true, ...after?.(r) })
     return r
   } catch (e) {
-    record({ ...base, ms: Date.now() - t0, ...firstMs(), ok: false })
+    sink.record({ ...base, ms: Date.now() - t0, ...firstMs(), ok: false })
     throw e
   }
 }

@@ -101,32 +101,28 @@ function deciderProvider(): string | null {
 const overrides: Partial<Providers> = {}
 
 // Each port is handed out metered (./meter.ts), fakes and overrides included, so a
-// test sees the same events production logs. One wrapper per instance.
-const wrapped = new WeakMap<object, object>()
-function metered<T extends object>(impl: T, wrap: (t: T) => T): T {
-  if (!wrapped.has(impl)) wrapped.set(impl, wrap(impl))
-  return wrapped.get(impl) as T
-}
+// test sees the same events production logs. The wrappers hold no state, so a
+// new one per access costs nothing.
 
 /** The live wiring. Env is read on every access, so a switch needs no restart of the process' state. */
 export function providers(): Providers {
   return {
     get conversation() {
-      return metered(overrides.conversation ?? pick('conversation', env('AGENT_PROVIDER') ?? 'anthropic'), meteredConversation)
+      return meteredConversation(overrides.conversation ?? pick('conversation', env('AGENT_PROVIDER') ?? 'anthropic'))
     },
     get json() {
-      return metered(overrides.json ?? pick('json', env('CLAIMS_PROVIDER') ?? 'anthropic'), meteredJson)
+      return meteredJson(overrides.json ?? pick('json', env('CLAIMS_PROVIDER') ?? 'anthropic'))
     },
     get search() {
-      return metered(overrides.search ?? pick('search', env('FACTCHECK_PROVIDER') ?? 'perplexity'), meteredSearch)
+      return meteredSearch(overrides.search ?? pick('search', env('FACTCHECK_PROVIDER') ?? 'perplexity'))
     },
     get speech() {
-      return metered(overrides.speech ?? pick('speech', speechProvider()), meteredSpeech)
+      return meteredSpeech(overrides.speech ?? pick('speech', speechProvider()))
     },
     get decider() {
       const name = deciderProvider()
       const d = 'decider' in overrides ? overrides.decider : name ? pick('decider', name) : null
-      return d ? metered(d, meteredDecider) : null
+      return d ? meteredDecider(d) : null
     },
     get library() {
       return overrides.library ?? pick('library', env('LIBRARY_PROVIDER') ?? 'readwise')
