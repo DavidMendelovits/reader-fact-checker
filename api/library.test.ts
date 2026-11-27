@@ -46,8 +46,6 @@ describe('libraryRequest', () => {
       { op: 'move', id: 'x', location: 'archive' }, // only highlight writes are served
       { op: 'createHighlight', doc: { title: 'T' }, text: '' },
       { op: 'createHighlight', doc: {}, text: 'x' },
-      { op: 'createHighlight', doc: { title: 'T', sourceUrl: 'javascript:alert(1)' }, text: 'x' },
-      { op: 'createHighlight', doc: { title: 'T', category: 'Books!' }, text: 'x' },
       { op: 'createHighlight', doc: { title: 'T' }, text: 'x'.repeat(8192) },
       { op: 'createHighlight', doc: { title: 'T' }, text: 'x', location: -1 },
       { op: 'createHighlight', doc: { title: 'T' }, text: 'x', location: 1.5 },
@@ -75,6 +73,9 @@ describe('libraryRequest', () => {
     })
     await libraryRequest({ op: 'createHighlight', doc: { title: 'T' }, text: 'x', note: '' }, 't')
     expect(lib.createHighlight).toHaveBeenLastCalledWith({ doc: { title: 'T', author: null, sourceUrl: null, category: null }, text: 'x', note: undefined, location: undefined })
+    // an optional field Readwise would refuse is left off rather than losing the highlight
+    await libraryRequest({ op: 'createHighlight', doc: { title: 'T', author: 'a'.repeat(600), sourceUrl: 'javascript:alert(1)', category: 'Books!' }, text: 'x' }, 't')
+    expect(lib.createHighlight).toHaveBeenLastCalledWith(expect.objectContaining({ doc: { title: 'T', author: null, sourceUrl: null, category: null } }))
     expect(await libraryRequest({ op: 'deleteHighlight', remoteId: '9' }, 't')).toEqual({ ok: true })
     expect(lib.deleteHighlight).toHaveBeenCalledWith('9')
   })

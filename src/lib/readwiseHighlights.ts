@@ -9,6 +9,11 @@
 //
 // Only highlights made after this shipped are marked, so older ones in this
 // browser never turn up in Readwise unasked.
+//
+// ponytail: two gaps, both shared with the phone. A write whose answer is lost
+// is sent again on retry, which can duplicate it in Readwise. And Readwise ids
+// don't record which token wrote them, so a removal after switching Readwise
+// accounts goes to the new account, gets a 404, and is dropped.
 import { concatenated, readwiseNote } from '../../shared/library/concat.ts'
 import type { LibraryDoc } from '../../shared/library/types.ts'
 import type { Doc, Highlight } from '../types'
@@ -23,12 +28,19 @@ const MAX_TEXT = 8191
 /** Mark a new highlight for Readwise: only on a Reader document, and only with a token saved. */
 export function forReadwise(h: Highlight, parts: string[], docId: string | undefined, hasToken: boolean): Highlight {
   if (!docId?.startsWith(READWISE) || !hasToken) return h
-  // ponytail: past Readwise's cap a highlight could never land, so it stays here rather than retrying forever
-  if ((parts.length ? parts : [h.text]).some((p) => p.length > MAX_TEXT)) return h
+  // ponytail: past Readwise's cap a highlight could never land, so it stays here
+  // rather than retrying forever (8 is room for the .cN tag on the note)
+  if ((parts.length ? parts : [h.text]).some((p) => p.length > MAX_TEXT) || (h.note?.length ?? 0) > MAX_TEXT - 8) return h
   return { ...h, pending: true, parts: parts.length > 1 ? parts : undefined }
 }
 
-/** The order Readwise keeps a document's highlights in: the paragraph, then the run. Same scale as the phone. */
+const isRefusal = (e: unknown) => (e as { status?: unknown })?.status === 400
+
+/**
+ * The order Readwise keeps a document's highlights in: the paragraph, then the
+ * run. The paragraph scale matches the phone's; within a paragraph the phone
+ * uses the character offset, which the web doesn't keep.
+ */
 export const location = (anchor: number, run: number) => anchor * 10000 + run
 
 interface Snapshot {
@@ -51,6 +63,8 @@ export interface SyncDeps {
 
 export class HighlightSync {
   private chain: Promise<void> = Promise.resolve()
+  /** Highlights the reader removed this session, so a write that lands later knows to undo itself. */
+  private removed = new Set<string>()
   constructor(private deps: SyncDeps) {}
 
   /** Watch the store: a new pending highlight or a newly opened document starts a sync; a removal takes its runs out. */
@@ -60,7 +74,9 @@ export class HighlightSync {
       if (s.doc !== prev.doc) return void this.sync() // an opened document's leftovers, once its highlights are in
       const was = new Set(prev.highlights.map((h) => h.id))
       const now = new Set(s.highlights.map((h) => h.id))
-      const gone = prev.highlights.filter((h) => !now.has(h.id)).flatMap((h) => h.remoteIds ?? [])
+      const dropped = prev.highlights.filter((h) => !now.has(h.id))
+      for (const h of dropped) this.removed.add(h.id)
+      const gone = dropped.flatMap((h) => h.remoteIds ?? [])
       if (gone.length) this.queueDeletes(gone)
       if (gone.length || s.highlights.some((h) => h.pending && !was.has(h.id))) void this.sync()
     })
@@ -89,55 +105,58 @@ export class HighlightSync {
   private async push(docId: string, reader: LibraryDoc, h: Highlight) {
     const runs = concatenated(h.parts ?? [h.text], h.note)
     const ids = [...(h.remoteIds ?? [])]
+    let refused = false
     for (let i = ids.length; i < runs.length; i++) {
       try {
         const r = runs[i]
         ids.push(await this.deps.create(reader, { text: r.text, note: readwiseNote(r.note, r.concat), location: location(h.anchor, i) }))
       } catch (e) {
-        console.warn('highlight not written to Readwise yet', e)
+        // a refusal (400) never changes on retry; anything else is tried again later
+        if (isRefusal(e)) {
+          console.warn('Readwise refused this highlight; it stays in this browser', e)
+          refused = true
+        } else console.warn('highlight not written to Readwise yet', e)
         break
       }
     }
-    const done = ids.length === runs.length
+    const done = refused || ids.length === runs.length
     if (!this.patch(docId, h.id, { remoteIds: ids, pending: done ? undefined : true })) {
       this.queueDeletes(ids) // removed while it was being written
       await this.retryDeletes()
     }
   }
 
-  /** Apply what landed to the highlight, open or saved. False when it has been removed meanwhile. */
+  /** Apply what landed to the highlight, open or saved. False when the reader removed it meanwhile. */
   private patch(docId: string, id: string, fields: Partial<Highlight>): boolean {
-    let found = false
-    const change = (hs: Highlight[]) =>
-      hs.map((h) => {
-        if (h.id !== id) return h
-        found = true
-        return { ...h, ...fields }
-      })
+    const change = (hs: Highlight[]) => hs.map((h) => (h.id === id ? { ...h, ...fields } : h))
     const { doc, highlights } = this.deps.getState()
-    if (doc?.id === docId) {
-      this.deps.setHighlights(change(highlights))
-      return found
-    }
-    // a saved entry evicted for space keeps its runs: there's no record left to undo them by
-    const saved = this.deps.patchSaved(docId, change) // runs `change`, which sets `found`
-    return found || !saved
+    if (doc?.id === docId) this.deps.setHighlights(change(highlights))
+    else this.deps.patchSaved(docId, change)
+    // Only a removal undoes the write. A saved entry that lacks the highlight
+    // for another reason (evicted for space) keeps its runs in Readwise.
+    return !this.removed.has(id)
   }
 
+  /** The removal queue: kept in memory too, since storage fills up with saved books (persist.ts). */
+  private queue: string[] | null = null
+
   private readQueue(): string[] {
+    if (this.queue) return this.queue
     try {
       const q = JSON.parse(this.deps.storage?.getItem(DELETES_KEY) ?? '[]')
-      return Array.isArray(q) ? q.filter((x): x is string => typeof x === 'string') : []
+      this.queue = Array.isArray(q) ? q.filter((x): x is string => typeof x === 'string') : []
     } catch {
-      return []
+      this.queue = []
     }
+    return this.queue
   }
 
   private writeQueue(q: string[]) {
+    this.queue = q.slice(-MAX_QUEUED)
     try {
-      this.deps.storage?.setItem(DELETES_KEY, JSON.stringify(q.slice(-MAX_QUEUED)))
+      this.deps.storage?.setItem(DELETES_KEY, JSON.stringify(this.queue))
     } catch {
-      /* storage blocked: the removal is tried once, this session */
+      /* storage full or blocked: the removal is still tried this session */
     }
   }
 

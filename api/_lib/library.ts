@@ -49,8 +49,8 @@ const text = (v: unknown, max: number, name: string): string => {
   if (typeof v !== 'string' || !v.trim() || v.length > max) throw new LibraryError(`bad ${name}`, 400)
   return v
 }
-const orNull = (v: unknown, ok: (s: string) => boolean, name: string): string | null =>
-  v == null || v === '' ? null : optional(v, ok, name) ?? null
+// an optional field Readwise would refuse is left off, not a reason to lose the highlight
+const orNull = (v: unknown, ok: (s: string) => boolean): string | null => (typeof v === 'string' && ok(v) ? v : null)
 const isLink = (s: string) => {
   try {
     return s.length <= 2048 && /^https?:$/.test(new URL(s).protocol)
@@ -63,9 +63,9 @@ function highlightDoc(v: unknown): HighlightDoc {
   const d = (v ?? {}) as Record<string, unknown>
   return {
     title: text(d.title, 511, 'title'),
-    author: orNull(d.author, (s) => s.length <= 511, 'author'),
-    sourceUrl: orNull(d.sourceUrl, isLink, 'sourceUrl'),
-    category: orNull(d.category, (s) => /^[a-z_]{1,20}$/.test(s), 'category'),
+    author: orNull(d.author, (s) => !!s.trim() && s.length <= 511),
+    sourceUrl: orNull(d.sourceUrl, isLink),
+    category: orNull(d.category, (s) => /^[a-z_]{1,20}$/.test(s)),
   }
 }
 

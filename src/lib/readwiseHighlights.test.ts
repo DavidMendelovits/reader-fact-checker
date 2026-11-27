@@ -12,7 +12,7 @@ const doc = (id: string): Doc => ({ id, title: id, source: 'x', chapters: [] })
 const reader = { id: 'r1', title: 'The Long Storm', author: null, sourceUrl: null, category: 'article' } as LibraryDoc
 const hl = (id: string, more: Partial<Highlight> = {}): Highlight => ({ id, anchor: 3, text: `text ${id}`, createdAt: 0, ...more })
 
-function setup(opts: { fail?: (text: string) => boolean; removeFails?: boolean; inLibrary?: boolean } = {}) {
+function setup(opts: { fail?: (text: string) => boolean; refuse?: boolean; removeFails?: boolean; inLibrary?: boolean; storageFull?: boolean } = {}) {
   type S = { doc: Doc | null; highlights: Highlight[] }
   let state: S = { doc: doc('readwise:r1'), highlights: [] }
   const listeners: ((s: S, p: S) => void)[] = []
@@ -39,6 +39,7 @@ function setup(opts: { fail?: (text: string) => boolean; removeFails?: boolean; 
     libraryDoc: (id) => (opts.inLibrary === false || id !== 'r1' ? undefined : reader),
     create: vi.fn(async (_d, h) => {
       if (opts.fail?.(h.text)) throw new Error('offline')
+      if (opts.refuse) throw Object.assign(new Error('bad text'), { status: 400 })
       created.push(h)
       return String(++n)
     }),
@@ -46,7 +47,13 @@ function setup(opts: { fail?: (text: string) => boolean; removeFails?: boolean; 
       if (opts.removeFails) throw new Error('offline')
       removed.push(id)
     }),
-    storage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => void store.set(k, v) },
+    storage: {
+      getItem: (k) => store.get(k) ?? null,
+      setItem: (k, v) => {
+        if (opts.storageFull) throw new Error('QuotaExceededError')
+        store.set(k, v)
+      },
+    },
   }
   const sync = new HighlightSync(deps).start()
   const add = (h: Highlight) => set({ highlights: [h, ...state.highlights] })
@@ -77,6 +84,8 @@ describe('forReadwise', () => {
     expect(forReadwise(h, ['a'], 'url:https://x', true)).toBe(h)
     expect(forReadwise(h, ['a'], 'readwise:r1', false)).toBe(h)
     expect(forReadwise(h, ['x'.repeat(8192)], 'readwise:r1', true)).toBe(h) // could never land
+    const noted = { ...h, note: 'n'.repeat(8190) }
+    expect(forReadwise(noted, ['a'], 'readwise:r1', true)).toBe(noted) // nor with its tag
   })
 })
 
@@ -180,6 +189,36 @@ describe('HighlightSync', () => {
     release()
     await running
     expect(t.removed).toEqual(['1'])
+  })
+
+  it('a highlight Readwise refuses stops being retried', async () => {
+    const t = setup({ refuse: true })
+    t.add(hl('a', { pending: true }))
+    await t.sync.sync()
+    expect(t.state.highlights[0].pending).toBeUndefined()
+    await t.sync.sync()
+    expect(t.deps.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('a removal still goes when storage is full', async () => {
+    const t = setup({ storageFull: true })
+    t.set({ highlights: [hl('a', { remoteIds: ['5'] })] })
+    t.drop('a')
+    await t.sync.sync()
+    expect(t.removed).toEqual(['5'])
+  })
+
+  it('a write for a book closed before its last save keeps its runs: only a removal undoes one', async () => {
+    const t = setup()
+    const { started, release } = hold(t.deps)
+    t.add(hl('a', { pending: true }))
+    const running = t.sync.sync()
+    await started
+    t.saved.set('readwise:r1', []) // the debounced save never caught the new highlight
+    t.set({ doc: null, highlights: [] })
+    release()
+    await running
+    expect(t.removed).toEqual([])
   })
 
   it('a document missing from the cached library keeps its highlights pending', async () => {
