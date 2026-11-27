@@ -13,6 +13,9 @@ export interface StartAt {
   chapter?: string
 }
 
+/** Read this far (as recommend.ts counts it), a document is finished. */
+const FINISHED = 0.95
+
 export type StartResult = { paragraph: number; chapter: string | null } | { error: string }
 
 const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty']
@@ -109,7 +112,9 @@ export function parseStartAt(input: Record<string, unknown>): StartAt {
  * app or in Reader carries on from there rather than from the top.
  */
 export function startFor(chapters: Chapter[], at: StartAt, saved: number | null, readerProgress: number | null | undefined): StartResult {
-  const elsewhere = saved == null && at.from !== 'beginning' && at.percent == null && !at.chapter?.trim() && (readerProgress ?? 0) > 0
+  // a book finished there starts again from the top, not on its last paragraph
+  const progress = readerProgress ?? 0
+  const elsewhere = saved == null && at.from !== 'beginning' && at.percent == null && !at.chapter?.trim() && progress > 0 && progress < FINISHED
   return startParagraph(chapters, elsewhere ? { ...at, percent: readerProgress! * 100 } : at, saved)
 }
 

@@ -288,6 +288,24 @@ test('removeHighlight', async () => {
   assert.deepEqual(fake.deleted, ['rem-2'])
 })
 
+test("the phone's own writes and removals reach the cached Reader highlights at once", async () => {
+  const own = new FakeLibrary()
+  const lib = new LibraryService(own, new MemoryStore())
+  const written = await lib.pushHighlight(doc('a'), highlight('w1', { note: 'n' }))
+  assert.deepEqual(lib.remoteHighlights.map((h) => [h.id, h.docId, h.text, h.note]), [[written.remoteId, 'a', 'passage w1', 'n']])
+  await lib.removeHighlight(written)
+  assert.deepEqual(lib.remoteHighlights, [], 'an incremental sync never reports the deletion, so it goes here')
+})
+
+test('noteProgress: kept across a restart for recommend', async () => {
+  const kv = new MemoryStore()
+  const lib = new LibraryService(new FakeLibrary(), kv)
+  await lib.noteProgress('a', 0.4)
+  const again = new LibraryService(new FakeLibrary(), kv)
+  await again.load()
+  assert.deepEqual(again.progress, { a: 0.4 })
+})
+
 test('flush: retries pending creates and deletes, leaves the rest alone', async () => {
   const target = doc('a')
   fake.created = []

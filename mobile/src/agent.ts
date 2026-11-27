@@ -264,6 +264,7 @@ async function openDoc(input: Record<string, unknown>): Promise<string> {
     const at = startParagraph(s.doc.chapters, start, s.currentParagraph)
     if ('error' in at) return at.error
     s.setCurrentParagraph(at.paragraph)
+    s.requestJump(at.paragraph) // the list scrolls there even when the reader had scrolled away
     positionChanged()
     return `"${s.doc.title}" is already open. ${positionLine(at.paragraph, at.chapter)}`
   }
@@ -280,7 +281,7 @@ async function openDoc(input: Record<string, unknown>): Promise<string> {
 }
 
 function recommendDoc(input: Record<string, unknown>): string {
-  return recommendNext(library().docs, useStore.getState().libraryDoc?.id ?? null, input)
+  return recommendNext(library(), useStore.getState().libraryDoc?.id ?? null, input)
 }
 
 function searchHighlightsTool(input: Record<string, unknown>): string {

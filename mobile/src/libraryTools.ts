@@ -6,14 +6,14 @@ import { candidateLine, recommend, type Candidate } from '../../shared/library/r
 import { highlightLine, searchHighlights } from '../../shared/library/search.ts'
 import type { Highlight, LibraryDoc, RemoteHighlight } from './types'
 
-// ponytail: progress is Reader's. The phone's own place in a book lives in that
-// book's saved state, read only when it is opened.
-const candidate = (d: LibraryDoc): Candidate => ({ ...d, progress: d.readingProgress })
-
-/** Candidates for what to read next, best first, leaving out the open document. */
-export function recommendNext(docs: LibraryDoc[], openId: string | null, input: Record<string, unknown>): string {
+/**
+ * Candidates for what to read next, best first, leaving out the open document.
+ * Where the phone has read a document, its own progress beats Reader's.
+ */
+export function recommendNext(lib: { docs: LibraryDoc[]; progress: Record<string, number> }, openId: string | null, input: Record<string, unknown>): string {
   const minutes = typeof input.minutes === 'number' && input.minutes > 0 ? input.minutes : undefined
-  const picks = recommend(docs.filter((d) => d.id !== openId).map(candidate), { minutes })
+  const candidate = (d: LibraryDoc): Candidate => ({ ...d, progress: lib.progress[d.id] ?? d.readingProgress })
+  const picks = recommend(lib.docs.filter((d) => d.id !== openId).map(candidate), { minutes })
   if (picks.length === 0) return 'Nothing unread to suggest.'
   return picks.map(candidateLine).join('\n')
 }
@@ -24,12 +24,15 @@ interface OpenDoc {
 }
 
 /**
- * Highlights across the library: Reader's, plus the open document's that
- * Reader doesn't have yet (made since the last sync, or still on their way).
- * One the reader removed here is left out even before Readwise hears of it.
+ * Highlights across the library: Reader's (as cached, with the phone's own
+ * writes and removals folded in), plus the open document's that Reader doesn't
+ * have yet. One removed in the open document is left out even before Readwise
+ * hears of it.
  *
  * ponytail: a thought with skipped words comes back from Reader as its runs,
- * found one by one; the open document's own are joined into one thought.
+ * found one by one; the open document's own are joined into one thought. A
+ * highlight still waiting to reach Readwise from a closed document is not found
+ * until it lands, since those sit in each document's saved state.
  */
 export function findHighlights(
   input: Record<string, unknown>,
@@ -40,17 +43,18 @@ export function findHighlights(
   if (!query) return 'No query given.'
   const titles = new Map(lib.docs.map((d) => [d.id, d.title]))
   const mine = open?.highlights ?? []
-  const removed = new Set(mine.filter((h) => h.pending === 'delete').map((h) => h.remoteId))
-  const remote = lib.remoteHighlights.filter((h) => !removed.has(h.id))
-  const inReader = new Set(remote.map((h) => h.id))
+  const inReader = new Set(lib.remoteHighlights.map((h) => h.id))
 
   const live = mine.filter((h) => h.pending !== 'delete')
   const runsOf = (h: Highlight) => (h.group ? live.filter((x) => x.group === h.group) : [h])
-  const own = live
+  // a thought Reader doesn't wholly have yet is found as one, here, and its runs that did land are not found again
+  const ownThoughts = live
     .filter((h, i) => !h.group || live.findIndex((x) => x.group === h.group) === i)
     .map(runsOf)
     .filter((runs) => !runs.every((r) => r.remoteId && inReader.has(r.remoteId)))
-    .map((runs) => ({ text: joinParts(runs.map((r) => r.text)), note: runs[0].note ?? null, title: open!.title }))
+  const hidden = new Set([...mine.filter((h) => h.pending === 'delete'), ...ownThoughts.flat()].map((h) => h.remoteId))
+  const remote = lib.remoteHighlights.filter((h) => !hidden.has(h.id))
+  const own = ownThoughts.map((runs) => ({ text: joinParts(runs.map((r) => r.text)), note: runs[0].note ?? null, title: open!.title }))
 
   const all = [...remote.map((h) => ({ text: h.text, note: h.note, title: titles.get(h.docId) ?? 'an unknown document' })), ...own]
   const hits = searchHighlights(all, query)

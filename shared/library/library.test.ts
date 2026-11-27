@@ -116,6 +116,9 @@ describe('startFor', () => {
     expect(startFor(chapters, { percent: 20 }, null, 0.9)).toMatchObject({ paragraph: 2 })
     expect(startFor(chapters, { chapter: 'the storm' }, null, 0.9)).toMatchObject({ paragraph: 2 })
   })
+  test('a book finished in Reader starts again from the top', () => {
+    expect(startFor(chapters, {}, null, 1)).toMatchObject({ paragraph: 0 })
+  })
   test('no progress anywhere starts at the top', () => {
     expect(startFor(chapters, {}, null, null)).toMatchObject({ paragraph: 0 })
   })

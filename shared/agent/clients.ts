@@ -94,6 +94,10 @@ ${NEXT_GUIDANCE}
 - Never read ids aloud. Titles and authors only. If the library is not available, say so in a few words and offer what is saved in this browser.`
 
 // ---- the phone (mobile/src/agent.ts) ----
+//
+// ponytail: the server owns the kit, so a phone build older than its handlers
+// is offered tools it can't run (it answers "Unknown tool"). Rebuild the phone
+// app when this list changes; a version handshake can come with app releases.
 
 const locationSchema = {
   type: 'string',

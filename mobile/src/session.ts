@@ -81,6 +81,7 @@ async function persist(): Promise<void> {
   state.checks = st.checks
   try {
     await library().saveDocState(openId, state)
+    await library().noteProgress(openId, st.currentParagraph / Math.max(1, st.paragraphs.length))
   } catch {
     // The reader keeps everything they can see — the write is what failed, not
     // the highlight or the check — and is told once that this session may not
