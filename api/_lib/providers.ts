@@ -22,6 +22,7 @@ import { openaiSpeech } from './adapters/openai-speech.js'
 import { unrealSpeech } from './adapters/unreal-speech.js'
 import { typesafeDecider } from './adapters/typesafe.js'
 import { fakeConversation, fakeJson, fakeLibrary, fakeSearch, fakeSpeech } from './adapters/fake.js'
+import { meteredConversation, meteredDecider, meteredJson, meteredSearch, meteredSpeech } from './meter.js'
 import { readwiseLibrary } from '../../shared/library/readwise.js'
 import type { Library } from '../../shared/library/types.js'
 
@@ -99,25 +100,29 @@ function deciderProvider(): string | null {
 
 const overrides: Partial<Providers> = {}
 
+// Each port is handed out metered (./meter.ts), fakes and overrides included, so a
+// test sees the same events production logs. The wrappers hold no state, so a
+// new one per access costs nothing.
+
 /** The live wiring. Env is read on every access, so a switch needs no restart of the process' state. */
 export function providers(): Providers {
   return {
     get conversation() {
-      return overrides.conversation ?? pick('conversation', env('AGENT_PROVIDER') ?? 'anthropic')
+      return meteredConversation(overrides.conversation ?? pick('conversation', env('AGENT_PROVIDER') ?? 'anthropic'))
     },
     get json() {
-      return overrides.json ?? pick('json', env('CLAIMS_PROVIDER') ?? 'anthropic')
+      return meteredJson(overrides.json ?? pick('json', env('CLAIMS_PROVIDER') ?? 'anthropic'))
     },
     get search() {
-      return overrides.search ?? pick('search', env('FACTCHECK_PROVIDER') ?? 'perplexity')
+      return meteredSearch(overrides.search ?? pick('search', env('FACTCHECK_PROVIDER') ?? 'perplexity'))
     },
     get speech() {
-      return overrides.speech ?? pick('speech', speechProvider())
+      return meteredSpeech(overrides.speech ?? pick('speech', speechProvider()))
     },
     get decider() {
-      if ('decider' in overrides) return overrides.decider ?? null
       const name = deciderProvider()
-      return name ? pick('decider', name) : null
+      const d = 'decider' in overrides ? overrides.decider : name ? pick('decider', name) : null
+      return d ? meteredDecider(d) : null
     },
     get library() {
       return overrides.library ?? pick('library', env('LIBRARY_PROVIDER') ?? 'readwise')

@@ -183,6 +183,8 @@ api/_lib/adapters/         one file per vendor: anthropic (conversation + JSON),
                            perplexity (search), openai-speech, unreal-speech
 api/_lib/providers.ts      composition root: env → adapter, memoized; override()
                            for tests
+api/_lib/meter.ts          wraps every port: time, first text, billed units and
+                           cost per call, one `[meter] {...}` log line each
 api/_lib/agent.ts          the companion's prompt, tools, and turn use-case
 api/_lib/factcheck.ts      verdict prompt, schema, parsing
 api/_lib/claims.ts         claim extraction for the whole-document scan
@@ -247,7 +249,14 @@ Provider selection on the server:
 To add a text-to-speech vendor, say: write `api/_lib/adapters/<vendor>.ts` returning a
 `SpeechSynthesizer` (one request in, a streaming MP3 out, `maxChars` if the vendor caps
 the text), add it to the `speech` registry in `providers.ts`, and set `TTS_PROVIDER`.
-The stitching, the routes, and both clients stay as they are.
+The stitching, the routes, and both clients stay as they are, and the new vendor is
+metered like the others.
+
+To compare vendors, read the `[meter]` lines in the function logs: each call's port,
+provider, model, `ms`, `firstMs` (time to first text), units (tokens, or characters of
+speech) and `cost` in dollars where `PRICES` in `meter.ts` knows the model. Tokens
+and cost come from conversation turns only for now; claims and fact checks log time.
+For speech, `ok` means the audio started, not that the stream finished.
 
 One caveat on the conversation port: the transcript is persisted in the app's block
 vocabulary (`text`, `tool_use`, `tool_result`) plus any vendor-specific blocks the

@@ -8,10 +8,9 @@ import { providers } from './providers.js'
 const TTS_MAX_CHARS = 12000 // a runaway paragraph should not become a runaway bill
 
 export async function ttsStream(text: string): Promise<Response> {
+  // each request to the vendor is metered (./meter.ts), stitched chunks included
   const synth = stitched(providers().speech)
-  const started = Date.now()
   const { mimeType, body } = await synth.synthesize(text.slice(0, TTS_MAX_CHARS))
-  console.log(`[tts] provider=${synth.name} chars=${text.length} first_byte=${Date.now() - started}ms`)
   return new Response(body, { headers: { 'Content-Type': mimeType } })
 }
 

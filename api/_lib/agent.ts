@@ -216,8 +216,6 @@ export async function agentTurn(
 ): Promise<{ content: Block[] }> {
   const model = providers().conversation
   const kit = clientKit(client)
-  const started = Date.now()
-  let firstText = 0
   const result = await model.turn(
     {
       system: kit ? `${AGENT_SYSTEM_STATIC}\n\n${kit.system}` : AGENT_SYSTEM_STATIC,
@@ -225,22 +223,9 @@ export async function agentTurn(
       tools: kit ? [...AGENT_TOOLS, ...kit.tools] : AGENT_TOOLS,
       messages,
     },
-    {
-      onText: (text) => {
-        firstText ||= Date.now()
-        onText(text)
-      },
-      onTextEnd,
-    },
+    { onText, onTextEnd },
   )
-  // Latency questions get measured, not guessed. first_text is what the user
-  // waits through in silence; turn is what the tool call used to wait behind as
-  // well. cache_read > 0 means the static system + tools prefix is being reused.
-  const u = result.usage
-  console.log(
-    `[agent] provider=${model.name} first_text=${firstText ? firstText - started : 0}ms turn=${Date.now() - started}ms` +
-      (u ? ` in=${u.input} cache_read=${u.cacheRead} cache_write=${u.cacheWrite} out=${u.output}` : ''),
-  )
+  // latency, tokens and cost are logged by the meter (./meter.ts)
   return { content: result.content }
 }
 

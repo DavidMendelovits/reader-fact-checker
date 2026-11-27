@@ -73,6 +73,7 @@ export function anthropicAdapter(opts: AnthropicOptions): ConversationModel & Js
       const u = response.usage
       return {
         content: response.content as unknown as Block[],
+        model: response.model,
         usage: {
           input: u.input_tokens,
           output: u.output_tokens,
