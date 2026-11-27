@@ -27,6 +27,8 @@ import type { Doc, FactCheckJob, Highlight } from '../types'
 import { createAgent, type AgentPlayer, type Block, type Msg, type NavResult } from '../../shared/voice/agent'
 import { createAnnouncer } from '../../shared/voice/background'
 import { openDocument, recommendNext, searchLibrary, searchLibraryHighlights } from './libraryTools'
+import { readwiseToken } from './library'
+import { forReadwise } from './readwiseHighlights'
 
 let reopenedAt: number | null = null // set by persist when a saved entry is reopened
 
@@ -191,8 +193,8 @@ function findInDocument(input: Record<string, unknown>): string {
 
 function highlight(input: Record<string, unknown>): string {
   const s = useStore.getState()
-  // Highlights on the web stay in this browser, so a thought with skipped words
-  // is kept as one highlight that reads with an ellipsis where the gap is.
+  // A thought with skipped words reads here as one highlight with an ellipsis
+  // where the gap is; on a Reader document it goes to Readwise as tagged runs.
   const parts = highlightParts(input)
   if (parts.length === 0) return 'No passage was given to highlight.'
   const text = joinParts(parts)
@@ -200,13 +202,16 @@ function highlight(input: Record<string, unknown>): string {
   const anchor = Number.isInteger(input.anchor)
     ? Math.max(0, Math.min(last, input.anchor as number))
     : Math.min(last, s.currentParagraph)
-  const h: Highlight = {
-    id: newId(), anchor, text,
-    note: typeof input.note === 'string' && input.note.trim() ? input.note.trim() : undefined,
-    createdAt: Date.now(),
-  }
+  const h = forReadwise(
+    {
+      id: newId(), anchor, text,
+      note: typeof input.note === 'string' && input.note.trim() ? input.note.trim() : undefined,
+      createdAt: Date.now(),
+    },
+    parts, s.doc?.id, !!readwiseToken(),
+  )
   s.addHighlight(h)
-  return `Saved that passage to the highlights, anchored at paragraph ${anchor}.`
+  return `Saved that passage to the highlights, anchored at paragraph ${anchor}${h.pending ? ', and it is on its way to Readwise' : ''}.`
 }
 
 // ---- the transport: one model turn, spoken as it streams ----

@@ -10,6 +10,9 @@ import { startMicMeter, stopMicMeter } from './audio-levels'
 import { checkPassage, completeField, extractClaims } from './factcheck'
 import { mapLimit } from './maplimit'
 import { clientMeter, firstAudio } from './clientMeter'
+import { createRemoteHighlight, deleteRemoteHighlight, libraryDoc, readwiseToken } from './library'
+import { patchSavedHighlights } from './persist'
+import { forReadwise, HighlightSync } from './readwiseHighlights'
 import type { FactCheckJob, Highlight } from '../types'
 
 let jobCounter = 0
@@ -134,16 +137,28 @@ export function simulateUtterance(text: string) {
 
 /** Save a selection as a highlight, with no fact check attached. */
 export function highlightSelection(text: string, anchor?: number, note?: string): Highlight {
-  const h: Highlight = {
-    id: newId(),
-    anchor: anchor ?? useStore.getState().currentParagraph,
-    text,
-    note,
-    createdAt: Date.now(),
-  }
-  useStore.getState().addHighlight(h)
+  const s = useStore.getState()
+  const h = forReadwise(
+    { id: newId(), anchor: anchor ?? s.currentParagraph, text, note, createdAt: Date.now() },
+    [text], s.doc?.id, !!readwiseToken(),
+  )
+  s.addHighlight(h)
   return h
 }
+
+// Highlights on a Reader document go to Readwise behind the reader's back.
+const highlightSync = new HighlightSync({
+  getState: () => useStore.getState(),
+  subscribe: (l) => void useStore.subscribe(l),
+  setHighlights: (highlights) => useStore.setState({ highlights }),
+  patchSaved: patchSavedHighlights,
+  hasToken: () => !!readwiseToken(),
+  libraryDoc,
+  create: createRemoteHighlight,
+  remove: deleteRemoteHighlight,
+  storage: typeof localStorage === 'undefined' ? null : localStorage,
+}).start()
+window.addEventListener('online', () => void highlightSync.sync())
 
 export function checkSelection(text: string, anchor?: number) {
   const s = useStore.getState()

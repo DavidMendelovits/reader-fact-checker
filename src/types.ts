@@ -40,6 +40,12 @@ export interface Highlight {
   text: string
   note?: string
   createdAt: number
+  /** The runs a thought with skipped words was saved as; `text` joins them with an ellipsis. */
+  parts?: string[]
+  /** Still to reach Readwise. Set only on highlights made on a Reader document with a token saved. */
+  pending?: boolean
+  /** Readwise's id for each run that landed, in order. */
+  remoteIds?: string[]
 }
 
 export interface FactCheckJob {

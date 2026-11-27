@@ -94,6 +94,18 @@ export function saveNow() {
   save()
 }
 
+/**
+ * Change a saved document's highlights without opening it: a write to Readwise
+ * that lands after the reader switched books. Gone if the entry was evicted.
+ */
+export function patchSavedHighlights(id: string, change: (hs: Highlight[]) => Highlight[]) {
+  const entries = loadLibrary()
+  const entry = entries.find((e) => e.id === id)
+  if (!entry) return
+  entry.highlights = change(entry.highlights ?? [])
+  writeLibrary(entries)
+}
+
 export function forgetEntry(id: string) {
   writeLibrary(loadLibrary().filter((e) => e.id !== id))
 }

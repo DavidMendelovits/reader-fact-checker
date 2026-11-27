@@ -157,3 +157,17 @@ export async function fetchChapters(id: string): Promise<{ doc: LibraryDoc; chap
   if (chapters.length === 0) throw new Error(`"${doc.title}" has no readable text.`)
   return { doc, chapters }
 }
+
+/** A Reader document from the cache, by Reader's own id. */
+export const libraryDoc = (id: string): LibraryDoc | undefined => cache.docs.find((d) => d.id === id)
+
+/** Write one highlight to Readwise, filed under the document. */
+export async function createRemoteHighlight(doc: LibraryDoc, h: { text: string; note?: string; location?: number }): Promise<string> {
+  const { title, author, sourceUrl, category } = doc
+  const { remoteId } = await call<{ remoteId: string }>({ op: 'createHighlight', doc: { title, author, sourceUrl, category }, ...h })
+  return remoteId
+}
+
+export async function deleteRemoteHighlight(remoteId: string): Promise<void> {
+  await call<{ ok: true }>({ op: 'deleteHighlight', remoteId })
+}
