@@ -98,9 +98,8 @@ export interface AgentDeps<A extends { kind: string }> {
   /** Platform tools by name. read_aloud, set_speed and the loop itself are shared. */
   tools: Record<string, (input: Record<string, unknown>) => Promise<string> | string>
   buildContext(): unknown
-  /** Sent with every request; the phone declares its library tools this way. */
-  clientTools?: unknown[]
-  clientSystem?: string
+  /** Sent with every request: the server adds this client's library tools and guidance (shared/agent/clients.ts). */
+  client?: 'web' | 'phone'
   /** The web's earcon: going to the model costs a round-trip of silence. */
   blip?(): void
   newId(): string
@@ -113,6 +112,8 @@ export interface AgentDeps<A extends { kind: string }> {
    */
   trimAbove?: number
   trimTo?: number
+  /** Ceiling on the transcript's size, so a few huge tool results can't keep every turn over the server's cap. */
+  trimChars?: number
 }
 
 export interface Agent {
@@ -253,11 +254,13 @@ export function repair(msgs: Msg[]): Msg[] {
 
 /**
  * Keep the transcript bounded. Drops the oldest messages once it grows past
- * `above`, then makes the head valid again: the first message must be from the
- * user, and a tool_result whose tool_use was just dropped has to go too.
+ * `above`, or past `maxChars` of JSON, then makes the head valid again: the first
+ * message must be from the user, and a tool_result whose tool_use was just
+ * dropped has to go too.
  */
-export function trim(msgs: Msg[], above = Infinity, to = Infinity): Msg[] {
+export function trim(msgs: Msg[], above = Infinity, to = Infinity, maxChars = Infinity): Msg[] {
   let out = msgs.length > above ? msgs.slice(-to) : msgs
+  while (out.length > 1 && JSON.stringify(out).length > maxChars) out = out.slice(1)
   out = repair(out)
   while (out.length > 0) {
     const head = out[0]
@@ -277,6 +280,7 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
   const state = deps.state
   const trimAbove = deps.trimAbove ?? Infinity
   const trimTo = deps.trimTo ?? Infinity
+  const trimChars = deps.trimChars ?? Infinity
 
   let messages: Msg[] = []
   let running = false
@@ -802,12 +806,11 @@ export function createAgent<A extends { kind: string }>(deps: AgentDeps<A>): Age
       for (let turn = 0; turn < MAX_TURNS; turn++) {
         // Bounded and made sendable every turn: a turn that errored mid-tool leaves
         // an orphaned tool_use behind in memory too.
-        messages = trim(messages, trimAbove, trimTo)
+        messages = trim(messages, trimAbove, trimTo, trimChars)
         state.setAgentState('thinking')
 
         const extras: Record<string, unknown> = {}
-        if (deps.clientTools) extras.clientTools = deps.clientTools
-        if (deps.clientSystem) extras.clientSystem = deps.clientSystem
+        if (deps.client) extras.client = deps.client
         const result = await deps.api(messages, deps.buildContext(), extras)
         const content = result.content
         messages.push({ role: 'assistant', content })

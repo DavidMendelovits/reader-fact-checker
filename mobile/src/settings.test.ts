@@ -1,4 +1,4 @@
-// Tests for the settings that guard the token and the once-a-day hello.
+// Tests for the settings that guard the token, the access code and the once-a-day hello.
 // The token moved from AsyncStorage to the keychain; an install that predates the
 // move must be migrated on its first load, not signed out. And the agent's hello
 // is spoken on the first launch of a calendar day only (3.1A).
@@ -6,7 +6,7 @@
 // through globalThis.
 import assert from 'node:assert/strict'
 import { onTestFinished, test } from 'vitest'
-import { loadSettings, saveToken, clearToken, shouldSayHello } from './settings.ts'
+import { loadSettings, saveToken, clearToken, shouldSayHello, saveAppToken, apiHeaders } from './settings.ts'
 const async = (globalThis as any).__async as Map<string, string>
 const secure = (globalThis as any).__secure as Map<string, string>
 
@@ -76,3 +76,21 @@ test('a keychain that throws signs nobody out: the old token still loads, and st
   async.delete('readwise-token')
 })
 
+
+test('the access code: kept in the keychain, sent on every request, cleared by a blank', async () => {
+  assert.deepEqual(apiHeaders(), { 'Content-Type': 'application/json' }, 'no code, no header')
+  await saveAppToken('  sesame ')
+  assert.equal(secure.get('app-token'), 'sesame')
+  assert.equal(apiHeaders()['x-app-token'], 'sesame')
+  await saveAppToken('')
+  assert.equal(secure.has('app-token'), false)
+  assert.equal(apiHeaders()['x-app-token'], undefined)
+
+  // a relaunch reads it back
+  secure.set('app-token', 'kept')
+  await loadSettings()
+  assert.equal(apiHeaders()['x-app-token'], 'kept')
+  secure.delete('app-token')
+  await loadSettings()
+  assert.equal(apiHeaders()['x-app-token'], undefined)
+})

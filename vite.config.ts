@@ -25,14 +25,22 @@ function apiRoutes(): Plugin {
         res.end(JSON.stringify(body))
       }
 
+      // the same door as the deployed routes (api/_lib/guard.ts)
+      const admitted = (route: Parameters<typeof impl.admit>[0], req: IncomingMessage, res: ServerResponse, chars: number) => {
+        const no = impl.admit(route, req.headers, chars, req.socket.remoteAddress ?? 'local')
+        if (!no) return true
+        for (const [k, v] of Object.entries(impl.refusalHeaders(no))) res.setHeader(k, v)
+        json(res, no.status, { error: no.error })
+        return false
+      }
+
       server.middlewares.use('/api/fetch', async (req, res) => {
         const url = new URL(req.url ?? '', 'http://localhost').searchParams.get('url')
         if (!url) return json(res, 400, { error: 'url param required' })
+        if (!admitted('fetch', req, res, url.length)) return
+        res.setHeader('X-Content-Type-Options', 'nosniff')
         try {
-          const { html, finalUrl } = await impl.fetchArticle(url)
-          res.setHeader('Content-Type', 'text/html; charset=utf-8')
-          res.setHeader('X-Final-Url', finalUrl)
-          res.end(html)
+          json(res, 200, await impl.fetchArticle(url))
         } catch (e) {
           json(res, 502, { error: e instanceof Error ? e.message : String(e) })
         }
@@ -40,7 +48,9 @@ function apiRoutes(): Plugin {
 
       server.middlewares.use('/api/factcheck', async (req, res) => {
         try {
-          const body = JSON.parse(await readBody(req))
+          const raw = await readBody(req)
+          if (!admitted('factcheck', req, res, raw.length)) return
+          const body = JSON.parse(raw)
           const passage = typeof body.passage === 'string' ? body.passage.trim() : impl.passageFromMessages(body.messages ?? [])
           if (!passage) return json(res, 400, { error: 'passage required' })
           res.statusCode = 200
@@ -55,11 +65,15 @@ function apiRoutes(): Plugin {
 
       server.middlewares.use('/api/agent-stream', async (req, res) => {
         try {
-          const { messages, context, clientTools, clientSystem } = JSON.parse(await readBody(req))
+          const raw = await readBody(req)
+          if (!admitted('agent', req, res, raw.length)) return
+          const body = JSON.parse(raw)
+          const problem = impl.agentRequestProblem(body)
+          if (problem) return json(res, problem.status, { error: problem.error })
           res.statusCode = 200
           res.setHeader('Content-Type', 'application/x-ndjson')
           res.setHeader('Cache-Control', 'no-cache, no-transform')
-          await impl.agentNdjson(messages, context, (line) => res.write(line), { tools: clientTools, system: clientSystem })
+          await impl.agentNdjson(body.messages, body.context, (line) => res.write(line), impl.clientOf(body))
           res.end()
         } catch (e) {
           json(res, 500, { error: e instanceof Error ? e.message : String(e) })
@@ -68,8 +82,12 @@ function apiRoutes(): Plugin {
 
       server.middlewares.use('/api/agent', async (req, res) => {
         try {
-          const { messages, context, clientTools, clientSystem } = JSON.parse(await readBody(req))
-          json(res, 200, await impl.agentTurn(messages, context, undefined, undefined, { tools: clientTools, system: clientSystem }))
+          const raw = await readBody(req)
+          if (!admitted('agent', req, res, raw.length)) return
+          const body = JSON.parse(raw)
+          const problem = impl.agentRequestProblem(body)
+          if (problem) return json(res, problem.status, { error: problem.error })
+          json(res, 200, await impl.agentTurn(body.messages, body.context, undefined, undefined, impl.clientOf(body)))
         } catch (e) {
           json(res, 500, { error: e instanceof Error ? e.message : String(e) })
         }
@@ -80,7 +98,9 @@ function apiRoutes(): Plugin {
         const token = req.headers['x-readwise-token']
         let body: unknown
         try {
-          body = JSON.parse(await readBody(req))
+          const raw = await readBody(req)
+          if (!admitted('library', req, res, raw.length)) return
+          body = JSON.parse(raw)
         } catch {
           return json(res, 400, { error: 'JSON body required' })
         }
@@ -93,7 +113,9 @@ function apiRoutes(): Plugin {
 
       server.middlewares.use('/api/claims', async (req, res) => {
         try {
-          const { section } = JSON.parse(await readBody(req))
+          const raw = await readBody(req)
+          if (!admitted('claims', req, res, raw.length)) return
+          const { section } = JSON.parse(raw)
           json(res, 200, { claims: await impl.extractClaims(section) })
         } catch (e) {
           json(res, 500, { error: e instanceof Error ? e.message : String(e) })
@@ -102,7 +124,9 @@ function apiRoutes(): Plugin {
 
       server.middlewares.use('/api/navigate', async (req, res) => {
         try {
-          const decision = await impl.navigate(JSON.parse(await readBody(req)))
+          const raw = await readBody(req)
+          if (!admitted('navigate', req, res, raw.length)) return
+          const decision = await impl.navigate(JSON.parse(raw))
           json(res, 200, decision ? { enabled: true, decision } : { enabled: false })
         } catch (e) {
           json(res, 500, { error: e instanceof Error ? e.message : String(e) })
@@ -111,7 +135,9 @@ function apiRoutes(): Plugin {
 
       server.middlewares.use('/api/tts', async (req, res) => {
         try {
-          const { text } = JSON.parse(await readBody(req))
+          const raw = await readBody(req)
+          if (!admitted('tts', req, res, raw.length)) return
+          const { text } = JSON.parse(raw)
           const upstream = await impl.ttsStream(text)
           res.setHeader('Content-Type', 'audio/mpeg')
           Readable.fromWeb(upstream.body as never).pipe(res)

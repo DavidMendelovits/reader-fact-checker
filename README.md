@@ -44,7 +44,7 @@ The interesting bet is that **the agent drives playback, rather than the UI driv
 - **Paper and Ink.** A light theme and a dark one, following the system or pinned in Settings; reading is a serif. The tokens are in [DESIGN.md](DESIGN.md).
 - **The rest of the reader:** fact check anything you just heard, the transport fast paths, a speed pill in the header, the same agent as the web app, and the same aurora around the edges — the recognizer reports the mic level, and the aurora rises with it, sweeps while the agent thinks, and pulses while it reads.
 
-The architecture is the web app's, and the voice code is now literally shared: the conversation loop (`shared/voice/agent.ts`), the hold/release barge-in, recognizer restarts and echo handling live in `shared/voice/` and run on both platforms, with `src/lib/agent.ts` and `mobile/src/agent.ts` as thin adapters. The agent drives playback through `read_aloud`, transport commands run locally off partial transcripts, and the phone declares its own library tools to the shared agent (`clientTools` on the agent request), so the server prompt stays one thing. Model keys never ship in the bundle; the app talks to this repo's deployed `/api` routes. Reader's API is behind a `Library` port (`shared/library/types.ts`); Readwise is the one adapter (`shared/library/readwise.ts`), used by the phone directly and by the web through `/api/library`.
+The architecture is the web app's, and the voice code is now literally shared: the conversation loop (`shared/voice/agent.ts`), the hold/release barge-in, recognizer restarts and echo handling live in `shared/voice/` and run on both platforms, with `src/lib/agent.ts` and `mobile/src/agent.ts` as thin adapters. The agent drives playback through `read_aloud`, transport commands run locally off partial transcripts, and each app's library tools and their guidance live in `shared/agent/clients.ts`: a request names its app (`client: 'web'` or `'phone'`) and the server adds that kit, so no request can put its own instructions in the prompt. Model keys never ship in the bundle; the app talks to this repo's deployed `/api` routes. Reader's API is behind a `Library` port (`shared/library/types.ts`); Readwise is the one adapter (`shared/library/readwise.ts`), used by the phone directly and by the web through `/api/library`.
 
 The voice is a choice. The OS voice (`expo-speech`) works out of the box. In settings, download **Kokoro** (~90MB, once) to narrate on-device through `react-native-sherpa-onnx` — the same model the web app's Unreal Speech voice is built on, so both platforms read in one voice, and the phone does it offline for free.
 
@@ -142,8 +142,8 @@ Best in **Chrome** (speech recognition is Chrome-only) with **headphones**, so t
 ## POC limits (deliberate)
 
 - Speech input is the browser's `webkitSpeechRecognition` — **Chrome only**. The mic stays live during narration so you can talk over it, and a word-overlap heuristic drops the recognizer's transcription of the narration itself; headphones make that reliable
-- **No access control.** Every `/api/*` route is open, so a deployed URL lets anyone spend your API credits. Set spend limits on all three keys before sharing a link
-- `/api/fetch` is an open HTML proxy (needed to dodge CORS on article import)
+- **Access control is one shared code.** Set `APP_TOKEN` on the server and every `/api/*` route asks for it (the web asks once and keeps it in the browser; the phone has an Access code field in Settings). Without it the routes are open, so a deployed URL lets anyone spend your API credits: set spend limits on every key either way. Each route also caps how often one address may call it and how large a request may be (`api/_lib/guard.ts`), but those counts live in each function instance's memory, so they slow abuse rather than stop it
+- `/api/fetch` fetches any public page for article import (needed to dodge CORS). It answers in JSON, never as HTML from this origin, refuses private and loopback hosts (IPv4 and IPv6, every redirect hop), and doesn't pin DNS, so a name that resolves to a private address still gets through
 - Library and position live in `localStorage` — per-browser, no account, no sync
 - No PDF import yet (pdf.js would slot into `src/lib/extract.ts`)
 - iOS suspends a locked page's JS, so narration stops with the screen; a wake lock covers read-along but true lock-screen playback needs a native wrapper
@@ -159,6 +159,7 @@ npx vercel env add PERPLEXITY_API_KEY
 npx vercel env add OPENAI_API_KEY
 npx vercel env add TYPESAFE_API_KEY        # optional, see Setup
 npx vercel env add UNREAL_SPEECH_API_KEY   # optional, see Setup
+npx vercel env add APP_TOKEN               # recommended: the access code every /api route asks for
 npx vercel --prod
 ```
 

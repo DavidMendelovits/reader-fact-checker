@@ -10,7 +10,7 @@
 // that is where the time goes: the recognizer waits for silence before it
 // finalizes, and the words are usually clear well before then. A partial holds
 // a higher bar.
-import { apiBase } from './settings'
+import { apiBase, apiHeaders } from './settings'
 import { library } from './session'
 import { useStore } from './store'
 import type { LibraryDoc, Location } from './types'
@@ -128,7 +128,7 @@ export async function decide(text: string, partial: boolean): Promise<NavAction 
   try {
     const res = await fetch(`${apiBase}/api/navigate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: apiHeaders(),
       body: JSON.stringify(body),
       signal: controller.signal,
     })

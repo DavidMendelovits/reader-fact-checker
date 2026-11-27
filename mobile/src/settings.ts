@@ -1,6 +1,7 @@
-// The two pieces of config: the user's Readwise token (theirs, entered once) and
-// the base URL of the deployed web app, whose /api routes hold the model keys —
-// nothing secret ever ships in this bundle.
+// The config: the user's Readwise token (theirs, entered once), the base URL of
+// the deployed web app, whose /api routes hold the model keys, and that app's
+// access code when its deployer set one (APP_TOKEN on the server). Nothing
+// secret ever ships in this bundle.
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Platform } from 'react-native'
 import * as SecureStore from 'expo-secure-store'
@@ -12,6 +13,7 @@ const API_BASE_KEY = 'api-base'
 const VOICE_KEY = 'voice'
 const THEME_KEY = 'theme'
 const HELLO_KEY = 'last-hello-day'
+const APP_TOKEN_KEY = 'app-token'
 
 /**
  * The token is the one secret on the device, so it lives in the keychain
@@ -42,16 +44,19 @@ export type VoicePreference = 'system' | 'kokoro'
 export type ThemePreference = 'system' | 'paper' | 'ink'
 
 export let apiBase = DEFAULT_API_BASE
+export let appToken = ''
 
 export async function loadSettings(): Promise<{ token: string | null; voice: VoicePreference; theme: ThemePreference }> {
-  const [token, base, voice, theme, hello] = await Promise.all([
+  const [token, base, voice, theme, hello, code] = await Promise.all([
     loadToken(),
     AsyncStorage.getItem(API_BASE_KEY),
     AsyncStorage.getItem(VOICE_KEY),
     AsyncStorage.getItem(THEME_KEY),
     AsyncStorage.getItem(HELLO_KEY),
+    loadSecret(APP_TOKEN_KEY),
   ])
   if (base) apiBase = base
+  appToken = code ?? ''
   lastHelloDay = hello
   return {
     token,
@@ -112,10 +117,29 @@ export async function saveApiBase(base: string) {
   await AsyncStorage.setItem(API_BASE_KEY, apiBase)
 }
 
+/** The access code, in the keychain like the Readwise token. Blank clears it. */
+export async function saveAppToken(code: string) {
+  appToken = code.trim()
+  if (!appToken) {
+    if (secureTokens) await SecureStore.deleteItemAsync(APP_TOKEN_KEY).catch(() => {})
+    await AsyncStorage.removeItem(APP_TOKEN_KEY)
+  } else if (secureTokens) await SecureStore.setItemAsync(APP_TOKEN_KEY, appToken)
+  else await AsyncStorage.setItem(APP_TOKEN_KEY, appToken)
+}
+
+async function loadSecret(key: string): Promise<string | null> {
+  if (!secureTokens) return AsyncStorage.getItem(key)
+  return SecureStore.getItemAsync(key).catch(() => null)
+}
+
+/** Headers for a JSON POST to the app's /api routes, the access code included when there is one. */
+export const apiHeaders = (): Record<string, string> =>
+  appToken ? { 'Content-Type': 'application/json', 'x-app-token': appToken } : { 'Content-Type': 'application/json' }
+
 export async function apiJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${apiBase}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: apiHeaders(),
     body: JSON.stringify(body),
   })
   if (!res.ok) {

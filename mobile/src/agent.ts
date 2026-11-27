@@ -17,7 +17,7 @@
 import { concatenated, highlightParts, joinParts } from '../../shared/library/concat.ts'
 import { useStore } from './store'
 import { tts, voice } from './providers'
-import { apiJson, apiBase, shouldSayHello } from './settings'
+import { apiHeaders, apiJson, apiBase, shouldSayHello } from './settings'
 import {
   addHighlight,
   closeDocument,
@@ -151,7 +151,7 @@ async function factCheck(input: Record<string, unknown>): Promise<string> {
 
   const res = await fetch(`${apiBase}/api/factcheck`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: apiHeaders(),
     body: JSON.stringify({ passage: claim }),
   })
   if (!res.ok) return `The fact check failed (${res.status}).`
@@ -231,94 +231,9 @@ async function highlight(input: Record<string, unknown>): Promise<string> {
   return `Highlighted in the book and being saved to Readwise${joined}; ${where}.`
 }
 
-// ---- client tools (declared here, sent with every request) ----
+// ---- the library tools (the model is offered them by name: shared/agent/clients.ts) ----
 
 const LOCATIONS: Location[] = ['new', 'later', 'archive']
-const locationSchema = {
-  type: 'string',
-  enum: LOCATIONS,
-  description: 'Which shelf: "new" is the inbox, "later" is saved for later, "archive" is done with.',
-}
-
-export const CLIENT_TOOLS = [
-  {
-    name: 'list_library',
-    description:
-      'List the documents on one shelf of the library, newest first, as `[id] Title — Author (category, ' +
-      'length, progress)`. Defaults to the shelf the reader is looking at. Use it for "what\'s new", ' +
-      '"what have I saved for later", "what\'s in my inbox". Never read the ids aloud.',
-    inputSchema: { type: 'object', properties: { location: locationSchema } },
-  },
-  {
-    name: 'search_library',
-    description:
-      'Find documents in the library by title, author, or topic — "the Hemingway one", "that piece ' +
-      'about sleep". Spoken queries are loose; pass the words the reader used. Returns the best ' +
-      'matches in the same `[id] Title — Author (...)` shape. Never read the ids aloud.',
-    inputSchema: {
-      type: 'object',
-      properties: { query: { type: 'string', description: 'Title, author, or topic words.' } },
-      required: ['query'],
-    },
-  },
-  {
-    name: 'open_document',
-    description:
-      'Open a document from the library by id and pick up where the reader left off. Closes whatever ' +
-      'was open. The result gives the position; call read_aloud in the same turn to start reading ' +
-      'from there. Fails with a spoken-ready reason when the document has no readable text.',
-    inputSchema: {
-      type: 'object',
-      properties: { id: { type: 'string', description: 'The id from list_library or search_library.' } },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'close_document',
-    description:
-      'Put the open document away and show the library — "go back to the library", "close this", ' +
-      '"I\'m done with this one". The position is remembered.',
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'move_document',
-    description:
-      'File a document on another shelf — "archive that", "save it for later", "put it back in the ' +
-      'inbox". Omit `id` to mean the open document.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'Document id. Defaults to the open document.' },
-        location: locationSchema,
-      },
-      required: ['location'],
-    },
-  },
-  {
-    name: 'list_highlights',
-    description:
-      'List the highlights in the open document — "what have I highlighted", "read me my notes". ' +
-      'Returns `[id] "text" (paragraph N) — note`. Never read the ids aloud.',
-    inputSchema: { type: 'object', properties: {} },
-  },
-  {
-    name: 'remove_highlight',
-    description: 'Delete one highlight by id, here and in Readwise — "remove that highlight", "undo that".',
-    inputSchema: {
-      type: 'object',
-      properties: { id: { type: 'string', description: 'The id from list_highlights.' } },
-      required: ['id'],
-    },
-  },
-]
-
-export const CLIENT_SYSTEM = `The library:
-- When no document is open, the reader is browsing their library by voice. Find what they ask for with search_library (or list_library for "what's new", "what have I saved"), then open it with open_document; reading picks up where they left off, so call read_aloud right after.
-- If several documents match, say the top two or three titles in one breath and ask which. If one clearly matches, just open it.
-- Never read ids aloud. Titles and authors only.
-- "Archive that", "save it for later", "put it back in the inbox" are move_document. "Go back to the library", "close this", "I'm done" are close_document.
-- When a document has no readable text — a PDF, a video — say so in a few words and offer the next match.
-- Highlights are painted in the book and synced to Readwise; a short confirmation is enough. "What have I highlighted" is list_highlights.`
 
 const asLocation = (v: unknown): Location | null => (LOCATIONS.includes(v as Location) ? (v as Location) : null)
 
@@ -500,14 +415,14 @@ const agent = createAgent<NavAction>({
     remove_highlight: removeHl,
   },
   buildContext,
-  clientTools: CLIENT_TOOLS,
-  clientSystem: CLIENT_SYSTEM,
+  client: 'phone',
   newId,
   now: () => Date.now(),
   setTimeout: (fn, ms) => setTimeout(fn, ms),
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
   trimAbove: TRIM_ABOVE,
   trimTo: TRIM_TO,
+  trimChars: 300_000, // the agent route takes 400k with the context beside it
 })
 
 // Every utterance — spoken or typed — enters the loop here, so this is where a

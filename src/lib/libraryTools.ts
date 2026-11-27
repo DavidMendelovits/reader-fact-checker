@@ -5,8 +5,8 @@
 // (persist.ts). The picking and the matching are shared with the phone
 // (shared/library).
 //
-// The tools are declared with every turn (clientTools), like the phone's, so
-// the server's tool list stays the same for every client.
+// What the model is told about these tools lives in shared/agent/clients.ts;
+// the server adds it to the prompt for the web client by name.
 import { useStore } from '../store'
 import type { Doc } from '../types'
 import { searchDocs, searchHighlights } from '../../shared/library/search.ts'
@@ -140,71 +140,6 @@ export async function recommendNext(input: Record<string, unknown>): Promise<str
   if (picks.length === 0) return `Nothing unread to suggest.${noLibrary(error)}`
   return picks.map(candidateLine).join('\n') + noLibrary(error)
 }
-
-// ---- what the model is told ----
-
-export const LIBRARY_TOOLS = [
-  {
-    name: 'search_library',
-    description:
-      'Find documents in the reader\'s library (their Readwise library and anything saved in this browser) by ' +
-      'title, author or topic: "the Hemingway one", "that piece about sleep". Pass the words the reader used. ' +
-      'Returns `[id] Title by Author (length, progress, shelf): summary`, best first. Never read ids aloud.',
-    inputSchema: {
-      type: 'object',
-      properties: { query: { type: 'string', description: 'Title, author or topic words.' } },
-      required: ['query'],
-    },
-  },
-  {
-    name: 'search_highlights',
-    description:
-      'Search the reader\'s highlights across every document by words in the passage or their note: "what did I ' +
-      'highlight about naps", "find that line about the sea". Returns each passage with the document it is from.',
-    inputSchema: {
-      type: 'object',
-      properties: { query: { type: 'string', description: 'Words from the passage or the note.' } },
-      required: ['query'],
-    },
-  },
-  {
-    name: 'open_document',
-    description:
-      'Switch to another document by id from search_library or recommend. Picks up where the reader left off, ' +
-      'unless they asked for the beginning, a percentage ("halfway", "the last quarter") or a chapter ("chapter ' +
-      'three", "the part about the storm"). Also moves within the open document when given its id. It puts the ' +
-      'reader at the starting paragraph, so call read_aloud right after it with no `from`.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string', description: 'The id from search_library or recommend.' },
-        from: { type: 'string', enum: ['resume', 'beginning'], description: 'Where the reader left off (default), or the top.' },
-        percent: { type: 'number', description: '0 to 100: how far in to start. "Halfway" is 50.' },
-        chapter: { type: 'string', description: 'A chapter by number or by words from its title, as the reader said it.' },
-      },
-      required: ['id'],
-    },
-  },
-  {
-    name: 'recommend',
-    description:
-      'Suggest what to read next: unfinished documents first, then the reader\'s saved-for-later shelf, then the ' +
-      'inbox. Pass `minutes` when the reader says how long they have. Returns candidates in order with length, ' +
-      'progress and a summary.',
-    inputSchema: {
-      type: 'object',
-      properties: { minutes: { type: 'number', description: 'How long the reader has, if they said.' } },
-    },
-  },
-]
-
-export const LIBRARY_SYSTEM = `The library:
-- The reader can switch documents by voice: "switch to the Hemingway one", "start that article about sleep", "go to chapter three of the storm book". Find it with search_library, then open_document, then read_aloud with no \`from\`: open_document has already put the reader where reading should start.
-- If one document clearly matches, open it. If several do, say the top two or three titles in one breath and ask which.
-- "From the beginning", "halfway", "the last chapter" are open_document's from, percent and chapter. With none of them, reading picks up where the reader left off.
-- "What should I read next?" is recommend: offer one pick in a sentence, with why (unfinished, short enough, on their later shelf), and open it if they agree.
-- "What did I highlight about X?" is search_highlights. Read the passage, not a summary of it.
-- Never read ids aloud. Titles and authors only. If the library is not available, say so in a few words and offer what is saved in this browser.`
 
 export const LIBRARY_HANDLERS = {
   search_library: searchLibrary,

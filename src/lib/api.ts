@@ -1,5 +1,6 @@
-// Fetch wrapper for our server endpoints. API keys live server-side; these routes
-// are unauthenticated for now.
+// Fetch wrapper for our server endpoints. API keys live server-side. When the
+// deployer sets an access code (APP_TOKEN on the server), every request carries
+// it; the first refusal asks the reader for it once and keeps it in this browser.
 export class ApiError extends Error {
   readonly status: number
   constructor(message: string, status: number) {
@@ -10,15 +11,56 @@ export class ApiError extends Error {
 
 /**
  * Worth one more try: the request never reached the server (fetch rejects with a
- * TypeError), or the server said "not right now" — rate limit, overload, or a 5xx
- * that a fresh attempt routinely clears. A 4xx other than 429 is our bug and will
- * fail identically every time.
+ * TypeError), or a 5xx that a fresh attempt routinely clears (a vendor's overload
+ * or rate limit arrives as one). A 4xx is final: a 429 is this server's own
+ * per-minute limit, which a retry a second later only counts against again.
  */
 export const isTransient = (e: unknown): boolean =>
-  e instanceof ApiError ? e.status === 429 || e.status >= 500 : e instanceof TypeError
+  e instanceof ApiError ? e.status >= 500 : e instanceof TypeError
 
-export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(path, init)
+const APP_TOKEN_KEY = 'rfc-app-token'
+
+function storedCode(): string | null {
+  try {
+    return localStorage.getItem(APP_TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+const withCode = (init: RequestInit, code: string | null): RequestInit =>
+  code ? { ...init, headers: { ...(init.headers as Record<string, string> | undefined), 'x-app-token': code } } : init
+
+// Several requests can be refused at once (the whole-document scan runs three);
+// they all wait on one question.
+let asking: Promise<string | null> | null = null
+
+function askForCode(): Promise<string | null> {
+  asking ??= Promise.resolve()
+    .then(() => {
+      // ponytail: the browser's own prompt is the whole sign-in screen; a real one
+      // can come when there are accounts
+      const code = window.prompt('This reader needs its access code.')?.trim() || null
+      try {
+        if (code) localStorage.setItem(APP_TOKEN_KEY, code)
+        else localStorage.removeItem(APP_TOKEN_KEY) // cancelled: forget a code that no longer works
+      } catch {
+        // storage blocked: the code still works for this request
+      }
+      return code
+    })
+    .finally(() => (asking = null))
+  return asking
+}
+
+export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const sent = storedCode()
+  const res = await fetch(path, withCode(init, sent))
+  // only the server's own access-code refusal, not a 401 passed on from Readwise
+  if (res.status !== 401 || res.headers.get('www-authenticate') !== 'AppToken' || typeof window === 'undefined') return res
+  // another request may have been asked already and stored the code since
+  const code = storedCode() !== sent ? storedCode() : await askForCode()
+  return code ? fetch(path, withCode(init, code)) : res
 }
 
 /**

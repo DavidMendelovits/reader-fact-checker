@@ -288,6 +288,23 @@ describe('conversation loop', () => {
     assert.equal(kept[0].content, 'hello', 'the orphaned tool_result head goes too')
   })
 
+  // a few huge tool results must not keep every turn over the server's size cap
+  it('trim() also drops the oldest messages past a size ceiling', () => {
+    const big = 'x'.repeat(1000)
+    const kept = trim(
+      [
+        { role: 'user', content: big },
+        { role: 'assistant', content: big },
+        { role: 'user', content: 'short' },
+        { role: 'assistant', content: 'ok' },
+      ],
+      Infinity,
+      Infinity,
+      500,
+    )
+    assert.deepEqual(kept.map((m) => m.content), ['short', 'ok'])
+  })
+
   // and through the loop: a restored transcript that starts with an assistant turn
   // is sendable by the time the transport sees it
   it('a restored transcript that starts with an assistant turn is sendable by the time the transport sees it', async () => {

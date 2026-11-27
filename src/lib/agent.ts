@@ -25,7 +25,7 @@ import { decide, type NavAction } from './navigate'
 import type { Doc, FactCheckJob, Highlight } from '../types'
 import { createAgent, type AgentPlayer, type Block, type Msg, type NavResult } from '../../shared/voice/agent'
 import { createAnnouncer } from '../../shared/voice/background'
-import { LIBRARY_SYSTEM, LIBRARY_TOOLS, openDocument, recommendNext, searchLibrary, searchLibraryHighlights } from './libraryTools'
+import { openDocument, recommendNext, searchLibrary, searchLibraryHighlights } from './libraryTools'
 
 let reopenedAt: number | null = null // set by persist when a saved entry is reopened
 
@@ -259,7 +259,7 @@ async function speakTurn(messages: Msg[], context: unknown, extras: Record<strin
   }
 
   try {
-    // Retried on transient failures (429/5xx/network): one 529 must not end the
+    // Retried on transient failures (5xx/network): one 529 must not end the
     // conversation. Only while nothing has been spoken yet — a stream that dies
     // mid-sentence has already been heard, and a replay would say it twice.
     for (let attempt = 0; ; attempt++) {
@@ -335,15 +335,18 @@ const agent = createAgent<NavAction>({
     fact_check: factCheck, find_in_document: findInDocument, highlight,
     search_library: searchLibrary, search_highlights: searchLibraryHighlights, open_document: openDocument, recommend: recommendNext,
   },
-  // getters: libraryTools imports persist, which imports this file back
-  get clientTools() { return LIBRARY_TOOLS },
-  get clientSystem() { return LIBRARY_SYSTEM },
+  client: 'web',
   buildContext,
   blip,
   newId,
   now: () => Date.now(),
   setTimeout: (fn, ms) => setTimeout(fn, ms),
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+  // A long session would otherwise resend every turn so far, each turn dearer than
+  // the last, until the server's size cap refused it (api/_lib/guard.ts).
+  trimAbove: 60,
+  trimTo: 40,
+  trimChars: 300_000, // the agent route takes 400k with the context beside it
 })
 
 // The next document change keeps the conversation: a switch the agent made

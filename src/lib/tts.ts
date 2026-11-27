@@ -10,13 +10,16 @@ import type { AudioSource } from './ports.ts'
 import { HoldGate } from '../../shared/voice/holdGate.ts'
 import type { SayOutcome } from '../../shared/voice/background.ts'
 
+// the server reads at most this much of a paragraph (api/_lib/speech.ts), under the route's body cap
+const TTS_MAX_CHARS = 12_000
+
 /** The server's /api/tts route. Whatever vendor is configured there. */
 export const serverSpeech: AudioSource = {
   synthesize: (text, signal) =>
     apiFetch('/api/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text: text.slice(0, TTS_MAX_CHARS) }),
       signal,
     }),
 }
