@@ -57,6 +57,15 @@ describe('findChapter', () => {
   test('by words from the title', () => {
     expect(findChapter(chapters, 'the one about the storm')).toBe(1)
     expect(findChapter(chapters, 'landfall')).toBe(2)
+    // "one" here is not a number: the storm is chapter 2, not chapter 1
+    const numbered: Chapter[] = [{ title: 'Chapter 1: Harbor', paragraphs: ['a'] }, { title: 'Chapter 2: The Storm', paragraphs: ['b'] }]
+    expect(findChapter(numbered, 'the one about the storm')).toBe(1)
+  })
+  test('the last chapter, and ordinals', () => {
+    expect(findChapter(chapters, 'the last chapter')).toBe(chapters.length - 1)
+    const plain: Chapter[] = [{ title: 'Opening', paragraphs: ['a'] }, { title: 'Middle', paragraphs: ['b'] }]
+    expect(findChapter(plain, 'the second chapter')).toBe(1)
+    expect(findChapter(plain, 'two')).toBe(1)
   })
   test('a number with no titled match counts chapters', () => {
     const plain: Chapter[] = [{ title: 'Opening', paragraphs: ['a'] }, { title: 'Middle', paragraphs: ['b'] }]

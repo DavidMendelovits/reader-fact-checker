@@ -101,11 +101,14 @@ export async function openDocument(input: Record<string, unknown>): Promise<stri
   const open = useStore.getState().doc
   let doc: Doc
   try {
+    // A copy saved here wins over a fresh fetch: no Reader call, and the saved
+    // paragraph still points at the same passage.
     if (open?.id === item.docId) doc = open
-    else if (item.readwise) {
-      const { doc: d, chapters } = await fetchChapters(item.readwise.id)
+    else if (item.entry) doc = item.entry.doc
+    else {
+      const { doc: d, chapters } = await fetchChapters(item.readwise!.id)
       doc = { id: item.docId, title: d.title, source: d.sourceUrl ?? 'Readwise Reader', chapters }
-    } else doc = item.entry!.doc
+    }
   } catch (e) {
     return e instanceof Error ? e.message : String(e)
   }

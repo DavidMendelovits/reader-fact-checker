@@ -110,6 +110,14 @@ describe('open_document', () => {
     expect(saved.switched[0].doc).toBe(doc)
   })
 
+  test('a Readwise document saved here opens from the saved copy, with no fetch', async () => {
+    const doc: Doc = { id: 'readwise:storm', title: 'The Long Storm', source: 'Readwise Reader', chapters: STORM }
+    saved.entries = [{ id: doc.id, title: doc.title, source: doc.source, doc, currentParagraph: 7, updatedAt: Date.now() } as LibraryEntry]
+    lib.chapters.delete('storm') // a fetch would fail
+    expect(await openDocument({ id: 'storm' })).toContain('Position: paragraph 7 (chapter "The Storm")')
+    expect(saved.switched[0].doc).toBe(doc)
+  })
+
   test('an id it does not know, and a document with no text', async () => {
     expect(await openDocument({ id: 'nope' })).toBe('No document with that id. Search the library first.')
     lib.chapters.delete('sleep')

@@ -39,15 +39,26 @@ export function loadLibrary(): LibraryEntry[] {
   }
 }
 
+/**
+ * Lose one entry: the oldest Readwise copy, since its text can be fetched
+ * again; with none, the oldest entry. `entries` is newest first.
+ */
+export function dropOne(entries: LibraryEntry[]) {
+  let i = entries.length - 1
+  while (i > 0 && !entries[i].id.startsWith('readwise:')) i--
+  entries.splice(entries[i].id.startsWith('readwise:') ? i : entries.length - 1, 1)
+}
+
 function writeLibrary(entries: LibraryEntry[]) {
-  const ordered = entries.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_ENTRIES)
-  // drop the oldest entry and retry until the write fits under the quota
-  for (let n = ordered.length; n > 0; n--) {
+  const kept = entries.sort((a, b) => b.updatedAt - a.updatedAt)
+  while (kept.length > MAX_ENTRIES) dropOne(kept)
+  // drop one more and retry until the write fits under the quota
+  while (kept.length > 0) {
     try {
-      localStorage.setItem(KEY, JSON.stringify(ordered.slice(0, n)))
+      localStorage.setItem(KEY, JSON.stringify(kept))
       return
     } catch {
-      /* QuotaExceededError — try again with fewer */
+      dropOne(kept) // QuotaExceededError
     }
   }
   try {
@@ -128,7 +139,8 @@ export function switchTo(doc: Doc, entry: LibraryEntry | undefined, at: number) 
     currentParagraph: at,
     jobs: restoredJobs(entry),
     highlights: entry?.highlights ?? [],
-    chat,
+    // the document's own transcript first, so the save after this keeps it
+    chat: [...(entry?.chat ?? []), ...chat],
   })
 }
 

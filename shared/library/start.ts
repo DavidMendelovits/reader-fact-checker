@@ -17,14 +17,23 @@ export type StartResult = { paragraph: number; chapter: string | null } | { erro
 
 const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty']
 const ROMAN = ['', 'i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x', 'xi', 'xii', 'xiii', 'xiv', 'xv', 'xvi', 'xvii', 'xviii', 'xix', 'xx']
-const LABELS = new Set(['chapter', 'part', 'section', 'book', 'the', 'one', 'about', 'where', 'called', 'named'])
+const ORDINALS = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth', 'eleventh', 'twelfth']
+const NUMBERED = new Set(['chapter', 'part', 'section', 'book'])
+const LABELS = new Set([...NUMBERED, 'the', 'one', 'about', 'where', 'called', 'named', 'last', 'final'])
 
-/** "3", "three", "chapter iii" -> 3. Null when the words aren't a number. */
+/**
+ * "3", "chapter three", "the third chapter", "three" -> 3. A number word counts
+ * only after a label or on its own, so "the one about the storm" is not 1.
+ */
 function spokenNumber(words: string[]): number | null {
-  for (const w of words) {
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]
     if (/^\d+$/.test(w)) return Number(w)
+    if (ORDINALS.indexOf(w) > 0) return ORDINALS.indexOf(w)
     const n = NUMBER_WORDS.indexOf(w)
-    if (n > 0) return n
+    if (n > 0 && (words.length === 1 || NUMBERED.has(words[i - 1]))) return n
+    const r = ROMAN.indexOf(w)
+    if (r > 0 && NUMBERED.has(words[i - 1])) return r
   }
   return null
 }
@@ -32,6 +41,7 @@ function spokenNumber(words: string[]): number | null {
 /** The chapter a spoken reference means, or null. */
 export function findChapter(chapters: Chapter[], spoken: string): number | null {
   const words = tokens(spoken)
+  if (words.some((w) => w === 'last' || w === 'final')) return chapters.length - 1
   const n = spokenNumber(words)
   if (n != null) {
     // a title that carries the number wins: "Chapter 3", "III", "Part Three"
@@ -40,7 +50,7 @@ export function findChapter(chapters: Chapter[], spoken: string): number | null 
     if (titled >= 0) return titled
     if (n >= 1 && n <= chapters.length) return n - 1
   }
-  const want = words.filter((w) => !LABELS.has(w) && spokenNumber([w]) == null)
+  const want = words.filter((w) => !LABELS.has(w) && !/^\d+$/.test(w))
   if (want.length === 0) return null
   let best = -1
   let bestScore = 0

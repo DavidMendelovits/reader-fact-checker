@@ -38,6 +38,8 @@ let cache: Cache = typeof localStorage === 'undefined' ? empty() : readCache()
 /** Why the last sync failed, when it did; cleared by the next one that works. */
 let lastError: string | null = null
 let syncing: Promise<void> | null = null
+/** Bumped when the token changes, so a sync still running for the old one drops its result. */
+let generation = 0
 
 export function readwiseToken(): string | null {
   try {
@@ -58,6 +60,8 @@ export function setReadwiseToken(token: string | null) {
   }
   cache = empty()
   lastError = null
+  generation++
+  syncing = null // a new token starts its own sync rather than joining the old one
 }
 
 async function call<T>(body: Record<string, unknown>): Promise<T> {
@@ -81,6 +85,7 @@ async function call<T>(body: Record<string, unknown>): Promise<T> {
  */
 export function refreshLibrary(): Promise<void> {
   syncing ??= (async () => {
+    const gen = generation
     const since = cache.lastSync ?? undefined
     const startedAt = new Date().toISOString()
     try {
@@ -102,6 +107,7 @@ export function refreshLibrary(): Promise<void> {
         if (!res.nextCursor) break
         cursor = res.nextCursor
       }
+      if (gen !== generation) return // the token changed mid-sync
       cache = {
         docs: [...docs.values()].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)),
         highlights: [...highlights.values()],
@@ -115,9 +121,9 @@ export function refreshLibrary(): Promise<void> {
         // documents is well under a megabyte. Move both to IndexedDB if it bites.
       }
     } catch (e) {
-      lastError = e instanceof Error ? e.message : String(e)
+      if (gen === generation) lastError = e instanceof Error ? e.message : String(e)
     } finally {
-      syncing = null
+      if (gen === generation) syncing = null
     }
   })()
   return syncing

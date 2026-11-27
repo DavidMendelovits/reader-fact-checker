@@ -68,7 +68,7 @@ const registry = {
   library: {
     readwise: () => (token: string | null) => {
       if (!token) throw new NoLibraryToken('No Readwise token. Add yours in the app to use your library.')
-      return readwiseLibrary(token)
+      return readwiseLibrary(token, { maxRetryWait: 20 }) // under api/library.ts's 30s maxDuration
     },
     fake: () => fakeLibrary,
   } as Record<string, Factory<(token: string | null) => Library>>,

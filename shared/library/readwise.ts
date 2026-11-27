@@ -18,6 +18,8 @@ import type { Library, LibraryDoc, Location, Page, ReaderDoc, RemoteHighlight } 
 export interface ReadwiseOptions {
   readerBase?: string
   readwiseBase?: string
+  /** Longest 429 wait before the one retry, in seconds (default 60). A server route passes less than its own time limit. */
+  maxRetryWait?: number
 }
 
 const LOCATIONS = new Set<Location>(['new', 'later', 'archive', 'feed'])
@@ -51,7 +53,7 @@ export function readwiseLibrary(token: string, opts: ReadwiseOptions = {}): Libr
     const res = await fetch(url, { ...init, headers: { ...headers, ...(init.headers ?? {}) } })
     if (res.status === 429 && !retried) {
       const retryAfter = Number(res.headers.get('Retry-After') ?? NaN)
-      const wait = Math.min(60, Number.isFinite(retryAfter) ? retryAfter : 5)
+      const wait = Math.min(opts.maxRetryWait ?? 60, Number.isFinite(retryAfter) ? retryAfter : 5)
       await new Promise((r) => setTimeout(r, wait * 1000))
       return call(url, init, true)
     }
