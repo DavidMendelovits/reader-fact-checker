@@ -115,6 +115,15 @@ npm test        # watch mode
 
 Tests run on [Vitest](https://vitest.dev). Every vendor is mocked at its port (`api/_lib/ports.ts`, swapped with `override()` in `api/_lib/providers.ts`) or with `vi.fn`, so the suite needs no keys and runs in a few seconds. A setup file (`test/no-network.ts`) fails any socket that leaves the machine, so a test that forgets a mock fails instead of calling a vendor. The phone app's tests run the same way from `mobile/` (`npm run check`, `npm test`), with native modules swapped for the small stubs in `mobile/test/stubs` and the same no-network guard.
 
+### Replay runs
+
+```bash
+AGENT_PROVIDER=fake TTS_PROVIDER=fake npm run replay   # free dry run of the harness
+REPLAY_LIVE=1 REPLAY_LABEL="sonnet-5 + elevenlabs" npm run replay
+```
+
+A replay run sends 50 typed voice commands (`test/replay/commands.json`) through the agent, against a short fixed story (`test/replay/book.ts`), and the first chapter through the voice. It scores whether each command got the right tool with the right arguments, and adds one row to `test/replay/out/results.csv`: tool and argument accuracy, time to the reply's first words and to the first audio, characters spoken and the agent's cost. Every miss is printed. It uses whatever vendors env picks, keys from `.env.local` included, so compare combinations by changing `AGENT_MODEL` or `TTS_PROVIDER` between runs, and rerun it when a vendor ships a new model. A live run spends real money (50 agent turns and five paragraphs of speech), so it refuses to start without `REPLAY_LIVE=1`. `REPLAY_LIMIT=10` runs the first ten commands. The commands are typed, not spoken, so the ear and barge-in aren't measured yet.
+
 ### End-to-end test environment
 
 ```bash

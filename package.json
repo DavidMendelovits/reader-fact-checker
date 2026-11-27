@@ -9,7 +9,8 @@
     "check": "tsc --noEmit -p . && vitest run",
     "test": "vitest",
     "dev:e2e": "vite --mode e2e",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "replay": "vitest run --config test/replay/vitest.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

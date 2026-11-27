@@ -15,3 +15,6 @@ tsconfig.tsbuildinfo
 .gstack/
 .context/
 mobile/assets/icon-concepts/
+
+# replay run results (npm run replay)
+test/replay/out/
