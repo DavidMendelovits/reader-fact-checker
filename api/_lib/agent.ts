@@ -22,9 +22,9 @@ export interface AgentContext {
 
 /**
  * What a client adds to the shared agent: tools it implements itself and the
- * guidance for them. The web reader has none; the phone brings the library —
- * browsing, opening, filing — which only it can do. Both are byte-stable per
- * client, so the cached prefix stays warm.
+ * guidance for them: each app brings its own library tools, since finding and
+ * opening a document is done on the device. Both are byte-stable per client, so
+ * the cached prefix stays warm.
  */
 export interface ClientExtras {
   tools?: ToolSpec[]

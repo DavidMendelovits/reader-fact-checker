@@ -6,6 +6,7 @@ import { loadLibrary, openEntry, forgetEntry } from '../lib/persist'
 import type { LibraryEntry } from '../lib/persist'
 import { COPY } from '../../shared/voice/line.ts'
 import { Glyph } from './Glyph'
+import { ReadwiseConnect } from './ReadwiseConnect'
 
 // ---- cross-book search ----
 //
@@ -121,6 +122,8 @@ export function ImportScreen() {
       </div>
 
       {error && <p className="error">{error}</p>}
+
+      <ReadwiseConnect />
 
       {library.length > 0 && (() => {
         const q = query.trim().toLowerCase()

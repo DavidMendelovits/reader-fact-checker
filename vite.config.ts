@@ -75,6 +75,15 @@ function apiRoutes(): Plugin {
         }
       })
 
+      server.middlewares.use('/api/library', async (req, res) => {
+        const token = req.headers['x-readwise-token']
+        try {
+          json(res, 200, await impl.libraryRequest(JSON.parse(await readBody(req)), typeof token === 'string' ? token : null))
+        } catch (e) {
+          json(res, e instanceof impl.LibraryError ? e.status : 502, { error: e instanceof Error ? e.message : String(e) })
+        }
+      })
+
       server.middlewares.use('/api/claims', async (req, res) => {
         try {
           const { section } = JSON.parse(await readBody(req))

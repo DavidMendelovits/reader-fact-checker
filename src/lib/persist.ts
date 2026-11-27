@@ -6,7 +6,7 @@
 // a full book is a few hundred KB, so writes evict the oldest entries until they
 // fit rather than failing.
 import { useStore } from '../store'
-import { exportMessages, markReopened, restoreMessages } from './agent'
+import { exportMessages, keepConversation, markReopened, restoreMessages } from './agent'
 import { tts } from './providers'
 import type { ChatMessage, Doc, FactCheckJob, Highlight } from '../types'
 
@@ -75,9 +75,25 @@ function save() {
   writeLibrary([entry, ...loadLibrary().filter((e) => e.id !== entry.id)])
 }
 
+/** Save the open document now, not after the debounce: it is about to be put away. */
+export function saveNow() {
+  if (timer) clearTimeout(timer)
+  timer = null
+  save()
+}
+
 export function forgetEntry(id: string) {
   writeLibrary(loadLibrary().filter((e) => e.id !== id))
 }
+
+/**
+ * A saved document's checks. One that was running when the page closed will
+ * never finish, and a verdict that was still queued will never be read out.
+ */
+const restoredJobs = (entry: LibraryEntry | undefined): FactCheckJob[] =>
+  (entry?.jobs ?? []).map((j) =>
+    j.status === 'running' ? { ...j, status: 'error' as const, error: 'Interrupted' } : j.spoken === undefined ? { ...j, spoken: false } : j,
+  )
 
 /** Reopen a saved document with its position, cards, and conversation intact. */
 export function openEntry(entry: LibraryEntry) {
@@ -85,11 +101,7 @@ export function openEntry(entry: LibraryEntry) {
   useStore.getState().setDoc(entry.doc) // resets jobs/chat, and clears the agent conversation
   useStore.setState({
     currentParagraph: entry.currentParagraph ?? 0,
-    // a check that was running when the page closed will never finish, and a
-    // verdict that was still queued will never be read out
-    jobs: (entry.jobs ?? []).map((j) =>
-      j.status === 'running' ? { ...j, status: 'error' as const, error: 'Interrupted' } : j.spoken === undefined ? { ...j, spoken: false } : j,
-    ),
+    jobs: restoredJobs(entry),
     highlights: entry.highlights ?? [],
     chat: entry.chat ?? [],
   })
@@ -97,6 +109,27 @@ export function openEntry(entry: LibraryEntry) {
   // After setDoc, which clears the mark along with the conversation. The doc-open
   // turn in controller.ts reads it a tick later and opens with a recap.
   markReopened(entry.updatedAt ?? Date.now())
+}
+
+/**
+ * Switch documents in the middle of a conversation: "switch to the Hemingway
+ * one". Unlike openEntry, the conversation and the chat carry on (the switch is
+ * a tool call, and its result has to land in the same turn), and the reading
+ * position is the one asked for. The document's own cards and highlights come
+ * back with it.
+ */
+export function switchTo(doc: Doc, entry: LibraryEntry | undefined, at: number) {
+  saveNow()
+  const chat = useStore.getState().chat
+  tts.clearCacheForNewDoc()
+  keepConversation()
+  useStore.getState().setDoc(doc)
+  useStore.setState({
+    currentParagraph: at,
+    jobs: restoredJobs(entry),
+    highlights: entry?.highlights ?? [],
+    chat,
+  })
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null

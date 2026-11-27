@@ -9,9 +9,11 @@
 //   json          no claims
 //   search        a verdict after FAKE_SEARCH_MS (default 4s), streamed in pieces
 //   speech        silent MP3, about as long as the text would take to say
+//   library       three documents and two highlights, whatever the token
 import type {
   AudioStream, Block, ConversationModel, JsonCompletion, Message, SearchModel, SpeechSynthesizer, TurnHooks, TurnRequest,
 } from '../ports.js'
+import type { Library, LibraryDoc, RemoteHighlight } from '../../../shared/library/types.js'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 let ids = 0
@@ -30,6 +32,29 @@ function lastUserText(messages: Message[]): string {
     .join(' ')
 }
 
+/** The tool results in the last user turn, if that is all it carries. */
+function lastToolResults(messages: Message[]): string[] {
+  const last = messages[messages.length - 1]
+  if (!last || last.role !== 'user' || typeof last.content === 'string') return []
+  return last.content
+    .filter((b): b is Extract<Block, { type: 'tool_result' }> => b.type === 'tool_result')
+    .map((b) => String(b.content))
+}
+
+/**
+ * The library round trip, so a click-through can switch documents: "open X"
+ * searches, a search result opens the first match, and an opened document is
+ * read from wherever opening it put the reader.
+ */
+function libraryStep(results: string[]): Block[] | null {
+  for (const r of results) {
+    if (/^Opened |is already open/.test(r)) return [toolUse('read_aloud', {})]
+    const found = r.match(/^\[([^\]]+)\]/)
+    if (found) return [toolUse('open_document', { id: found[1] })]
+  }
+  return null
+}
+
 /** The current paragraph index and its text, read back out of the context block. */
 function position(context: string): { at: number; text: string } {
   const at = Number(context.match(/Current position: paragraph (\d+)/)?.[1] ?? 0)
@@ -37,11 +62,14 @@ function position(context: string): { at: number; text: string } {
   return { at, text }
 }
 
-function reply(text: string, context: string): Block[] {
+function reply(text: string, context: string, results: string[]): Block[] {
   const { at, text: here } = position(context)
   const t = text.toLowerCase()
   const read = () => toolUse('read_aloud', { from: at })
-  if (!t.trim()) return [] // tool results only: the fake has nothing to add
+  if (!t.trim()) return libraryStep(results) ?? [] // tool results only
+  const open = t.match(/\b(?:switch to|open|start reading)\s+(.+)/)
+  if (open) return [toolUse('search_library', { query: open[1] })]
+  if (/what should i read|recommend/.test(t)) return [toolUse('recommend', {})]
   if (t.startsWith('[the reader')) return [{ type: 'text', text: 'Starting where you are.' }, read()]
   if (/\b(true|check|really|accurate|fact)\b/.test(t)) {
     return [
@@ -59,7 +87,7 @@ export function fakeConversation(): ConversationModel {
   return {
     name: 'fake',
     async turn(req: TurnRequest, hooks: TurnHooks = {}) {
-      const content = reply(lastUserText(req.messages), req.context)
+      const content = reply(lastUserText(req.messages), req.context, lastToolResults(req.messages))
       for (const b of content) {
         if (b.type !== 'text') continue
         await sleep(30)
@@ -121,5 +149,56 @@ export function fakeSpeech(): SpeechSynthesizer {
       for (let i = 0; i < frames; i++) bytes.set(SILENT_FRAME, i * SILENT_FRAME.length)
       return { mimeType: 'audio/mpeg', body: new Blob([bytes]).stream() }
     },
+  }
+}
+
+const FAKE_DOCS: { doc: LibraryDoc; html: string | null }[] = [
+  {
+    doc: fakeDoc('fake-storm', 'The Long Storm', 'A. Writer', 'later', 0.4, 'A sailor waits out a storm.'),
+    html:
+      '<h1>Chapter 1: Harbor</h1><p>The boats came in early that evening, one after another, low in the water.</p>' +
+      '<p>Nobody on the quay said the word storm, but everyone was tying things down.</p>' +
+      '<h1>Chapter 2: The Storm</h1><p>By midnight the wind had found every loose shutter in town.</p>' +
+      '<p>She sat by the stove and counted the seconds between the gusts.</p>' +
+      '<h1>Chapter 3: Morning</h1><p>The sea in the morning was flat and grey and pretended nothing had happened.</p>',
+  },
+  {
+    doc: fakeDoc('fake-sleep', 'Notes on Sleep', 'B. Researcher', 'new', null, 'Why a short nap helps.'),
+    html: '<p>A short nap in the early afternoon improves alertness for hours afterwards.</p><p>Longer naps leave most people groggy.</p>',
+  },
+  { doc: fakeDoc('fake-pdf', 'A Scanned Report', null, 'new', null, 'A PDF with no text.'), html: null },
+]
+
+const FAKE_HIGHLIGHTS: RemoteHighlight[] = [
+  { id: 'fake-h1', docId: 'fake-storm', text: 'The sea in the morning was flat and grey and pretended nothing had happened.', note: null, updatedAt: '2026-01-02T00:00:00Z' },
+  { id: 'fake-h2', docId: 'fake-sleep', text: 'A short nap in the early afternoon improves alertness for hours afterwards.', note: 'try this', updatedAt: '2026-01-01T00:00:00Z' },
+]
+
+function fakeDoc(id: string, title: string, author: string | null, location: LibraryDoc['location'], progress: number | null, summary: string): LibraryDoc {
+  return {
+    id, title, author, category: 'article', location, sourceUrl: null, wordCount: 1200, summary,
+    tags: [], readingProgress: progress, publishedDate: null, updatedAt: '2026-01-01T00:00:00Z',
+  }
+}
+
+/** The same small library for every caller: no token, no network. Writes are accepted and forgotten. */
+export function fakeLibrary(): Library {
+  return {
+    async listDocuments({ location }) {
+      return { items: FAKE_DOCS.map((d) => d.doc).filter((d) => d.location === location), nextCursor: null }
+    },
+    async fetchHtml(id) {
+      const hit = FAKE_DOCS.find((d) => d.doc.id === id)
+      if (!hit) throw new Error('Document not found in Reader')
+      return hit
+    },
+    async move() {},
+    async listHighlights() {
+      return { items: FAKE_HIGHLIGHTS, nextCursor: null }
+    },
+    async createHighlight() {
+      return { remoteId: `fake-${++ids}` }
+    },
+    async deleteHighlight() {},
   }
 }

@@ -11,10 +11,9 @@
 // Rate limits: 20 list calls a minute, 50 writes. A 429 is retried once after
 // the Retry-After the server names.
 //
-// Pure fetch, no react-native imports: the self-check runs this under node
-// against a fake server.
-import type { Library, Page } from './ports'
-import type { LibraryDoc, Location, ReaderDoc, RemoteHighlight } from './types'
+// Pure fetch, no platform imports: the phone, the web app's server route and
+// the tests all run this same file.
+import type { Library, LibraryDoc, Location, Page, ReaderDoc, RemoteHighlight } from './types'
 
 export interface ReadwiseOptions {
   readerBase?: string
