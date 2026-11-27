@@ -102,7 +102,10 @@ async function runCheck(
   return result
 }
 
+// under /api/claims' 80k body cap, so one giant paragraph is scanned in part, not refused
+const CLAIMS_MAX_CHARS = 60_000
+
 export async function extractClaims(section: string): Promise<string[]> {
-  const { claims } = await apiJson<{ claims: string[] }>('/api/claims', { section })
+  const { claims } = await apiJson<{ claims: string[] }>('/api/claims', { section: section.slice(0, CLAIMS_MAX_CHARS) })
   return claims
 }

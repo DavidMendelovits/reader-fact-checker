@@ -16,7 +16,7 @@ export const LIMITS: Record<Route, { perMinute: number; maxChars: number }> = {
   agent: { perMinute: 60, maxChars: 400_000 }, // a trimmed conversation plus the nearby text
   factcheck: { perMinute: 60, maxChars: 100_000 }, // the whole-document scan runs three at a time
   claims: { perMinute: 60, maxChars: 80_000 }, // one ~2,000-word section
-  tts: { perMinute: 180, maxChars: 12_000 }, // one paragraph
+  tts: { perMinute: 180, maxChars: 16_000 }, // one paragraph; speech.ts cuts the text at 12k itself
   fetch: { perMinute: 30, maxChars: 4_000 }, // the URL
   navigate: { perMinute: 240, maxChars: 20_000 }, // asked on partial transcripts
   library: { perMinute: 120, maxChars: 100_000 },
@@ -72,9 +72,10 @@ function overLimit(route: Route, caller: string, now: number): number | null {
  * or the URL for /api/fetch). Null means yes; otherwise what to answer.
  */
 export function admit(route: Route, h: Headers, chars: number, caller = callerOf(h), now = Date.now()): Refusal | null {
-  if (!tokenOk(header(h, 'x-app-token'))) return { status: 401, error: 'app token required' }
+  // counted before the code is checked, so wrong guesses use up the quota too
   const retryAfter = overLimit(route, caller, now)
   if (retryAfter != null) return { status: 429, error: 'too many requests, wait a minute', retryAfter }
+  if (!tokenOk(header(h, 'x-app-token'))) return { status: 401, error: 'app token required' }
   if (chars > LIMITS[route].maxChars) return { status: 413, error: 'request too large' }
   return null
 }

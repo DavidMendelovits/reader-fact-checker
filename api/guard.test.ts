@@ -3,7 +3,7 @@
 // the request, decides what a client adds to the agent's prompt.
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it, vi } from 'vitest'
-import { admit, agentTurn, LIMITS, refusalHeaders, resetLimits, type AgentContext } from './_impl.ts'
+import { admit, agentTurn, clientOf, LIMITS, refusalHeaders, resetLimits, type AgentContext } from './_impl.ts'
 import { override } from './_lib/providers.ts'
 import type { ConversationModel, TurnRequest } from './_lib/ports.ts'
 import agentRoute from './agent.ts'
@@ -24,6 +24,13 @@ describe('the access code', () => {
     assert.equal(admit('agent', { 'x-app-token': 'open sesam' }, 10, 'a')?.status, 401)
     assert.equal(admit('agent', { 'x-app-token': 'open sesame!' }, 10, 'a')?.status, 401)
     assert.equal(admit('agent', { 'x-app-token': 'open sesame' }, 10, 'a'), null)
+  })
+
+  it('counts wrong guesses against the rate limit, so it cannot be guessed quickly', () => {
+    vi.stubEnv('APP_TOKEN', 'open sesame')
+    const t0 = 1_000_000
+    for (let i = 0; i < LIMITS.fetch.perMinute; i++) assert.equal(admit('fetch', { 'x-app-token': `guess ${i}` }, 10, 'a', t0)?.status, 401)
+    assert.equal(admit('fetch', { 'x-app-token': 'open sesame' }, 10, 'a', t0)?.status, 429)
   })
 
   it('is named in the refusal, so the web asks for it and not for a Readwise token', () => {
@@ -145,6 +152,14 @@ describe('what a client adds to the prompt', () => {
       assert.ok(!req.system.includes(CLIENT_KITS.web.system))
       assert.ok(!req.tools.some((t) => t.name === 'search_library'))
     }
+  })
+
+  it('is still the right kit for a build that sends its tools instead of a name', () => {
+    assert.equal(clientOf({ clientTools: CLIENT_KITS.phone.tools }), 'phone')
+    assert.equal(clientOf({ clientTools: CLIENT_KITS.web.tools }), 'web')
+    assert.equal(clientOf({ clientTools: [{ name: 'evil' }] }), null)
+    assert.equal(clientOf({ client: 'web', clientTools: CLIENT_KITS.phone.tools }), 'web')
+    assert.equal(clientOf({}), null)
   })
 
   it('gives the web its own library tools', async () => {

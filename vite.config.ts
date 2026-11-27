@@ -73,7 +73,7 @@ function apiRoutes(): Plugin {
           res.statusCode = 200
           res.setHeader('Content-Type', 'application/x-ndjson')
           res.setHeader('Cache-Control', 'no-cache, no-transform')
-          await impl.agentNdjson(body.messages, body.context, (line) => res.write(line), body.client)
+          await impl.agentNdjson(body.messages, body.context, (line) => res.write(line), impl.clientOf(body))
           res.end()
         } catch (e) {
           json(res, 500, { error: e instanceof Error ? e.message : String(e) })
@@ -87,7 +87,7 @@ function apiRoutes(): Plugin {
           const body = JSON.parse(raw)
           const problem = impl.agentRequestProblem(body)
           if (problem) return json(res, problem.status, { error: problem.error })
-          json(res, 200, await impl.agentTurn(body.messages, body.context, undefined, undefined, body.client))
+          json(res, 200, await impl.agentTurn(body.messages, body.context, undefined, undefined, impl.clientOf(body)))
         } catch (e) {
           json(res, 500, { error: e instanceof Error ? e.message : String(e) })
         }

@@ -33,6 +33,18 @@ export function agentRequestProblem(body: unknown): { status: 400 | 413; error: 
   return null
 }
 
+/**
+ * The app a request comes from. Builds from before the server kept the kits sent
+ * their tools instead of a name; their tool list still says which app they are,
+ * and the kit itself still comes from the server.
+ */
+export function clientOf(body: unknown): unknown {
+  const { client, clientTools } = (body ?? {}) as { client?: unknown; clientTools?: unknown }
+  if (client != null || !Array.isArray(clientTools)) return client ?? null
+  const names = clientTools.map((t) => (t as { name?: unknown } | null)?.name)
+  return names.includes('list_library') ? 'phone' : names.includes('search_highlights') ? 'web' : null
+}
+
 export const AGENT_TOOLS: ToolSpec[] = [
   {
     name: 'read_aloud',
