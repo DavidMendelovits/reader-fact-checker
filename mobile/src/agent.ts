@@ -14,6 +14,7 @@
 // What the phone adds: the library. The shared tools only know the open document;
 // the ones declared here browse, open, file and close documents, and are sent to
 // the server with every request alongside the guidance for using them.
+import { concatenated, highlightParts } from '../../shared/library/concat.ts'
 import { useStore } from './store'
 import { tts, voice } from './providers'
 import { apiJson, apiBase, shouldSayHello } from './settings'
@@ -200,18 +201,25 @@ function findInDocument(input: Record<string, unknown>): string {
 /** The session anchors it, paints it, persists it and writes it to Readwise in the background. */
 async function highlight(input: Record<string, unknown>): Promise<string> {
   const s = useStore.getState()
-  const text = String(input.text ?? '').trim()
-  if (!text) return 'No passage was given to highlight.'
+  const parts = highlightParts(input)
+  if (parts.length === 0) return 'No passage was given to highlight.'
   const last = Math.max(0, s.paragraphs.length - 1)
   const near = Number.isInteger(input.anchor)
     ? Math.max(0, Math.min(last, input.anchor as number))
     : Math.min(last, s.currentParagraph)
-  const note = typeof input.note === 'string' && input.note.trim() ? input.note.trim() : undefined
-  const h = await addHighlight({ text, note, near })
-  const where = h.anchor
-    ? `anchored at paragraph ${h.anchor.paragraph}`
+  const note = typeof input.note === 'string' ? input.note : undefined
+  // One thought; with skipped words, one Readwise highlight per kept run, tagged
+  // .c1, .c2... so Readwise joins them back into one.
+  // ponytail: the runs are separate highlights on the phone, so "remove that
+  // highlight" removes one run. Group them if that comes up.
+  const written: Highlight[] = []
+  for (const part of concatenated(parts, note)) written.push(await addHighlight({ text: part.text, note: part.note, near }))
+  const lost = written.filter((h) => !h.anchor).length
+  const where = lost === 0
+    ? `anchored at paragraph ${written[0].anchor!.paragraph}`
     : 'the exact passage could not be located in the text, so it was saved as text'
-  return `Highlighted in the book and being saved to Readwise; ${where}.`
+  const joined = written.length > 1 ? ` as ${written.length} runs Readwise will join into one` : ''
+  return `Highlighted in the book and being saved to Readwise${joined}; ${where}.`
 }
 
 // ---- client tools (declared here, sent with every request) ----

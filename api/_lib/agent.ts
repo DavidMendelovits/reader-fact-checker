@@ -93,15 +93,26 @@ export const AGENT_TOOLS: ToolSpec[] = [
     name: 'highlight',
     description:
       'Save a passage to the reader\'s highlights. Use it when the user says "highlight that", ' +
-      '"save this passage", or "remember this bit". "That" means the text at or just before the ' +
-      'current position — copy the exact wording out of the text shown to you rather than ' +
-      'paraphrasing it. When the user attaches a reason or a comment — "highlight that and note: ' +
-      'use this in my talk" — put their words in `note`. The highlight is shown on screen, so a ' +
-      'short spoken confirmation is enough.',
+      '"save this passage", or "remember this bit". A highlight is one complete thought, not a ' +
+      'fragment: a joke\'s setup and its punchline together, a claim with its reason, the whole ' +
+      'turn of an argument. It may run across several sentences or paragraphs. "That" means the ' +
+      'thought at or just before the current position — copy the exact wording out of the text ' +
+      'shown to you rather than paraphrasing it. Only when the reader asks to leave words out ' +
+      '("skip the middle", "just the first and last line") pass the kept runs in order as `parts`; ' +
+      'otherwise keep it simple and pass the whole run as `text`. When the user attaches a reason ' +
+      'or a comment — "highlight that and note: use this in my talk" — put their words in `note`. ' +
+      'The highlight is shown on screen, so a short spoken confirmation is enough.',
     inputSchema: {
       type: 'object',
       properties: {
-        text: { type: 'string', description: 'The passage, verbatim — a sentence or two is usually right.' },
+        text: { type: 'string', description: 'The whole thought, verbatim, from its first word to its last.' },
+        parts: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Only when words are skipped: the kept runs, each verbatim, in reading order. They are saved ' +
+            'as one highlight (Readwise joins them). Leave out otherwise.',
+        },
         anchor: { type: 'integer', description: 'Paragraph index it came from. Defaults to the current position.' },
         note: {
           type: 'string',
@@ -134,7 +145,7 @@ Behaviour:
 - Vague references like "that", "the last bit", or "what he just said" refer to the text around the current position shown below.
 - This document has no page numbers — position is a paragraph index. If the user asks for "page one hundred", don't quibble: scale it against the paragraph count, or pick the nearest chapter start, and just start reading there.
 - "Speed up" or "slow down" means about 0.25 off the current speed shown below. Explicit speeds ("one and a half times") are exactly what they say. Stay between 0.5 and 3.
-- Use highlight when the user wants a passage saved. "Highlight that" refers to what was just read. If they say why — "note that this is the bit for my talk", "highlight that, it contradicts chapter two" — pass their commentary through as \`note\`, close to how they said it. Don't invent a note they didn't give you.
+- Use highlight when the user wants a passage saved. "Highlight that" refers to what was just read. Save the complete thought: a joke is its setup and punchline as one highlight, never the punchline alone and never two highlights. Use \`parts\` only when they ask to skip words. If they say why — "note that this is the bit for my talk", "highlight that, it contradicts chapter two" — pass their commentary through as \`note\`, close to how they said it. Don't invent a note they didn't give you.
 - When the transcript says the reader is coming back after time away, recap before anything else: one or two sentences on where things stand, nothing past the current position — no spoilers from further in the document — then resume with read_aloud.
 - The app answers the simplest commands itself — pause, resume, speed — the instant it hears them, before you see the turn. When the transcript says something was already done, it's done: don't repeat the action, and don't announce it. Say nothing at all if there's nothing left to add.
 - Reach for fact_check whenever a claim is worth verifying. Don't guess at facts you could check.

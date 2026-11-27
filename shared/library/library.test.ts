@@ -3,6 +3,7 @@
 import { describe, expect, test } from 'vitest'
 import { searchDocs, searchHighlights } from './search.ts'
 import { findChapter, startParagraph } from './start.ts'
+import { concatenated, highlightParts } from './concat.ts'
 import { candidateLine, recommend, type Candidate } from './recommend.ts'
 import type { Chapter } from './types.ts'
 
@@ -123,5 +124,25 @@ describe('recommend', () => {
   test('a line says how long, how far and where', () => {
     expect(candidateLine(lib[2])).toBe('[half] Half read (200 min left, 50% read, later)')
     expect(candidateLine({ id: 'x', title: 'T', author: 'A', location: 'new', wordCount: 300, summary: 'S.' })).toBe('[x] T by A (2 min, inbox): S.')
+  })
+})
+
+describe('highlight concatenation', () => {
+  test('one run is one highlight with the note as said', () => {
+    expect(concatenated(['Setup. Punchline.'], ' for my talk ')).toEqual([{ text: 'Setup. Punchline.', note: 'for my talk' }])
+    expect(concatenated(['Setup. Punchline.'])).toEqual([{ text: 'Setup. Punchline.', note: undefined }])
+  })
+  test('skipped words: each part tagged in order, the note on the first', () => {
+    expect(concatenated(['A man walks in.', 'The bartender says no.'], 'opener')).toEqual([
+      { text: 'A man walks in.', note: '.c1 opener' },
+      { text: 'The bartender says no.', note: '.c2' },
+    ])
+    expect(concatenated(['a', 'b', 'c']).map((p) => p.note)).toEqual(['.c1', '.c2', '.c3'])
+  })
+  test('parts win over text only when there are two or more', () => {
+    expect(highlightParts({ text: 'whole', parts: ['x', ' y '] })).toEqual(['x', 'y'])
+    expect(highlightParts({ text: 'whole', parts: ['only'] })).toEqual(['whole'])
+    expect(highlightParts({ parts: ['only'] })).toEqual(['only'])
+    expect(highlightParts({ text: '  ' })).toEqual([])
   })
 })
