@@ -122,6 +122,28 @@ export interface SpeechSynthesizer {
   synthesize(text: string): Promise<AudioStream>
 }
 
+// ---- the ear ----
+
+/**
+ * What a browser needs to stream the mic straight to a speech-to-text vendor:
+ * where to connect and a short-lived credential. The vendor's key stays on the
+ * server, and the audio never passes through it.
+ */
+export interface ListenGrant {
+  /** The WebSocket to open, with the model and audio format already in it. */
+  url: string
+  /** WebSocket subprotocols that carry the credential. */
+  protocols: string[]
+  /** Seconds the credential is good for opening a connection. */
+  expiresIn: number
+}
+
+/** Hands out grants for streaming speech recognition. */
+export interface SpeechRecognizer {
+  readonly name: string
+  grant(): Promise<ListenGrant>
+}
+
 // ---- decisions ----
 
 /** A question for a decision model: pick one label, or say yes or no. */
@@ -153,7 +175,7 @@ export interface Decider {
  * so two vendors behind one port compare on the same numbers.
  */
 export interface MeterEvent {
-  port: 'conversation' | 'json' | 'search' | 'speech' | 'decider'
+  port: 'conversation' | 'json' | 'search' | 'speech' | 'decider' | 'listen'
   provider: string
   model?: string
   /** Until the call settled; for speech, until the audio stream opened. */

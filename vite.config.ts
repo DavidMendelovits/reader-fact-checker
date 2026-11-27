@@ -133,6 +133,19 @@ function apiRoutes(): Plugin {
         }
       })
 
+      server.middlewares.use('/api/listen', async (req, res) => {
+        try {
+          const raw = await readBody(req)
+          if (!admitted('listen', req, res, raw.length)) return
+          res.setHeader('Cache-Control', 'no-store')
+          const grant = await impl.listenGrant()
+          if (!grant) return json(res, 501, { error: 'speech input not configured' })
+          json(res, 200, grant)
+        } catch (e) {
+          json(res, 500, { error: e instanceof Error ? e.message : String(e) })
+        }
+      })
+
       server.middlewares.use('/api/tts', async (req, res) => {
         try {
           const raw = await readBody(req)

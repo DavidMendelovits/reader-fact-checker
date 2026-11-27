@@ -9,7 +9,7 @@
 
 import { timingSafeEqual } from 'node:crypto'
 
-export type Route = 'agent' | 'factcheck' | 'claims' | 'tts' | 'fetch' | 'navigate' | 'library'
+export type Route = 'agent' | 'factcheck' | 'claims' | 'tts' | 'fetch' | 'navigate' | 'library' | 'listen'
 
 /** Requests a minute from one address, and the most a request body may hold, in characters. */
 export const LIMITS: Record<Route, { perMinute: number; maxChars: number }> = {
@@ -20,6 +20,7 @@ export const LIMITS: Record<Route, { perMinute: number; maxChars: number }> = {
   fetch: { perMinute: 30, maxChars: 4_000 }, // the URL
   navigate: { perMinute: 240, maxChars: 100_000 }, // asked on partial transcripts; carries every chapter title
   library: { perMinute: 120, maxChars: 100_000 },
+  listen: { perMinute: 20, maxChars: 1_000 }, // one grant per stream opened; the body is empty
 }
 
 export interface Refusal {
